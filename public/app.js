@@ -508,7 +508,7 @@ function adminView() {
         : '<p class="muted">В подтверждённом контингенте таких записей нет.</p>'
     }${rows.length > 5 ? `<button class="btn small" data-filter="${type === "absence" ? "attention" : "debt"}">Показать весь список</button>` : ""}</section>`;
   $("#content").innerHTML =
-    `<div class="page-heading"><div><div class="eyebrow">Руководство · Факультет права</div><h1>${page === "dashboard" ? "Иностранные студенты" : "Реестр студентов"}</h1><p>Общая статистика факультета. Работа со студентами – по программам и курсам.</p></div><a class="btn" href="/api/admin/export">↓ Выгрузить CSV</a></div>
+    `<div class="page-heading"><div><div class="eyebrow">Руководство · Факультет права</div><h1>${page === "dashboard" ? "Иностранные студенты" : "Реестр студентов"}</h1><p>Общая статистика факультета. Работа со студентами – по программам и курсам.</p></div><div class="heading-actions">${user.role === "admin" ? '<button class="btn primary" id="add-student-open">+ Добавить студента</button>' : ""}<a class="btn" href="/api/admin/export">↓ Выгрузить CSV</a></div></div>
   <div class="metrics"><div class="metric"><label>Иностранцев факультета</label><strong>${faculty.length}</strong><small>Подтверждённые, обучаются сейчас</small></div><div class="metric alert"><label>7 дней без явки</label><strong>${attention.length}</strong><small>По отметкам преподавателей</small></div><div class="metric alert"><label>Просрочены процедуры</label><strong>${overdue.length}</strong><small>Студентов, а не документов</small></div><div class="metric"><label>Нет данных о процедурах</label><strong>${faculty.filter((s) => s.procedureUnknown).length}</strong><small>Нужна проверка руководства</small></div></div>
   ${overview.faculty.unverified ? `<div class="notice">Полнота реестра ещё не подтверждена. Загружено ${students.length} студентов; иностранный статус не проверен у ${overview.faculty.unverified}. Они видны в реестре, но не включены в статистику иностранцев. Программы и курсы заполняет руководство.</div>` : ""}
   ${page === "dashboard" ? `<div class="attention-grid">${list("Не посещают занятия", attention, "absence")}${list("Должники по процедурам", overdue, "procedure")}</div>` : ""}
@@ -532,6 +532,8 @@ function adminView() {
     .join("")}</div>
   <div class="table-scroll"><table class="admin-table"><thead><tr><th>Студент / менеджер</th><th>Посещение</th><th>Без явки</th><th>Процедуры</th></tr></thead><tbody id="admin-rows"></tbody></table></div><div class="pagination"><small id="result-count"></small><div class="actions"><button class="btn small" id="prev-page" aria-label="Предыдущая страница">←</button><button class="btn small" id="next-page" aria-label="Следующая страница">→</button></div></div></div>
   <aside class="admin-aside"><section class="panel mini-panel"><h3>Ваш участок</h3><p>${esc(user.scopes?.map((s) => s.program + (s.year ? ", " + s.year + " курс" : "")).join(" · ") || "Весь факультет")}</p><a href="https://pravo.hse.ru/centre/contact" target="_blank" rel="noopener">Распределение менеджеров ↗</a><p>Сверено 16.09.2026. Изменения состава требуют обновления справочника.</p></section><section class="panel mini-panel"><h3>Полнота данных</h3><div class="quality-row"><span>Без менеджера</span><strong>${overview.faculty.unassigned}</strong></div><div class="quality-row"><span>Пар с отметками</span><strong>${overview.markedLessons} / ${overview.lessons}</strong></div><p>Нет отметки – не значит отсутствовал. Несколько пропусков за день считаются одним учебным днём.</p></section><section class="panel mini-panel"><h3>Сопровождение иностранцев</h3><p>Применимость процедур проверяется индивидуально: гражданство, основание пребывания, дата въезда и действующие подтверждения.</p><a href="https://ivisa.hse.ru/" target="_blank" rel="noopener">Визовая поддержка ↗</a><p><a href="https://istudents.hse.ru/" target="_blank" rel="noopener">Сервисы и инструкции для иностранцев ↗</a></p><p>Поддержка: istudents.support@hse.ru</p><p>Электронный пропуск, связь и адаптация – сервисные вопросы, они не создают долг по обязательной процедуре.</p></section></aside></div>`;
+  if ($("#add-student-open"))
+    $("#add-student-open").onclick = () => safe(addStudentDialog);
   $("#office-scope").value = officeScope;
   $("#office-program").value = officeProgram;
   $("#office-year").value = officeYear;
@@ -627,6 +629,79 @@ function renderAdminRows() {
   $$("[data-profile]").forEach(
     (b) => (b.onclick = () => safe(() => profile(b.dataset.profile))),
   );
+}
+// Руководство добавляет студента, которого нет в импортированном реестре, и привязывает его к преподавателям.
+async function addStudentDialog() {
+  const [teachers, directory] = await Promise.all([
+    api("/api/admin/teachers"),
+    api("/api/admin/directory"),
+  ]);
+  const d = $("#add-student"),
+    byName = new Map(teachers.map((t) => [t.name, t]));
+  const option = (v, l, selected = false) =>
+    `<option value="${esc(v)}" ${selected ? "selected" : ""}>${esc(l)}</option>`;
+  d.innerHTML = `<div class="dialog-head"><div><div class="eyebrow">Реестр</div><h2>Добавить иностранного студента</h2></div><button class="btn small" id="add-student-close" aria-label="Закрыть">×</button></div><div class="dialog-body"><form id="add-student-form" class="profile-form"><fieldset><label class="wide">ФИО студента<input name="name" required minlength="3" maxlength="150" autocomplete="off"></label><label>Программа<select name="program">${option("", "Не указана")}${directory.programs.map((p) => option(p, p)).join("")}</select></label><label>Курс<select name="year">${option(0, "Не указан")}${[1, 2, 3, 4, 5, 6].map((y) => option(y, y)).join("")}</select></label><label>Иностранный контингент<select name="foreignStatus">${option("confirmed", "Подтверждён", true)}${option("unknown", "Не проверено")}${option("excluded", "Не входит")}</select></label><label>Гражданство<input name="citizenship" maxlength="100"></label></fieldset><h3>Преподаватели и дисциплины</h3><p class="muted">Студент появится в дневном журнале каждого указанного преподавателя по этой дисциплине.</p><datalist id="teacher-names">${teachers.map((t) => `<option value="${esc(t.name)}"></option>`).join("")}</datalist><div id="link-rows"></div><div class="daily-toolbar"><button type="button" class="btn small" id="link-add">+ Ещё преподаватель</button></div><div class="daily-toolbar"><button class="btn primary">Добавить в реестр</button><span class="muted">Остальные данные заполняются в карточке.</span></div></form></div>`;
+  const rows = d.querySelector("#link-rows");
+  let counter = 0;
+  const addRow = () => {
+    const n = counter++;
+    const row = document.createElement("div");
+    row.className = "link-row";
+    row.innerHTML = `<input class="link-teacher" list="teacher-names" placeholder="Преподаватель: начните вводить фамилию" required autocomplete="off"><input class="link-course" list="link-courses-${n}" placeholder="Дисциплина" required maxlength="200" autocomplete="off"><datalist id="link-courses-${n}"></datalist><button type="button" class="btn small" aria-label="Убрать строку">×</button>`;
+    row.querySelector(".link-teacher").oninput = (e) => {
+      const t = byName.get(e.target.value.trim());
+      row.querySelector("datalist").innerHTML = (t?.courses || [])
+        .map((c) => `<option value="${esc(c)}"></option>`)
+        .join("");
+    };
+    row.querySelector("button").onclick = () => {
+      if (rows.children.length > 1) row.remove();
+    };
+    rows.append(row);
+  };
+  addRow();
+  d.querySelector("#link-add").onclick = addRow;
+  d.querySelector("#add-student-close").onclick = () => d.close();
+  if (!d.open) d.showModal();
+  d.querySelector("#add-student-form").onsubmit = (e) => {
+    e.preventDefault();
+    const form = e.currentTarget,
+      values = Object.fromEntries(new FormData(form));
+    const links = [...rows.querySelectorAll(".link-row")].map((row) => ({
+      teacher: row.querySelector(".link-teacher").value.trim(),
+      course: row.querySelector(".link-course").value.trim(),
+    }));
+    const missing = links.find((l) => !byName.has(l.teacher));
+    if (missing) {
+      toast(`Преподаватель «${missing.teacher}» не найден в реестре`, true);
+      return;
+    }
+    const button = form.querySelector("button.primary");
+    button.disabled = true;
+    safe(async () => {
+      const r = await api("/api/admin/students", {
+        method: "POST",
+        body: JSON.stringify({
+          name: values.name,
+          program: values.program,
+          year: Number(values.year),
+          foreignStatus: values.foreignStatus,
+          citizenship: values.citizenship,
+          links: links.map((l) => ({
+            teacherId: byName.get(l.teacher).id,
+            course: l.course,
+          })),
+        }),
+      });
+      d.close();
+      overview = await api("/api/admin/overview");
+      adminView();
+      toast("Студент добавлен в реестр");
+      await profile(r.id);
+    }).finally(() => {
+      if (button.isConnected) button.disabled = false;
+    });
+  };
 }
 async function profile(id) {
   const data = await api("/api/admin/students/" + id),

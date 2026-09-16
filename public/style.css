@@ -1672,3 +1672,44 @@ dialog::backdrop {
     padding: 16px;
   }
 }
+/* Шапка дневного журнала: дата и дисциплина сверху */
+.daily-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: end;
+}
+.daily-head label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.daily-head select {
+  max-width: 360px;
+}
+.heading-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+/* Добавление студента: строки «преподаватель – дисциплина» */
+.link-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.link-row input {
+  min-width: 0;
+  width: 100%;
+}
+@media (max-width: 650px) {
+  .link-row {
+    grid-template-columns: 1fr;
+  }
+  .daily-head {
+    width: 100%;
+  }
+}

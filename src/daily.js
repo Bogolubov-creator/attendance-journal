@@ -26,17 +26,35 @@ export function registerDaily(
   app,
   { db, roster, auth, admin, studentProfile, audit },
 ) {
-  db.exec(`CREATE TABLE IF NOT EXISTS daily_marks(teacherId TEXT,date TEXT,studentId TEXT,status TEXT,updatedAt TEXT,PRIMARY KEY(teacherId,date,studentId));
-    CREATE TABLE IF NOT EXISTS daily_revisions(teacherId TEXT,date TEXT,version INTEGER,PRIMARY KEY(teacherId,date));`);
+  // Отметка привязана к дисциплине. Таблицы прежней версии переименовываются, записи переносятся с пустой дисциплиной.
+  const columns = db.prepare("PRAGMA table_info(daily_marks)").all();
+  if (columns.length && !columns.some((c) => c.name === "course"))
+    db.exec(
+      "ALTER TABLE daily_marks RENAME TO daily_marks_v1; ALTER TABLE daily_revisions RENAME TO daily_revisions_v1;",
+    );
+  db.exec(`CREATE TABLE IF NOT EXISTS daily_marks(teacherId TEXT,date TEXT,course TEXT,studentId TEXT,status TEXT,updatedAt TEXT,PRIMARY KEY(teacherId,date,course,studentId));
+    CREATE TABLE IF NOT EXISTS daily_revisions(teacherId TEXT,date TEXT,course TEXT,version INTEGER,PRIMARY KEY(teacherId,date,course));`);
+  if (columns.length && !columns.some((c) => c.name === "course"))
+    db.exec(
+      "INSERT OR IGNORE INTO daily_marks SELECT teacherId,date,'',studentId,status,updatedAt FROM daily_marks_v1; INSERT OR IGNORE INTO daily_revisions SELECT teacherId,date,'',version FROM daily_revisions_v1;",
+    );
   const fail = (status, message) =>
     Object.assign(new Error(message), { status });
   const active = (s) =>
     s.foreignStatus !== "excluded" &&
     (!s.enrollmentStatus || s.enrollmentStatus === "active");
-  const studentsFor = (id) => {
+  const coursesFor = (id) =>
+    [
+      ...new Set(
+        roster.enrollments
+          .filter((e) => e.teacherId === id)
+          .map((e) => e.course),
+      ),
+    ].sort((a, b) => a.localeCompare(b, "ru"));
+  const studentsFor = (id, course) => {
     const ids = new Set(
       roster.enrollments
-        .filter((e) => e.teacherId === id)
+        .filter((e) => e.teacherId === id && e.course === course)
         .map((e) => e.studentId),
     );
     return roster.students
@@ -53,35 +71,45 @@ export function registerDaily(
       throw fail(403, "Отметки заполняет преподаватель");
     return req.session.user.id;
   };
-  const version = (id, date) =>
+  const checkCourse = (id, course) => {
+    if (typeof course !== "string" || !coursesFor(id).includes(course))
+      throw fail(400, "Выберите дисциплину из своего списка");
+  };
+  const version = (id, date, course) =>
     db
       .prepare(
-        "SELECT version FROM daily_revisions WHERE teacherId=? AND date=?",
+        "SELECT version FROM daily_revisions WHERE teacherId=? AND date=? AND course=?",
       )
-      .get(id, date)?.version || 0;
+      .get(id, date, course)?.version || 0;
   app.get("/api/daily", auth, (req, res) => {
     const id = teacher(req),
-      date = req.query.date || moscowDate();
+      date = req.query.date || moscowDate(),
+      courses = coursesFor(id),
+      course = req.query.course ?? courses[0] ?? "";
     checkDate(date);
-    const students = studentsFor(id),
+    if (courses.length) checkCourse(id, course);
+    const students = studentsFor(id, course),
       ids = new Set(students.map((s) => s.id));
     res.json({
       date,
-      version: version(id, date),
+      course,
+      courses,
+      version: version(id, date, course),
       students,
       marks: db
         .prepare(
-          "SELECT studentId,status FROM daily_marks WHERE teacherId=? AND date=?",
+          "SELECT studentId,status FROM daily_marks WHERE teacherId=? AND date=? AND course=?",
         )
-        .all(id, date)
+        .all(id, date, course)
         .filter((m) => ids.has(m.studentId)),
     });
   });
   app.put("/api/daily", auth, (req, res) => {
     const id = teacher(req),
-      { date, marks, version: expected } = req.body;
+      { date, course, marks, version: expected } = req.body;
     checkDate(date);
-    const ids = new Set(studentsFor(id).map((s) => s.id));
+    checkCourse(id, course);
+    const ids = new Set(studentsFor(id, course).map((s) => s.id));
     if (
       !Array.isArray(marks) ||
       marks.length > ids.size ||
@@ -100,7 +128,7 @@ export function registerDaily(
       throw fail(400, "Проверьте список студентов и отметки");
     db.exec("BEGIN IMMEDIATE");
     try {
-      if (version(id, date) !== expected)
+      if (version(id, date, course) !== expected)
         throw fail(
           409,
           "Отметки уже изменены в другом окне. Перезагрузите дату перед повторным сохранением.",
@@ -108,19 +136,27 @@ export function registerDaily(
       for (const m of marks) {
         if (m.status === null)
           db.prepare(
-            "DELETE FROM daily_marks WHERE teacherId=? AND date=? AND studentId=?",
-          ).run(id, date, m.studentId);
+            "DELETE FROM daily_marks WHERE teacherId=? AND date=? AND course=? AND studentId=?",
+          ).run(id, date, course, m.studentId);
         else
           db.prepare(
-            "INSERT OR REPLACE INTO daily_marks VALUES(?,?,?,?,?)",
-          ).run(id, date, m.studentId, m.status, new Date().toISOString());
+            "INSERT OR REPLACE INTO daily_marks VALUES(?,?,?,?,?,?)",
+          ).run(
+            id,
+            date,
+            course,
+            m.studentId,
+            m.status,
+            new Date().toISOString(),
+          );
       }
-      db.prepare("INSERT OR REPLACE INTO daily_revisions VALUES(?,?,?)").run(
+      db.prepare("INSERT OR REPLACE INTO daily_revisions VALUES(?,?,?,?)").run(
         id,
         date,
+        course,
         expected + 1,
       );
-      audit(req.session.user, "daily.save", id + ":" + date);
+      audit(req.session.user, "daily.save", id + ":" + date + ":" + course);
       db.exec("COMMIT");
       res.json({ ok: true, version: expected + 1 });
     } catch (e) {
@@ -139,7 +175,7 @@ export function registerDaily(
     // Исторические отметки по занятиям сохраняются в общей истории.
     for (const r of db
       .prepare(
-        "SELECT m.studentId,m.status,l.teacherId,json_extract(l.data,'$.date') date FROM marks m JOIN lessons l ON l.id=m.lessonId WHERE m.status IN ('present','absent')",
+        "SELECT m.studentId,m.status,l.teacherId,json_extract(l.data,'$.date') date,json_extract(l.data,'$.course') course FROM marks m JOIN lessons l ON l.id=m.lessonId WHERE m.status IN ('present','absent')",
       )
       .all())
       records.push({ ...r, source: "lesson" });
@@ -194,7 +230,7 @@ export function registerDaily(
         s.history
           .map(
             (r) =>
-              `${r.date}: ${r.teacher}: ${r.status === "present" ? "Был" : "Не был"}`,
+              `${r.date}: ${r.teacher}${r.course ? ": " + r.course : ""}: ${r.status === "present" ? "Был" : "Не был"}`,
           )
           .join(" | "),
       ]),

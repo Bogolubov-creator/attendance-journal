@@ -26,6 +26,31 @@ export function parseRuzResponse(text, url = "") {
   return data;
 }
 
+// Двойные карточки одного человека в РУЗ: собираем расписание со всех, пустые пропускаем.
+async function mergeSchedules(fetchData, paths) {
+  const seen = new Set(),
+    entries = [];
+  let answered = 0;
+  for (const path of paths) {
+    let data;
+    try {
+      data = await fetchData(path);
+    } catch (error) {
+      if (error.code !== "RUZ_EMPTY_RESPONSE") throw error;
+      continue;
+    }
+    answered++;
+    for (const e of data) {
+      const key = [e.lessonOid, e.date, e.beginLesson, e.groupOid].join("|");
+      if (!seen.has(key)) {
+        seen.add(key);
+        entries.push(e);
+      }
+    }
+  }
+  return answered ? entries : null;
+}
+
 // Старые person ID сохраняем; lecturer используем только при пустом теле ответа.
 export async function loadTeacherSchedule(fetchData, name, personId, dates) {
   try {
@@ -38,15 +63,26 @@ export async function loadTeacherSchedule(fetchData, name, personId, dates) {
       "search?type=lecturer&term=" + encodeURIComponent(name),
     );
     const matches = people.filter((p) => p.label?.trim() === name);
-    if (matches.length !== 1)
+    if (!matches.length)
       throw Object.assign(
         new Error(
-          "В РУЗ нет единственного точного совпадения преподавателя. Требуется ручное сопоставление.",
+          "В РУЗ нет точного совпадения преподавателя. Требуется ручное сопоставление.",
         ),
         { status: 409 },
       );
-    return fetchData(
-      `schedule/lecturer/${encodeURIComponent(matches[0].id)}?${dates}`,
+    const paths = matches.map(
+      (m) => `schedule/lecturer/${encodeURIComponent(m.id)}?${dates}`,
     );
+    return (await mergeSchedules(fetchData, paths)) ?? fetchData(paths[0]);
   }
+}
+
+export async function loadSchedules(fetchData, name, personIds, dates) {
+  if (personIds.length === 1)
+    return loadTeacherSchedule(fetchData, name, personIds[0], dates);
+  const merged = await mergeSchedules(
+    fetchData,
+    personIds.map((id) => `schedule/person/${encodeURIComponent(id)}?${dates}`),
+  );
+  return merged ?? loadTeacherSchedule(fetchData, name, personIds[0], dates);
 }
