@@ -1,0 +1,343 @@
+import { passwordHash } from "../src/management-auth.js";
+import test from "node:test";
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { readFileSync, mkdtempSync, rmSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+const origin = "http://127.0.0.1:3101",
+  roster = JSON.parse(readFileSync("data/roster.json"));
+const temp = mkdtempSync("work/api-test-"),
+  path = join(temp, "test.sqlite");
+let child, cookie;
+async function request(
+  route,
+  method = "GET",
+  body,
+  auth = cookie,
+  source = origin,
+) {
+  return fetch(origin + route, {
+    method,
+    headers: {
+      origin: source,
+      "content-type": "application/json",
+      ...(auth ? { cookie: auth } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+}
+test("API: изоляция, сохранение, редактирование и админка", async (t) => {
+  child = spawn(process.execPath, ["src/server.js"], {
+    env: {
+      ...process.env,
+      MANAGEMENT_PASSWORD_HASH: passwordHash("test-management-password"),
+      DEMO_MODE: "true",
+      AUTO_SYNC: "false",
+      AUTO_BACKUP: "true",
+      BACKUP_DIR: join(temp, "backups"),
+      DB_PATH: path,
+      PORT: "3101",
+      APP_ORIGIN: origin,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  await new Promise((resolve, reject) => {
+    child.stdout.once("data", resolve);
+    child.once("error", reject);
+    child.once("exit", (c) => reject(Error("server exit " + c)));
+  });
+  try {
+    const e = roster.enrollments[0],
+      other = roster.teachers.find((t) => t.id !== e.teacherId),
+      db = new DatabaseSync(path);
+    const lesson = {
+      id: "test_past",
+      teacherId: e.teacherId,
+      course: e.course,
+      groups: [e.group],
+      date: "2026-09-01",
+      start: "09:00",
+      end: "10:00",
+      source: "test",
+    };
+    for (const l of [
+      lesson,
+      { ...lesson, id: "test_other", teacherId: other.id },
+      { ...lesson, id: "test_future", date: "2099-01-01" },
+      { ...lesson, id: "test_unrelated", groups: ["unrelated-group"] },
+    ])
+      db.prepare("INSERT INTO lessons VALUES(?,?,?)").run(
+        l.id,
+        l.teacherId,
+        JSON.stringify(l),
+      );
+    db.close();
+    await t.test(
+      "Резервная копия автоматически создаётся и открывается",
+      async () => {
+        let files = [];
+        for (let i = 0; i < 30; i++) {
+          files = readdirSync(join(temp, "backups")).filter((f) =>
+            f.endsWith(".sqlite"),
+          );
+          if (files.length) break;
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        assert.equal(files.length, 1);
+        const copy = new DatabaseSync(join(temp, "backups", files[0]));
+        assert.equal(
+          copy.prepare("PRAGMA integrity_check").get().integrity_check,
+          "ok",
+        );
+        copy.close();
+      },
+    );
+    await t.test(
+      "Состояние автоматики закрыто без административной роли",
+      async () => {
+        assert.equal(
+          (await request("/api/admin/automation", "GET", null, null)).status,
+          401,
+        );
+      },
+    );
+    await t.test("Без входа API закрыт; файлы базы не отдаются", async () => {
+      assert.equal(
+        (await request("/api/lessons", "GET", null, null)).status,
+        401,
+      );
+      assert.equal(
+        (await request("/data/roster.json", "GET", null, null)).status,
+        404,
+      );
+    });
+    await t.test("Другая origin не может войти", async () =>
+      assert.equal(
+        (
+          await request(
+            "/api/demo-login",
+            "POST",
+            { role: "teacher", teacherId: e.teacherId },
+            null,
+            "https://evil.example",
+          )
+        ).status,
+        403,
+      ),
+    );
+    const login = await request(
+      "/api/demo-login",
+      "POST",
+      { role: "teacher", teacherId: e.teacherId },
+      null,
+    );
+    cookie = login.headers.get("set-cookie").split(";")[0];
+    await t.test("Учитель не видит админку и чужие пары", async () => {
+      assert.equal((await request("/api/admin/overview")).status, 403);
+      assert.equal((await request("/api/lessons/test_other")).status, 403);
+      assert.equal(
+        (await request("/api/admin/students/" + e.studentId)).status,
+        403,
+      );
+    });
+    await t.test(
+      "Пара без отслеживаемых студентов скрыта и недоступна по прямой ссылке",
+      async () => {
+        const response = await (await request("/api/lessons")).json();
+        assert.equal(
+          response.lessons.some((l) => l.id === "test_unrelated"),
+          false,
+        );
+        assert.equal(
+          response.lessons.every((l) => l.studentCount > 0),
+          true,
+        );
+        assert.equal(
+          (await request("/api/lessons/test_unrelated")).status,
+          404,
+        );
+        assert.equal(
+          (
+            await request("/api/lessons/test_unrelated/marks", "PUT", {
+              version: 0,
+              marks: [],
+            })
+          ).status,
+          404,
+        );
+      },
+    );
+    await t.test(
+      "Старые отметки выбывшего студента не попадают в журнал и счётчик",
+      async () => {
+        const conn = new DatabaseSync(path);
+        conn
+          .prepare("INSERT INTO marks VALUES(?,?,?,?,?)")
+          .run(
+            "test_past",
+            "removed_student",
+            "absent",
+            "",
+            new Date().toISOString(),
+          );
+        const response = await (await request("/api/lessons/test_past")).json();
+        assert.equal(
+          response.marks.some((m) => m.studentId === "removed_student"),
+          false,
+        );
+        const list = await (await request("/api/lessons")).json();
+        assert.equal(list.lessons.find((l) => l.id === "test_past").marked, 0);
+        assert.equal(
+          conn
+            .prepare("SELECT COUNT(*) n FROM marks WHERE studentId=?")
+            .get("removed_student").n,
+          1,
+        );
+        conn.close();
+      },
+    );
+    const mark = { studentId: e.studentId, status: "present", note: "" };
+    await t.test(
+      "Нельзя отметить будущую пару или постороннего студента",
+      async () => {
+        assert.equal(
+          (
+            await request("/api/lessons/test_future/marks", "PUT", {
+              version: 0,
+              marks: [mark],
+            })
+          ).status,
+          400,
+        );
+        assert.equal(
+          (
+            await request("/api/lessons/test_past/marks", "PUT", {
+              version: 0,
+              marks: [{ ...mark, studentId: "alien" }],
+            })
+          ).status,
+          400,
+        );
+      },
+    );
+    await t.test("Сохранение и конфликт второй вкладки", async () => {
+      assert.equal(
+        (
+          await request("/api/lessons/test_past/marks", "PUT", {
+            version: 0,
+            marks: [mark],
+          })
+        ).status,
+        200,
+      );
+      assert.equal(
+        (
+          await request("/api/lessons/test_past/marks", "PUT", {
+            version: 0,
+            marks: [{ ...mark, status: "absent" }],
+          })
+        ).status,
+        409,
+      );
+      const r = await (await request("/api/lessons/test_past")).json();
+      assert.equal(r.marks[0].status, "present");
+      assert.equal(r.version, 1);
+    });
+    await t.test("Редактирование записывает новую версию", async () => {
+      assert.equal(
+        (
+          await request("/api/lessons/test_past/marks", "PUT", {
+            version: 1,
+            marks: [{ ...mark, status: "absent" }],
+          })
+        ).status,
+        200,
+      );
+      const d = new DatabaseSync(path);
+      d.exec("PRAGMA busy_timeout=5000");
+      assert.equal(
+        d.prepare("SELECT status FROM marks").get().status,
+        "absent",
+      );
+      d.close();
+    });
+    await t.test(
+      "Семь учебных дней проходят через API и собираются в дашборде",
+      async () => {
+        const d = new DatabaseSync(path);
+        d.exec("PRAGMA busy_timeout=5000");
+        for (let day = 2; day <= 7; day++) {
+          const l = {
+            ...lesson,
+            id: "test_day_" + day,
+            date: "2026-09-0" + day,
+          };
+          d.prepare("INSERT INTO lessons VALUES(?,?,?)").run(
+            l.id,
+            l.teacherId,
+            JSON.stringify(l),
+          );
+          assert.equal(
+            (
+              await request("/api/lessons/" + l.id + "/marks", "PUT", {
+                version: 0,
+                marks: [{ ...mark, status: "absent" }],
+              })
+            ).status,
+            200,
+          );
+        }
+        d.close();
+      },
+    );
+    const login2 = await request("/api/demo-login", "POST", {
+      role: "admin",
+      password: "test-management-password",
+    });
+    const teacherCookie = cookie;
+    cookie = login2.headers.get("set-cookie").split(";")[0];
+    await t.test("Старая сессия отозвана при смене входа", async () =>
+      assert.equal(
+        (await request("/api/lessons", "GET", null, teacherCookie)).status,
+        401,
+      ),
+    );
+    await t.test("Админ видит историю, создаёт и закрывает долг", async () => {
+      assert.equal((await request("/api/admin/overview")).status, 200);
+      const r = await (
+        await request("/api/admin/debts", "POST", {
+          studentId: e.studentId,
+          title: "Тестовая работа",
+        })
+      ).json();
+      assert.ok(r.id);
+      let s = await (
+        await request("/api/admin/students/" + e.studentId)
+      ).json();
+      assert.equal(s.student.debtCount, 1);
+      assert.equal(s.records.length, 7);
+      assert.equal(s.student.days, 7);
+      assert.equal(s.student.absenceAlert, true);
+      assert.equal(s.student.attention, true);
+      await request("/api/admin/debts/" + r.id, "PATCH", { resolved: true });
+      s = await (await request("/api/admin/students/" + e.studentId)).json();
+      assert.equal(s.student.debtCount, 0);
+      assert.equal(s.student.attention, false);
+      assert.equal(s.student.absenceAlert, true);
+    });
+    await t.test("CSV доступен администратору", async () => {
+      const r = await request("/api/admin/export");
+      assert.equal(r.status, 200);
+      assert.match(await r.text(), /Студент/);
+    });
+    await t.test("Выход отзывает сессию", async () => {
+      await request("/api/logout", "POST", {});
+      assert.equal((await request("/api/admin/overview")).status, 401);
+    });
+  } finally {
+    child.kill();
+    await new Promise((r) => child.once("exit", r));
+    rmSync(temp, { recursive: true, force: true });
+  }
+});

@@ -1,0 +1,17 @@
+node_modules/
+.env
+.env.*
+!.env.example
+data/*
+!data/.gitkeep
+work/
+test-results/
+playwright-report/
+.DS_Store
+backups/
+
+# Архивы могут содержать закрытые данные
+outputs/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
