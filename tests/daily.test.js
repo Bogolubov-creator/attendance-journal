@@ -30,6 +30,10 @@ test("Дневной журнал: изоляция, конфликты, сох�
   db.exec(
     "CREATE TABLE marks(studentId TEXT,status TEXT,lessonId TEXT); CREATE TABLE lessons(id TEXT,teacherId TEXT,data TEXT)",
   );
+  // Таблицы прежней версии без дисциплины: записи должны сохраниться после миграции.
+  db.exec(
+    "CREATE TABLE daily_marks(teacherId TEXT,date TEXT,studentId TEXT,status TEXT,updatedAt TEXT,PRIMARY KEY(teacherId,date,studentId)); CREATE TABLE daily_revisions(teacherId TEXT,date TEXT,version INTEGER,PRIMARY KEY(teacherId,date)); INSERT INTO daily_marks VALUES('t2','2026-08-20','b','present','2026-08-20T10:00:00Z'); INSERT INTO daily_revisions VALUES('t2','2026-08-20',1)",
+  );
   const roster = {
     teachers: [
       { id: "t1", name: "Первый" },
@@ -41,9 +45,10 @@ test("Дневной журнал: изоляция, конфликты, сох�
       { id: "c", name: "Вера" },
     ],
     enrollments: [
-      { teacherId: "t1", studentId: "a" },
-      { teacherId: "t2", studentId: "a" },
-      { teacherId: "t2", studentId: "b" },
+      { teacherId: "t1", studentId: "a", course: "Право" },
+      { teacherId: "t1", studentId: "a", course: "Логика" },
+      { teacherId: "t2", studentId: "a", course: "История" },
+      { teacherId: "t2", studentId: "b", course: "История" },
     ],
   };
   const app = express();
@@ -87,15 +92,27 @@ test("Дневной журнал: изоляция, конфликты, сох�
   try {
     assert.equal((await request("/api/daily", null)).status, 401);
     const first = await (await request("/api/daily?date=2026-09-01")).json();
+    assert.deepEqual(first.courses, ["Логика", "Право"]);
+    assert.equal(first.course, "Логика");
     assert.deepEqual(
       first.students.map((s) => s.id),
       ["a"],
     );
+    assert.equal(
+      (await request("/api/daily?date=2026-09-01&course=Физика")).status,
+      400,
+    );
     const write = {
       date: "2026-09-01",
+      course: "Право",
       version: 0,
       marks: [{ studentId: "a", status: "present" }],
     };
+    assert.equal(
+      (await request("/api/daily", "t1", { ...write, course: "Физика" }))
+        .status,
+      400,
+    );
     assert.equal(
       (
         await request("/api/daily", "t1", {
@@ -116,10 +133,22 @@ test("Дневной журнал: изоляция, конфликты, сох�
     );
     assert.equal((await request("/api/daily", "t1", write)).status, 200);
     assert.equal((await request("/api/daily", "t1", write)).status, 409);
+    // Версии считаются отдельно по каждой дисциплине.
+    assert.equal(
+      (
+        await request("/api/daily", "t1", {
+          ...write,
+          course: "Логика",
+          marks: [{ studentId: "a", status: "absent" }],
+        })
+      ).status,
+      200,
+    );
     assert.equal(
       (
         await request("/api/daily", "t2", {
           ...write,
+          course: "История",
           marks: [
             { studentId: "a", status: "absent" },
             { studentId: "b", status: "absent" },
@@ -128,9 +157,15 @@ test("Дневной журнал: изоляция, конфликты, сох�
       ).status,
       200,
     );
-    const saved = await (await request("/api/daily?date=2026-09-01")).json();
+    const saved = await (
+      await request("/api/daily?date=2026-09-01&course=Право")
+    ).json();
     assert.equal(saved.version, 1);
     assert.equal(saved.marks[0].status, "present");
+    const other = await (
+      await request("/api/daily?date=2026-09-01&course=Логика")
+    ).json();
+    assert.equal(other.marks[0].status, "absent");
     const route = "/api/daily/overview?from=2026-09-01&to=2026-09-07";
     assert.equal((await request(route)).status, 403);
     const overview = await (await request(route, "boss", null, "admin")).json();
@@ -138,6 +173,21 @@ test("Дневной журнал: изоляция, конфликты, сох�
       overview.students.map((s) => s.status),
       ["present", "absent", "unknown"],
     );
+    assert.deepEqual(overview.students[0].history.map((r) => r.course).sort(), [
+      "История",
+      "Логика",
+      "Право",
+    ]);
+    assert.equal(overview.students[1].lastVisit, "2026-08-20");
+    const august = await (
+      await request(
+        "/api/daily/overview?from=2026-08-20&to=2026-08-20",
+        "boss",
+        null,
+        "admin",
+      )
+    ).json();
+    assert.equal(august.students[1].status, "present");
     const csv = await (
       await request(
         "/api/daily/export?from=2026-09-01&to=2026-09-07",
@@ -148,6 +198,7 @@ test("Дневной журнал: изоляция, конфликты, сох�
     ).text();
     assert.match(csv, /Анна/);
     assert.match(csv, /Был хотя бы раз/);
+    assert.match(csv, /Право: Был/);
     assert.equal(
       (
         await request("/api/daily", "t1", {
@@ -159,7 +210,8 @@ test("Дневной журнал: изоляция, конфликты, сох�
       200,
     );
     assert.equal(
-      (await (await request("/api/daily?date=2026-09-01")).json()).marks.length,
+      (await (await request("/api/daily?date=2026-09-01&course=Право")).json())
+        .marks.length,
       0,
     );
   } finally {

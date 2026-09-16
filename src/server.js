@@ -1,6 +1,6 @@
 import { registerDaily } from "./daily.js";
 import { verifyPassword } from "./management-auth.js";
-import { parseRuzResponse, loadTeacherSchedule } from "./ruz.js";
+import { parseRuzResponse, loadSchedules } from "./ruz.js";
 import express from "express";
 import {
   managers,
@@ -46,7 +46,23 @@ db.exec(
   "PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS teacher_links(teacherId TEXT PRIMARY KEY,personId TEXT NOT NULL,email TEXT,checkedAt TEXT); CREATE TABLE IF NOT EXISTS auto_accounts(subject TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE,teacherId TEXT NOT NULL UNIQUE); CREATE TABLE IF NOT EXISTS service_state(key TEXT PRIMARY KEY,value TEXT);",
 );
 db.exec(`CREATE TABLE IF NOT EXISTS student_profiles(studentId TEXT PRIMARY KEY, data TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS procedures(studentId TEXT, kind TEXT, data TEXT NOT NULL, PRIMARY KEY(studentId,kind));`);
+CREATE TABLE IF NOT EXISTS procedures(studentId TEXT, kind TEXT, data TEXT NOT NULL, PRIMARY KEY(studentId,kind));
+CREATE TABLE IF NOT EXISTS roster_additions(id TEXT PRIMARY KEY, data TEXT NOT NULL);`);
+// Студенты, добавленные руководством вручную, дополняют импортированный реестр.
+function applyAddition(addition) {
+  if (!roster.students.some((s) => s.id === addition.id))
+    roster.students.push({ id: addition.id, name: addition.name });
+  for (const link of addition.links)
+    roster.enrollments.push({
+      studentId: addition.id,
+      teacherId: link.teacherId,
+      group: "",
+      course: link.course,
+      kind: "ручной ввод",
+    });
+}
+for (const row of db.prepare("SELECT data FROM roster_additions").all())
+  applyAddition(JSON.parse(row.data));
 const get = (sql, ...a) => db.prepare(sql).get(...a),
   all = (sql, ...a) => db.prepare(sql).all(...a),
   run = (sql, ...a) => db.prepare(sql).run(...a);
@@ -543,14 +559,15 @@ async function performSync(tid, u = { name: "Автоматическое обн
       "SELECT personId FROM teacher_links WHERE teacherId=?",
       tid,
     );
+    // В РУЗ у одного человека бывает несколько карточек; храним все ID через запятую.
     const people = cached
-      ? [{ id: cached.personId, label: t.name }]
+      ? cached.personId.split(",").map((id) => ({ id, label: t.name }))
       : await ruzFetch("search?type=person&term=" + encodeURIComponent(t.name));
     const matches = people.filter((p) => p.label?.trim() === t.name);
-    if (matches.length !== 1)
+    if (!matches.length)
       throw fail(
         409,
-        "В РУЗ нет единственного точного совпадения ФИО. Требуется ручное сопоставление.",
+        "В РУЗ нет точного совпадения ФИО. Требуется ручное сопоставление.",
       );
     const today = moscowDate(),
       start = new Date(today + "T12:00:00Z"),
@@ -558,10 +575,10 @@ async function performSync(tid, u = { name: "Автоматическое обн
     start.setUTCDate(start.getUTCDate() - 7);
     end.setUTCDate(end.getUTCDate() + 7);
     const fmt = (d) => d.toISOString().slice(0, 10).replaceAll("-", ".");
-    const entries = await loadTeacherSchedule(
+    const entries = await loadSchedules(
       ruzFetch,
       t.name,
-      matches[0].id,
+      matches.map((m) => String(m.id)),
       `start=${fmt(start)}&finish=${fmt(end)}&lng=1`,
     );
     const email = resolveTeacherEmail(entries, t.name);
@@ -628,7 +645,7 @@ async function performSync(tid, u = { name: "Автоматическое обн
       run(
         "INSERT OR REPLACE INTO teacher_links VALUES(?,?,?,?)",
         tid,
-        String(matches[0].id),
+        matches.map((m) => m.id).join(","),
         email,
         new Date().toISOString(),
       );
@@ -742,6 +759,107 @@ function editable(req, id) {
 app.get("/api/admin/directory", (req, res) =>
   res.json({ managers, programs, source: directorySource }),
 );
+app.get("/api/admin/teachers", (req, res) =>
+  res.json(
+    roster.teachers
+      .map((t) => ({
+        ...t,
+        courses: [
+          ...new Set(
+            roster.enrollments
+              .filter((e) => e.teacherId === t.id)
+              .map((e) => e.course),
+          ),
+        ].sort((a, b) => a.localeCompare(b, "ru")),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, "ru")),
+  ),
+);
+app.post("/api/admin/students", (req, res) => {
+  if (req.session.user.role !== "admin")
+    throw fail(403, "Добавляет студентов руководство учебного офиса");
+  const {
+    name,
+    program = "",
+    year = 0,
+    foreignStatus = "confirmed",
+    citizenship = "",
+    links,
+  } = req.body;
+  const clean =
+    typeof name === "string" ? name.trim().replace(/\s+/g, " ") : "";
+  if (
+    clean.length < 3 ||
+    clean.length > 150 ||
+    (program !== "" && !programs.includes(program)) ||
+    !Number.isInteger(year) ||
+    year < 0 ||
+    year > 6 ||
+    !["unknown", "confirmed", "excluded"].includes(foreignStatus) ||
+    typeof citizenship !== "string" ||
+    citizenship.length > 100
+  )
+    throw fail(400, "Проверьте ФИО, программу, курс и гражданство");
+  if (
+    !Array.isArray(links) ||
+    !links.length ||
+    links.length > 50 ||
+    links.some(
+      (l) =>
+        !l ||
+        !roster.teachers.some((t) => t.id === l.teacherId) ||
+        typeof l.course !== "string" ||
+        !l.course.trim() ||
+        l.course.length > 200,
+    )
+  )
+    throw fail(400, "Укажите хотя бы одного преподавателя и дисциплину");
+  const id = "s_" + hash(clean).slice(0, 16);
+  const same = (a, b) =>
+    a.toLocaleLowerCase("ru") === b.toLocaleLowerCase("ru");
+  if (roster.students.some((s) => s.id === id || same(s.name, clean)))
+    throw fail(409, "Студент с таким ФИО уже есть в реестре");
+  const addition = {
+    id,
+    name: clean,
+    links: links.map((l) => ({
+      teacherId: l.teacherId,
+      course: l.course.trim(),
+    })),
+    addedBy: req.session.user.name,
+    addedAt: new Date().toISOString(),
+  };
+  const profile = {
+    version: 1,
+    program,
+    year,
+    foreignStatus,
+    citizenship: citizenship.trim(),
+    arrivalDate: "",
+    residence: "",
+    enrollmentStatus: "active",
+  };
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    run(
+      "INSERT INTO roster_additions VALUES(?,?)",
+      id,
+      JSON.stringify(addition),
+    );
+    run(
+      "INSERT OR REPLACE INTO student_profiles VALUES(?,?)",
+      id,
+      JSON.stringify(profile),
+    );
+    audit(req.session.user, "student.add", id);
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+  applyAddition(addition);
+  res.json({ id, version: 1, manager: managerFor(profile) });
+});
 app.put("/api/admin/students/:id/profile", (req, res) => {
   if (req.session.user.role !== "admin")
     throw fail(

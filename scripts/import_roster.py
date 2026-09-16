@@ -3,9 +3,13 @@ source=sys.argv[1]
 w=openpyxl.load_workbook(source,read_only=True,data_only=True)
 def uid(prefix,value): return prefix+hashlib.sha256(value.encode()).hexdigest()[:16]
 students={}; teachers={}; enrollments=[]
-for row in list(w['База'].values)[1:]:
+rows=[r for r in list(w['База'].values)[1:] if all(r[:4])]
+# «Вак_Иванов» и «Иванов» – один человек; при наличии обоих написаний берём без приставки.
+names={str(r[1]).strip() for r in rows}
+merged={n:n[4:] for n in names if n.startswith('Вак_') and n[4:] in names}
+for row in rows:
  group,teacher,student,course,kind,*_=row
- if not all([group,teacher,student,course]): continue
+ teacher=merged.get(str(teacher).strip(),teacher)
  sid=uid('s_',str(student).strip());tid=uid('t_',str(teacher).strip())
  students[sid]={'id':sid,'name':str(student).strip()}
  teachers[tid]={'id':tid,'name':str(teacher).strip()}
