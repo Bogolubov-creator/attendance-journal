@@ -1,4 +1,4 @@
-name: Deploy public demo
+name: Deploy public mirror
 on:
   push:
     branches: [main]
@@ -18,10 +18,10 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - name: Build synthetic demo only
+      - name: Build public entry page
         run: |
           mkdir -p site
-          cp mirror/index.html mirror/demo.js public/style.css site/
+          cp mirror/index.html public/style.css site/
           touch site/.nojekyll
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
