@@ -1,3 +1,9 @@
+import {
+  dailyJournal,
+  dailyDashboard,
+  hasDailyChanges,
+  discardDailyChanges,
+} from "./daily.js";
 const $ = (s) => document.querySelector(s),
   root = $("#app");
 const esc = (s) =>
@@ -183,7 +189,7 @@ function loginView() {
   fill();
 }
 function shell() {
-  root.innerHTML = `<div class="layout"><aside class="sidebar">${brand}<div class="section-label">${user.role !== "teacher" ? "Руководство" : "Преподаватель"}</div><nav class="nav" aria-label="Основная навигация">${user.role !== "teacher" ? `<button data-page="dashboard" class="${page === "dashboard" ? "active" : ""}"><span class="nav-icon">▦</span>Обзор</button><button data-page="students" class="${page === "students" ? "active" : ""}"><span class="nav-icon">♙</span>Студенты</button><button data-page="automation" class="${page === "automation" ? "active" : ""}"><span class="nav-icon">↻</span>Сбор данных</button>` : `<button data-page="journal" class="active"><span class="nav-icon">▤</span>Мой журнал</button>`}</nav><div class="side-bottom"><div class="side-note">${user.role !== "teacher" ? "Студенты, которым нужна поддержка, собраны в одном месте." : "Отметьте присутствие. Журнал сохраняется автоматически."}<br><br><a href="https://ruz.hse.ru/ruz/main" target="_blank" rel="noopener">Открыть РУЗ ↗</a></div><div class="identity"><span class="avatar">${initials(user.name)}</span><div><strong>${esc(user.name.split(" ").slice(0, 2).join(" "))}</strong><small>${user.role !== "teacher" ? "Руководство" : "Преподаватель"}</small></div></div><button id="logout" class="logout">Выйти ↗</button></div></aside><main class="main"><header class="topbar"><span class="crumb">Учебный процесс <b>/ ${user.role !== "teacher" ? "Руководство" : "Посещаемость"}</b></span>${session.demo ? '<span class="demo-tag">Локальный просмотр · тестовые отметки</span>' : ""}</header><div class="content" id="content"></div></main></div>`;
+  root.innerHTML = `<div class="layout"><aside class="sidebar">${brand}<div class="section-label">${user.role !== "teacher" ? "Руководство" : "Преподаватель"}</div><nav class="nav" aria-label="Основная навигация">${user.role !== "teacher" ? `<button data-page="dashboard" class="${page === "dashboard" ? "active" : ""}"><span class="nav-icon">▦</span>Обзор</button><button data-page="students" class="${page === "students" ? "active" : ""}"><span class="nav-icon">♙</span>Студенты</button><button data-page="automation" class="${page === "automation" ? "active" : ""}"><span class="nav-icon">↻</span>Сбор данных</button>` : `<button data-page="journal" class="active"><span class="nav-icon">▤</span>Мой журнал</button>`}</nav><div class="side-bottom"><div class="side-note">${user.role !== "teacher" ? "Студенты, которым нужна поддержка, собраны в одном месте." : "Выберите дату, отметьте студентов и нажмите «Сохранить»."}</div><div class="identity"><span class="avatar">${initials(user.name)}</span><div><strong>${esc(user.name.split(" ").slice(0, 2).join(" "))}</strong><small>${user.role !== "teacher" ? "Руководство" : "Преподаватель"}</small></div></div><button id="logout" class="logout">Выйти ↗</button></div></aside><main class="main"><header class="topbar"><span class="crumb">Учебный процесс <b>/ ${user.role !== "teacher" ? "Руководство" : "Посещаемость"}</b></span>${session.demo ? '<span class="demo-tag">Локальный просмотр · тестовые отметки</span>' : ""}</header><div class="content" id="content"></div></main></div>`;
   $$("[data-page]").forEach(
     (b) =>
       (b.onclick = () =>
@@ -198,6 +204,9 @@ function shell() {
   );
   $("#logout").onclick = () =>
     safe(async () => {
+      if (hasDailyChanges() && !confirm("Выйти без сохранения отметок?"))
+        return;
+      discardDailyChanges();
       await flushSave();
       await api("/api/logout", { method: "POST" });
       dirty = false;
@@ -207,34 +216,18 @@ function shell() {
 }
 const $$ = (s) => [...document.querySelectorAll(s)];
 async function showApp() {
+  if (hasDailyChanges() && !confirm("Перейти без сохранения отметок?")) return;
+  discardDailyChanges();
   shell();
   $("#content").innerHTML = '<div class="loading">Загружаем данные…</div>';
-  if (user.role !== "teacher") {
-    overview = await api("/api/admin/overview");
-    if (page === "automation") {
-      automation = await api("/api/admin/automation");
-      automationView();
-    } else adminView();
-  } else {
-    await loadLessons();
-    if (
-      !lessons.length ||
-      !session.syncedAt ||
-      Date.now() - Date.parse(session.syncedAt) > 300000
-    ) {
-      $("#content").innerHTML =
-        '<div class="loading">Загружаем расписание из РУЗ…</div>';
-      try {
-        await api("/api/ruz/sync", { method: "POST", body: "{}" });
-        await loadLessons();
-        syncError = "";
-      } catch (e) {
-        syncError = e.message;
-        toast(e.message, true);
-      }
-    }
-    journalView();
-  }
+  if (user.role === "teacher") return dailyJournal({ api, esc, toast });
+  if (page !== "students" && page !== "automation")
+    return dailyDashboard({ api, esc, toast });
+  overview = await api("/api/admin/overview");
+  if (page === "automation") {
+    automation = await api("/api/admin/automation");
+    automationView();
+  } else adminView();
 }
 async function loadLessons() {
   const r = await api("/api/lessons");
@@ -783,6 +776,8 @@ let refreshing = false;
 setInterval(async () => {
   if (
     !user ||
+    user.role === "teacher" ||
+    page === "dashboard" ||
     document.hidden ||
     refreshing ||
     dirty ||

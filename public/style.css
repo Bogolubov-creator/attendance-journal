@@ -1573,3 +1573,102 @@ dialog::backdrop {
   background: white;
   z-index: 1;
 }
+
+.daily-panel {
+  padding: 24px;
+  margin: 20px 0;
+}
+.daily-toolbar {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.daily-toolbar label {
+  display: grid;
+  gap: 8px;
+}
+.daily-toolbar input,
+.daily-toolbar select {
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: white;
+}
+.daily-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+.daily-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.daily-options [aria-pressed="true"] {
+  background: var(--blue);
+  color: white;
+  border-color: var(--blue);
+}
+.daily-options [data-status="absent"][aria-pressed="true"] {
+  background: var(--red);
+  border-color: var(--red);
+}
+.daily-options [data-status=""][aria-pressed="true"] {
+  background: #e7ebf2;
+  color: var(--ink);
+  border-color: var(--line);
+}
+#daily-list {
+  margin: 12px 0 24px;
+}
+.daily-person {
+  border-bottom: 1px solid var(--line);
+  padding: 18px 0;
+}
+.daily-person summary {
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: center;
+}
+.daily-person summary strong {
+  flex: 1 1 240px;
+}
+.daily-person summary .muted {
+  flex-basis: 100%;
+  font-size: 13px;
+}
+.daily-result {
+  padding: 4px 10px;
+  border-radius: 5px;
+  background: #edf0f5;
+}
+.daily-result.present {
+  background: #e1f1e8;
+  color: var(--green);
+}
+.daily-result.absent {
+  background: #fff0dd;
+  color: var(--amber);
+}
+.daily-history {
+  margin-top: 18px;
+  padding: 16px;
+  background: var(--canvas);
+}
+@media (max-width: 650px) {
+  .daily-row {
+    align-items: start;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .daily-panel {
+    padding: 16px;
+  }
+}

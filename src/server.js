@@ -1,3 +1,4 @@
+import { registerDaily } from "./daily.js";
 import { verifyPassword } from "./management-auth.js";
 import { parseRuzResponse, loadTeacherSchedule } from "./ruz.js";
 import express from "express";
@@ -384,6 +385,7 @@ app.get("/auth/callback", async (req, res) => {
   res.redirect("/");
 });
 app.use("/api", auth);
+registerDaily(app, { db, roster, auth, admin, studentProfile, audit });
 function lessonsFor(u, includeUnmatched = false) {
   return all(
     "SELECT data FROM lessons" +
