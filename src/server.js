@@ -1,3 +1,4 @@
+import { csvCell } from "./csv.js";
 import { registerDaily, attendanceRecords } from "./daily.js";
 import { verifyPassword } from "./management-auth.js";
 import express from "express";
@@ -257,7 +258,7 @@ app.get("/healthz", (req, res) => {
 app.get("/api/session", (req, res) =>
   res.json({
     user: req.session?.user || null,
-    demo,
+    demo: demo && process.env.DATA_MODE !== "live",
     oidcReady: !!(process.env.OIDC_ISSUER && process.env.OIDC_CLIENT_ID),
     demoTeachers: demo ? roster.teachers : [],
     selection,
@@ -969,12 +970,7 @@ app.patch("/api/admin/debts/:id", (req, res) => {
   res.json({ ok: true });
 });
 app.get("/api/admin/export", (req, res) => {
-  const esc = (v) =>
-    '"' +
-    String(v ?? "")
-      .replace(/^[=+@\-]/, "'$&")
-      .replaceAll('"', '""') +
-    '"';
+  const esc = csvCell;
   const rows = studentRows().map((s) => [
     s.name,
     s.attendance ?? "",

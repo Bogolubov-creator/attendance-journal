@@ -1,5 +1,6 @@
 import { passwordHash } from "../src/management-auth.js";
 import test from "node:test";
+import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import {
   managerFor,
@@ -16,7 +17,7 @@ test("Распределение по программе и курсу, без �
     "smirnova",
   );
   assert.equal(managerFor({ program: "Юриспруденция", year: 4 }), null);
-  assert.equal(managerFor({ program: "Право", year: 4 }).id, "bakhareva");
+  assert.equal(managerFor({ program: "Право", year: 4 }).id, "gadzhieva");
   assert.equal(managerFor({ program: "ЛигалТех", year: 1 }).id, "polyanskaya");
   assert.equal(managerFor({ program: "ЛигалТех" }), null);
   assert.equal(
@@ -58,11 +59,12 @@ test("Неизвестное и документы на проверке не п
   assert.equal(validDate("2028-02-29"), true);
 });
 test("Выбор сотрудника, зоны редактирования и отдельный учёт процедур", async () => {
-  const tmp = mkdtempSync("work/office-test-"),
+  const tmp = mkdtempSync(join(tmpdir(), "attendance-office-test-")),
     origin = "http://127.0.0.1:3103";
   const child = spawn(process.execPath, ["src/server.js"], {
     env: {
       ...process.env,
+      ROSTER_PATH: "tests/fixtures/roster.json",
       MANAGEMENT_PASSWORD_HASH: passwordHash("test-management-password"),
       DEMO_MODE: "true",
       AUTH_MODE: "selection",
@@ -104,7 +106,8 @@ test("Выбор сотрудника, зоны редактирования и 
       child.once("error", reject);
       child.once("exit", (c) => reject(Error("exit " + c)));
     });
-    const sid = JSON.parse(readFileSync("data/roster.json")).students[0].id;
+    const sid = JSON.parse(readFileSync("tests/fixtures/roster.json"))
+      .students[0].id;
     assert.equal(
       (
         await req("/api/select-login", "POST", {
@@ -118,7 +121,7 @@ test("Выбор сотрудника, зоны редактирования и 
       (
         await req("/api/select-login", "POST", {
           role: "admin",
-          personId: "bakhareva",
+          personId: "gadzhieva",
         })
       ).status,
       403,
@@ -137,13 +140,14 @@ test("Выбор сотрудника, зоны редактирования и 
       (await req("/api/demo-login", "POST", { role: "admin" })).status,
       403,
     );
-    await login("admin", "bakhareva");
+    await login("admin", "gadzhieva");
     assert.equal(
       (
         await req("/api/admin/students/" + sid + "/profile", "PUT", {
           program: "Юриспруденция",
           year: 2,
           foreignStatus: "confirmed",
+          version: 0,
         })
       ).status,
       200,
@@ -165,6 +169,7 @@ test("Выбор сотрудника, зоны редактирования и 
         await req("/api/admin/students/" + sid + "/procedures/visa", "PUT", {
           state: "pending",
           dueDate: "2020-01-01",
+          version: 0,
         })
       ).status,
       403,
@@ -245,19 +250,21 @@ test("Выбор сотрудника, зоны редактирования и 
       data.procedures.find((p) => p.id === "visa").checkedBy,
       "Смирнова Екатерина Дмитриевна",
     );
-    const tid = JSON.parse(readFileSync("data/roster.json")).teachers[0].id;
-    await login("admin", "bakhareva");
+    const tid = JSON.parse(readFileSync("tests/fixtures/roster.json"))
+      .teachers[0].id;
+    await login("admin", "gadzhieva");
     assert.equal(
       (
         await req("/api/admin/students/" + sid + "/profile", "PUT", {
           program: "Юриспруденция",
           year: 2,
           foreignStatus: "excluded",
+          version: 1,
         })
       ).status,
       200,
     );
-    const roster = JSON.parse(readFileSync("data/roster.json"));
+    const roster = JSON.parse(readFileSync("tests/fixtures/roster.json"));
     const enrollment = roster.enrollments.find((e) => e.studentId === sid);
     // Исключённый из контингента студент пропадает из журнала преподавателя.
     await login("teacher", enrollment.teacherId);
@@ -275,7 +282,7 @@ test("Выбор сотрудника, зоны редактирования и 
         (
           await req("/api/select-login", "POST", {
             role: "admin",
-            personId: "bakhareva",
+            personId: "gadzhieva",
             password: "wrong",
           })
         ).status,
@@ -285,7 +292,7 @@ test("Выбор сотрудника, зоны редактирования и 
       (
         await req("/api/select-login", "POST", {
           role: "admin",
-          personId: "bakhareva",
+          personId: "gadzhieva",
           password: "test-management-password",
         })
       ).status,

@@ -1,12 +1,13 @@
 import { passwordHash } from "../src/management-auth.js";
 import { request as httpRequest } from "node:http";
 import test from "node:test";
+import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 test("Рабочий сервер не запускается с неподключённой авторизацией", async () => {
-  const temp = mkdtempSync("work/production-test-");
+  const temp = mkdtempSync(join(tmpdir(), "attendance-production-test-"));
   try {
     const child = spawn(process.execPath, ["src/server.js"], {
       env: {
@@ -56,7 +57,7 @@ function proxyFetch(url, options = {}) {
   });
 }
 test("Рабочий выбор сотрудника запускается без OIDC и сохраняет сессию", async () => {
-  const temp = mkdtempSync("work/selection-production-");
+  const temp = mkdtempSync(join(tmpdir(), "attendance-selection-production-"));
   const child = spawn(process.execPath, ["src/server.js"], {
     env: {
       ...process.env,

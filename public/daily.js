@@ -1,4 +1,11 @@
 let unsaved = false;
+let saving = false;
+export const isDailySaving = () => saving;
+export const resetDailySession = () => {
+  unsaved = false;
+  course = null;
+  date = today();
+};
 export const hasDailyChanges = () => unsaved;
 export const discardDailyChanges = () => {
   unsaved = false;
@@ -32,7 +39,7 @@ export async function dailyJournal({ api, esc, toast }) {
   course = data.course;
   const marks = new Map(data.marks.map((m) => [m.studentId, m.status]));
   const root = document.querySelector("#content");
-  root.innerHTML = `<div class="page-heading"><div><div class="eyebrow">Преподаватель</div><h1>Кто был на занятии</h1><p>Выберите дату и дисциплину, затем отметьте студентов.</p></div><form class="daily-head" id="daily-head"><label>Дата занятия<input id="daily-date" type="date" value="${date}" max="${today()}" required></label><label>Дисциплина<select id="daily-course" ${data.courses.length ? "" : "disabled"}>${data.courses.length ? data.courses.map((c) => `<option value="${esc(c)}" ${c === course ? "selected" : ""}>${esc(c)}</option>`).join("") : "<option>Нет дисциплин</option>"}</select></label></form></div><section class="panel daily-panel"><div class="daily-toolbar"><strong>${esc(course || "")}</strong><span class="muted">${data.students.length} в списке по дисциплине</span></div><p class="muted">«Был» – видели на занятии по этой дисциплине в этот день. Пустая отметка означает «Нет данных».</p><div id="daily-list">${
+  root.innerHTML = `<div class="page-heading"><div><div class="eyebrow">Преподаватель</div><h1>Журнал посещаемости</h1><p>Выберите дату и дисциплину, затем отметьте студентов.</p></div><form class="daily-head" id="daily-head"><label>Дата занятия<input id="daily-date" type="date" value="${date}" max="${today()}" required></label><label>Дисциплина<select id="daily-course" ${data.courses.length ? "" : "disabled"}>${data.courses.length ? data.courses.map((c) => `<option value="${esc(c)}" ${c === course ? "selected" : ""}>${esc(c)}</option>`).join("") : "<option>Нет дисциплин</option>"}</select></label></form></div><section class="panel daily-panel"><div class="daily-toolbar"><strong>${esc(course || "")}</strong><span class="muted">${data.students.length} в списке по дисциплине</span></div><p class="muted">«Был» – видели на занятии по этой дисциплине в этот день. Пустая отметка означает «Нет данных».</p><div id="daily-list">${
     data.students.length
       ? data.students
           .map(
@@ -51,6 +58,27 @@ export async function dailyJournal({ api, esc, toast }) {
           .join("")
       : "<p>В вашем списке пока нет студентов. Обратитесь к руководству для проверки привязки.</p>"
   }</div><div class="daily-toolbar"><button class="btn primary" id="daily-save" disabled>Сохранить</button><span id="daily-state" role="status">${data.marks.length ? "Сохранённые отметки загружены" : "Отметки за эту дату ещё не заполнены"}</span></div></section>`;
+  const reload = document.createElement("button");
+  reload.type = "button";
+  reload.className = "btn";
+  reload.textContent = "Загрузить сохранённые отметки";
+  reload.hidden = true;
+  root.querySelector("#daily-state").after(reload);
+  reload.onclick = async () => {
+    if (
+      unsaved &&
+      !confirm(
+        "Загрузить отметки с сервера? Несохранённые изменения будут потеряны.",
+      )
+    )
+      return;
+    try {
+      await dailyJournal({ api, esc, toast });
+      unsaved = false;
+    } catch (e) {
+      toast(e.message, true);
+    }
+  };
   const input = root.querySelector("#daily-date"),
     select = root.querySelector("#daily-course"),
     save = root.querySelector("#daily-save"),
@@ -79,6 +107,10 @@ export async function dailyJournal({ api, esc, toast }) {
       return;
     }
     const previous = [date, course];
+    const controls = [...root.querySelectorAll("button,input,select")].map(
+      (x) => [x, x.disabled],
+    );
+    controls.forEach(([x]) => (x.disabled = true));
     [date, course] = next;
     try {
       await dailyJournal({ api, esc, toast });
@@ -88,6 +120,8 @@ export async function dailyJournal({ api, esc, toast }) {
       input.value = date;
       select.value = course;
       toast(e.message, true);
+    } finally {
+      controls.forEach(([x, disabled]) => (x.disabled = disabled));
     }
   };
   input.onchange = () => {
@@ -96,7 +130,12 @@ export async function dailyJournal({ api, esc, toast }) {
   };
   select.onchange = () => switchTo([date, select.value]);
   save.onclick = async () => {
-    root.querySelectorAll("button,input").forEach((x) => (x.disabled = true));
+    if (saving) return;
+    saving = true;
+    state.textContent = "Сохраняем отметки…";
+    root
+      .querySelectorAll("button,input,select")
+      .forEach((x) => (x.disabled = true));
     try {
       const result = await api("/api/daily", {
         method: "PUT",
@@ -112,16 +151,19 @@ export async function dailyJournal({ api, esc, toast }) {
       });
       data.version = result.version;
       unsaved = false;
-      state.textContent = "Сохранено. Ответы доступны руководству.";
+      state.textContent = "Отметки сохранены.";
       toast("Отметки сохранены");
     } catch (e) {
       toast(e.message, true);
       state.textContent = e.message;
+      if (e.status === 409) reload.hidden = false;
     } finally {
+      saving = false;
       root
-        .querySelectorAll("button,input")
+        .querySelectorAll("button,input,select")
         .forEach((x) => (x.disabled = false));
       save.disabled = !unsaved;
+      select.disabled = !data.courses.length;
     }
   };
 }
@@ -135,7 +177,7 @@ export async function dailyDashboard({ api, esc, toast }) {
     absent: "Присутствие не отмечено",
     unknown: "Нет данных",
   };
-  root.innerHTML = `<div class="page-heading"><div><div class="eyebrow">Руководство</div><h1>Кто появлялся на занятиях</h1><p>Достаточно одного подтверждения присутствия от любого преподавателя за выбранный период.</p></div></div><form class="daily-toolbar panel daily-panel" id="period"><label>С даты<input type="date" name="from" value="${from}" max="${today()}" required></label><label>По дату<input type="date" name="to" value="${to}" max="${today()}" required></label><button class="btn primary">Показать</button><a class="btn" href="/api/daily/export?${new URLSearchParams({ from, to })}">Выгрузить для Excel · CSV</a></form><div class="metrics">${["present", "absent", "unknown"].map((status) => `<div class="metric"><label>${labels[status]}</label><strong>${data.students.filter((s) => s.status === status).length}</strong></div>`).join("")}</div><p class="footer-note">«Присутствие не отмечено» – есть только ответы «Не был». Это не подтверждает отсутствие на всех занятиях. «Нет данных» – за период нет ни одного ответа.</p><section class="panel daily-panel"><div class="daily-toolbar"><input type="search" id="daily-search" placeholder="Найти студента" aria-label="Найти студента"><select id="daily-filter" aria-label="Результат"><option value="all">Все студенты</option>${Object.entries(
+  root.innerHTML = `<div class="page-heading"><div><div class="eyebrow">Руководство</div><h1>Посещаемость за период</h1><p>Сводка по отметкам преподавателей.</p></div></div><form class="daily-toolbar panel daily-panel" id="period"><label>С даты<input type="date" name="from" value="${from}" max="${today()}" required></label><label>По дату<input type="date" name="to" value="${to}" max="${today()}" required></label><button class="btn primary">Показать</button><a class="btn" href="/api/daily/export?${new URLSearchParams({ from, to })}">Выгрузить для Excel · CSV</a></form><div class="metrics">${["present", "absent", "unknown"].map((status) => `<div class="metric"><label>${labels[status]}</label><strong>${data.students.filter((s) => s.status === status).length}</strong></div>`).join("")}</div><p class="footer-note">«Присутствие не отмечено» – есть только ответы «Не был». Это не подтверждает отсутствие на всех занятиях. «Нет данных» – за период нет ни одного ответа.</p><section class="panel daily-panel"><div class="daily-toolbar"><input type="search" id="daily-search" placeholder="Найти студента" aria-label="Найти студента"><select id="daily-filter" aria-label="Результат"><option value="all">Все студенты</option>${Object.entries(
     labels,
   )
     .map(([v, l]) => `<option value="${v}">${l}</option>`)

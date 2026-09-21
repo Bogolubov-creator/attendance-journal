@@ -22,6 +22,7 @@ jobs:
         run: |
           mkdir -p site
           cp mirror/index.html public/style.css site/
+          cp -R public/assets site/assets
           touch site/.nojekyll
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

@@ -1,12 +1,13 @@
 import { passwordHash } from "../src/management-auth.js";
 import { moscowDate } from "../src/domain.js";
 import test from "node:test";
+import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 test("Реестр в базе: файл нужен только для первого наполнения, правки через сайт сохраняются", async () => {
-  const tmp = mkdtempSync("work/registry-"),
+  const tmp = mkdtempSync(join(tmpdir(), "attendance-registry-")),
     origin = "http://127.0.0.1:3106",
     rosterPath = join(tmp, "roster.json");
   writeFileSync(
@@ -93,7 +94,7 @@ test("Реестр в базе: файл нужен только для перв
       ).status,
       403,
     );
-    await login("admin", "bakhareva");
+    await login("admin", "gadzhieva");
     assert.equal(
       (await (await req("/api/admin/overview")).json()).students.length,
       2,
@@ -176,7 +177,7 @@ test("Реестр в базе: файл нужен только для перв
       (await daily("Новая дисциплина")).students.map((s) => s.id),
       ["s_2"],
     );
-    await login("admin", "bakhareva");
+    await login("admin", "gadzhieva");
     assert.equal(
       (await req("/api/admin/enrollments", "DELETE", link)).status,
       200,
@@ -247,7 +248,7 @@ test("Реестр в базе: файл нужен только для перв
         ).status,
         200,
       );
-    await login("admin", "bakhareva");
+    await login("admin", "gadzhieva");
     const alerted = (
       await (await req("/api/admin/overview")).json()
     ).students.find((x) => x.id === "s_1");
@@ -265,13 +266,13 @@ test("Реестр в базе: файл нужен только для перв
       ).status,
       200,
     );
-    await login("admin", "bakhareva");
+    await login("admin", "gadzhieva");
     assert.equal((await req("/api/admin/students/s_1", "DELETE")).status, 409);
     assert.equal((await req("/api/admin/students/s_2", "DELETE")).status, 200);
 
     await stop();
     await start();
-    await login("admin", "bakhareva");
+    await login("admin", "gadzhieva");
     const overview = await (await req("/api/admin/overview")).json();
     assert.deepEqual(
       overview.students.map((s) => s.id),
@@ -298,7 +299,7 @@ test("Реестр в базе: файл нужен только для перв
   }
 });
 test("Пустой реестр: сервер запускается без файла, реестр создаётся через сайт", async () => {
-  const tmp = mkdtempSync("work/registry-empty-"),
+  const tmp = mkdtempSync(join(tmpdir(), "attendance-registry-empty-")),
     origin = "http://127.0.0.1:3107";
   const child = spawn(process.execPath, ["src/server.js"], {
     env: {

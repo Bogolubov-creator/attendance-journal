@@ -1,0 +1,53 @@
+{
+  "students": [
+    {
+      "id": "s_test_1",
+      "name": "Студент Первый"
+    },
+    {
+      "id": "s_test_2",
+      "name": "Студент Второй"
+    }
+  ],
+  "teachers": [
+    {
+      "id": "t_test_1",
+      "name": "Преподаватель Первый"
+    },
+    {
+      "id": "t_test_2",
+      "name": "Преподаватель Второй"
+    }
+  ],
+  "enrollments": [
+    {
+      "studentId": "s_test_1",
+      "teacherId": "t_test_1",
+      "group": "Г-1",
+      "course": "Право",
+      "kind": "Семинар"
+    },
+    {
+      "studentId": "s_test_2",
+      "teacherId": "t_test_1",
+      "group": "Г-1",
+      "course": "Право",
+      "kind": "Семинар"
+    },
+    {
+      "studentId": "s_test_1",
+      "teacherId": "t_test_1",
+      "group": "Г-1",
+      "course": "Логика",
+      "kind": "Семинар"
+    },
+    {
+      "studentId": "s_test_2",
+      "teacherId": "t_test_2",
+      "group": "Г-2",
+      "course": "История",
+      "kind": "Семинар"
+    }
+  ],
+  "quality": {}
+}

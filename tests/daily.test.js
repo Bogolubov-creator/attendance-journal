@@ -40,7 +40,12 @@ test("Дневной журнал: изоляция, конфликты, сох�
       { id: "t2", name: "Второй" },
     ],
     students: [
-      { id: "a", name: "Анна" },
+      {
+        id: "a",
+        name: "Анна",
+        passportUntil: "2030-01-01",
+        citizenship: "Казахстан",
+      },
       { id: "b", name: "Борис" },
       { id: "c", name: "Вера" },
     ],
@@ -93,6 +98,7 @@ test("Дневной журнал: изоляция, конфликты, сох�
     assert.equal((await request("/api/daily", null)).status, 401);
     const first = await (await request("/api/daily?date=2026-09-01")).json();
     assert.deepEqual(first.courses, ["Логика", "Право"]);
+    assert.deepEqual(first.students, [{ id: "a", name: "Анна" }]);
     assert.equal(first.course, "Логика");
     assert.deepEqual(
       first.students.map((s) => s.id),

@@ -3,6 +3,8 @@ import {
   dailyDashboard,
   hasDailyChanges,
   discardDailyChanges,
+  resetDailySession,
+  isDailySaving,
 } from "./daily.js";
 import { registryView } from "./registry.js";
 const $ = (s) => document.querySelector(s),
@@ -39,6 +41,7 @@ async function api(path, options = {}) {
   if (!r.ok) {
     if (r.status === 401) {
       user = null;
+      resetDailySession();
       loginView();
     }
     throw Object.assign(Error(data.error || "Не удалось выполнить запрос"), {
@@ -74,11 +77,11 @@ const initials = (n) =>
     .map((x) => x[0])
     .join("");
 const brand =
-  '<div class="brand" aria-label="Факультет права – учебный журнал"><span class="brand-icon" aria-hidden="true">ФП</span><span class="brand-name">Факультет<br>права<small>Учебный журнал</small></span></div>';
+  '<div class="brand" aria-label="Факультет права – учебный журнал"><img class="brand-icon" src="./assets/hse-logo.svg" alt="НИУ ВШЭ" width="48" height="48"><span class="brand-name">Факультет<br>права<small>Учебный журнал</small></span></div>';
 const search = (id, placeholder, value = "") =>
   `<div class="search"><input id="${id}" type="search" placeholder="${placeholder}" aria-label="${placeholder}" value="${esc(value)}"></div>`;
 function loginView() {
-  root.innerHTML = `<div class="login"><section class="login-art">${brand}<div><h2 class="login-title">Каждый студент.<br>В поле внимания.</h2><p>Посещаемость и обязательные процедуры.<br>Общая картина для факультета права.</p></div><small>Расписание · Посещаемость · Сопровождение</small></section><section class="login-main"><div class="login-box"><div class="eyebrow">Факультет права</div><h1>Ваш рабочий кабинет</h1><p>Выберите роль и своё имя. Преподавателю откроется журнал, руководству – студенты и процедуры.</p>${session.selection ? `<form id="select-login" class="access-form"><label for="login-role">Роль</label><select id="login-role"><option value="teacher">Преподаватель</option><option value="office">Руководство · менеджер</option><option value="admin">Руководство · полный доступ</option></select><label for="person-search">Поиск сотрудника</label><input id="person-search" type="search" placeholder="Начните вводить фамилию"><label for="login-person">Сотрудник</label><select id="login-person" required></select><label id="password-label" for="management-password" hidden>Пароль руководства</label><input id="management-password" type="password" autocomplete="current-password" maxlength="256" hidden><p id="person-scope" class="muted" aria-live="polite"></p><button class="btn primary">Открыть кабинет →</button></form><div class="login-footer">Преподаватель входит по выбору имени. Руководство – по паролю.${session.demo ? " Локальный просмотр: отметки сохраняются в тестовой базе." : ""}</div>` : '<a class="btn primary" href="/auth/login">Войти</a>'}</div></section></div>`;
+  root.innerHTML = `<div class="login"><section class="login-art">${brand}<div><h2 class="login-title">Журнал<br>посещаемости</h2><p>Факультет права НИУ ВШЭ</p></div><small>Посещаемость · Студенты · Документы</small></section><section class="login-main"><div class="login-box"><div class="eyebrow">Факультет права</div><h1>Вход в журнал</h1><p>Выберите свою роль и найдите фамилию в списке.</p>${session.selection ? `<form id="select-login" class="access-form"><label for="login-role">Роль</label><select id="login-role"><option value="teacher">Преподаватель</option><option value="office">Руководство · менеджер</option><option value="admin">Руководство · полный доступ</option></select><label for="person-search">Поиск сотрудника</label><input id="person-search" type="search" placeholder="Начните вводить фамилию"><label for="login-person">Сотрудник</label><select id="login-person" required></select><label id="password-label" for="management-password" hidden>Пароль руководства</label><input id="management-password" type="password" autocomplete="current-password" maxlength="256" hidden><p id="person-scope" class="muted" aria-live="polite"></p><button class="btn primary">Открыть кабинет →</button></form><div class="login-footer">Преподаватель входит по выбору имени. Руководство – по паролю.${session.demo ? " Локальный просмотр: отметки сохраняются в тестовой базе." : ""}</div>` : '<a class="btn primary" href="/auth/login">Войти</a>'}</div></section></div>`;
   if (!session.selection) return;
   const updateSelection = (hint = "Выберите сотрудника из списка.") => {
     const personId = $("#login-person").value;
@@ -158,6 +161,7 @@ function loginView() {
           }),
         });
         user = r.user;
+        resetDailySession();
         officeScope = user.role === "office" ? "mine" : "all";
         officeProgram = "";
         officeYear = "";
@@ -174,7 +178,7 @@ function loginView() {
   fill();
 }
 function shell() {
-  root.innerHTML = `<div class="layout"><aside class="sidebar">${brand}<div class="section-label">${user.role !== "teacher" ? "Руководство" : "Преподаватель"}</div><nav class="nav" aria-label="Основная навигация">${user.role !== "teacher" ? `<button data-page="dashboard" class="${page === "dashboard" ? "active" : ""}"><span class="nav-icon">▦</span>Обзор</button><button data-page="students" class="${page === "students" ? "active" : ""}"><span class="nav-icon">♙</span>Студенты</button>${user.role === "admin" ? `<button data-page="registry" class="${page === "registry" ? "active" : ""}"><span class="nav-icon">☰</span>Реестр</button>` : ""}` : `<button data-page="journal" class="active"><span class="nav-icon">▤</span>Мой журнал</button>`}</nav><div class="side-bottom"><div class="side-note">${user.role !== "teacher" ? "Студенты, которым нужна поддержка, собраны в одном месте." : "Выберите дату, отметьте студентов и нажмите «Сохранить»."}</div><div class="identity"><span class="avatar">${initials(user.name)}</span><div><strong>${esc(user.name.split(" ").slice(0, 2).join(" "))}</strong><small>${user.role !== "teacher" ? "Руководство" : "Преподаватель"}</small></div></div><button id="logout" class="logout">Выйти ↗</button></div></aside><main class="main"><header class="topbar"><span class="crumb">Учебный процесс <b>/ ${user.role !== "teacher" ? "Руководство" : "Посещаемость"}</b></span>${session.demo ? '<span class="demo-tag">Локальный просмотр · тестовые отметки</span>' : ""}</header><div class="content" id="content"></div></main></div>`;
+  root.innerHTML = `<div class="layout"><aside class="sidebar">${brand}<div class="section-label">${user.role !== "teacher" ? "Руководство" : "Преподаватель"}</div><nav class="nav" aria-label="Основная навигация">${user.role !== "teacher" ? `<button data-page="dashboard" class="${page === "dashboard" ? "active" : ""}"><span class="nav-icon">▦</span>Обзор</button><button data-page="students" class="${page === "students" ? "active" : ""}"><span class="nav-icon">♙</span>Студенты</button>${user.role === "admin" ? `<button data-page="registry" class="${page === "registry" ? "active" : ""}"><span class="nav-icon">☰</span>Реестр</button>` : ""}` : `<button data-page="journal" class="active"><span class="nav-icon">▤</span>Мой журнал</button>`}</nav><div class="side-bottom"><div class="side-note">${user.role !== "teacher" ? "Посещаемость и документы студентов." : "Выберите дату, отметьте студентов и нажмите «Сохранить»."}</div><div class="identity"><span class="avatar">${initials(user.name)}</span><div><strong>${esc(user.name.split(" ").slice(0, 2).join(" "))}</strong><small>${user.role !== "teacher" ? "Руководство" : "Преподаватель"}</small></div></div><button id="logout" class="logout">Выйти ↗</button></div></aside><main class="main"><header class="topbar"><span class="crumb">Учебный процесс <b>/ ${user.role !== "teacher" ? "Руководство" : "Посещаемость"}</b></span>${session.demo ? '<span class="demo-tag">Локальный просмотр · тестовые отметки</span>' : ""}</header><div class="content" id="content"></div></main></div>`;
   $$("[data-page]").forEach(
     (b) =>
       (b.onclick = () =>
@@ -189,16 +193,26 @@ function shell() {
   );
   $("#logout").onclick = () =>
     safe(async () => {
+      if (isDailySaving()) {
+        toast("Дождитесь сохранения отметок");
+        return;
+      }
       if (hasDailyChanges() && !confirm("Выйти без сохранения отметок?"))
         return;
       discardDailyChanges();
       await api("/api/logout", { method: "POST" });
       user = null;
+      resetDailySession();
+      session = await api("/api/session");
       loginView();
     });
 }
 const $$ = (s) => [...document.querySelectorAll(s)];
 async function showApp() {
+  if (isDailySaving()) {
+    toast("Дождитесь сохранения отметок");
+    return;
+  }
   if (hasDailyChanges() && !confirm("Перейти без сохранения отметок?")) return;
   discardDailyChanges();
   shell();
@@ -246,10 +260,10 @@ function adminView() {
     }${rows.length > 5 ? `<button class="btn small" data-filter="${type === "absence" ? "attention" : "debt"}">Показать весь список</button>` : ""}</section>`;
   $("#content").innerHTML =
     `<div class="page-heading"><div><div class="eyebrow">Руководство · Факультет права</div><h1>${page === "dashboard" ? "Иностранные студенты" : "Реестр студентов"}</h1><p>Общая статистика факультета. Работа со студентами – по программам и курсам.</p></div><div class="heading-actions">${user.role === "admin" ? '<button class="btn primary" id="add-student-open">+ Добавить студента</button>' : ""}<a class="btn" href="/api/admin/export">↓ Выгрузить CSV</a></div></div>
-  <div class="metrics"><div class="metric"><label>Иностранцев факультета</label><strong>${faculty.length}</strong><small>Подтверждённые, обучаются сейчас</small></div><div class="metric alert"><label>7 дней без явки</label><strong>${attention.length}</strong><small>По отметкам преподавателей</small></div><div class="metric alert"><label>Просрочены процедуры</label><strong>${overdue.length}</strong><small>Студентов, а не документов</small></div><div class="metric"><label>Нет данных о процедурах</label><strong>${faculty.filter((s) => s.procedureUnknown).length}</strong><small>Нужна проверка руководства</small></div></div>
+  <div class="metrics"><div class="metric"><label>Иностранные студенты</label><strong>${faculty.length}</strong><small>Подтверждённые, обучаются сейчас</small></div><div class="metric alert"><label>7 дней без явки</label><strong>${attention.length}</strong><small>По отметкам преподавателей</small></div><div class="metric alert"><label>Просрочены процедуры</label><strong>${overdue.length}</strong><small>Студентов с просроченными документами</small></div><div class="metric"><label>Нет данных о процедурах</label><strong>${faculty.filter((s) => s.procedureUnknown).length}</strong><small>Нужна проверка руководства</small></div></div>
   ${overview.faculty.unverified ? `<div class="notice">Полнота реестра ещё не подтверждена. Загружено ${students.length} студентов; иностранный статус не проверен у ${overview.faculty.unverified}. Они видны в реестре, но не включены в статистику иностранцев. Программы и курсы заполняет руководство.</div>` : ""}
   ${page === "dashboard" ? `<div class="attention-grid">${list("Не посещают занятия", attention, "absence")}${list("Должники по процедурам", overdue, "procedure")}</div>` : ""}
-  <div class="admin-columns"><div class="panel"><div class="panel-heading"><div><h2>Реестр и списки внимания</h2><small>Статистика сверху всегда по факультету, фильтры действуют на таблицу</small></div>${search("admin-search", "Поиск по ФИО", query)}</div>
+  <div class="admin-columns"><div class="panel"><div class="panel-heading"><div><h2>Список студентов</h2><small>Статистика сверху всегда по факультету, фильтры действуют на таблицу</small></div>${search("admin-search", "Поиск по ФИО", query)}</div>
   <div class="office-filters"><label>Ответственность<select id="office-scope"><option value="all">Весь факультет</option><option value="mine">Мои программы и курсы</option><option value="unassigned">Не распределены</option></select></label><label>Программа<select id="office-program"><option value="">Все программы</option>${programs.map((p) => `<option>${esc(p)}</option>`).join("")}</select></label><label>Курс<select id="office-year"><option value="">Все курсы</option>${[1, 2, 3, 4, 5, 6].map((y) => `<option>${y}</option>`).join("")}</select></label></div>
   <div class="filter-tabs">${[
     ["all", "Весь реестр"],
@@ -268,7 +282,7 @@ function adminView() {
     )
     .join("")}</div>
   <div class="table-scroll"><table class="admin-table"><thead><tr><th>Студент / менеджер</th><th>Посещение</th><th>Без явки</th><th>Процедуры</th></tr></thead><tbody id="admin-rows"></tbody></table></div><div class="pagination"><small id="result-count"></small><div class="actions"><button class="btn small" id="prev-page" aria-label="Предыдущая страница">←</button><button class="btn small" id="next-page" aria-label="Следующая страница">→</button></div></div></div>
-  <aside class="admin-aside"><section class="panel mini-panel"><h3>Ваш участок</h3><p>${esc(user.scopes?.map((s) => s.program + (s.year ? ", " + s.year + " курс" : "")).join(" · ") || "Весь факультет")}</p><a href="https://pravo.hse.ru/centre/contact" target="_blank" rel="noopener">Распределение менеджеров ↗</a><p>Сверено 16.09.2026. Изменения состава требуют обновления справочника.</p></section><section class="panel mini-panel"><h3>Полнота данных</h3><div class="quality-row"><span>Без менеджера</span><strong>${overview.faculty.unassigned}</strong></div><div class="quality-row"><span>Студентов с отметками</span><strong>${overview.students.filter((s) => s.marked).length} / ${overview.students.length}</strong></div><div class="quality-row"><span>Резервная копия базы</span><strong>${overview.backup ? (JSON.parse(overview.backup.value).ok ? "Создана " : "Ошибка ") + fmtDate(JSON.parse(overview.backup.value).at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Не включена"}</strong></div><p>Нет отметки – не значит отсутствовал. Несколько пропусков за день считаются одним учебным днём.</p></section><section class="panel mini-panel"><h3>Сопровождение иностранцев</h3><p>Применимость процедур проверяется индивидуально: гражданство, основание пребывания, дата въезда и действующие подтверждения.</p><a href="https://ivisa.hse.ru/" target="_blank" rel="noopener">Визовая поддержка ↗</a><p><a href="https://istudents.hse.ru/" target="_blank" rel="noopener">Сервисы и инструкции для иностранцев ↗</a></p><p>Поддержка: istudents.support@hse.ru</p><p>Электронный пропуск, связь и адаптация – сервисные вопросы, они не создают долг по обязательной процедуре.</p></section></aside></div>`;
+  <aside class="admin-aside"><section class="panel mini-panel"><h3>Ваш участок</h3><p>${esc(user.scopes?.map((s) => s.program + (s.year ? ", " + s.year + " курс" : "")).join(" · ") || "Весь факультет")}</p><a href="https://pravo.hse.ru/centre/contact" target="_blank" rel="noopener">Распределение менеджеров ↗</a><p>Распределение в журнале обновлено 21.09.2026.</p></section><section class="panel mini-panel"><h3>Полнота данных</h3><div class="quality-row"><span>Без менеджера</span><strong>${overview.faculty.unassigned}</strong></div><div class="quality-row"><span>Студентов с отметками</span><strong>${overview.students.filter((s) => s.marked).length} / ${overview.students.length}</strong></div><div class="quality-row"><span>Резервная копия базы</span><strong>${overview.backup ? (JSON.parse(overview.backup.value).ok ? "Создана " : "Ошибка ") + fmtDate(JSON.parse(overview.backup.value).at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Не включена"}</strong></div><p>Нет отметки – не значит отсутствовал. Несколько пропусков за день считаются одним учебным днём.</p></section><section class="panel mini-panel"><h3>Сопровождение иностранцев</h3><p>Применимость процедур проверяется индивидуально: гражданство, основание пребывания, дата въезда и действующие подтверждения.</p><a href="https://ivisa.hse.ru/" target="_blank" rel="noopener">Визовая поддержка ↗</a><p><a href="https://istudents.hse.ru/" target="_blank" rel="noopener">Сервисы и инструкции для иностранцев ↗</a></p><p>Поддержка: istudents.support@hse.ru</p><p>Электронный пропуск, связь и адаптация – сервисные вопросы, они не создают долг по обязательной процедуре.</p></section></aside></div>`;
   if ($("#add-student-open"))
     $("#add-student-open").onclick = () => safe(addStudentDialog);
   $("#office-scope").value = officeScope;

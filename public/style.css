@@ -98,20 +98,12 @@ small {
   color: var(--ink);
 }
 .brand-icon {
-  flex: 0 0 40px;
-  width: 40px;
+  flex: 0 0 48px;
+  width: 48px;
   height: 48px;
-  display: grid;
-  place-items: center;
-  border-top: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  color: var(--blue);
-  font:
-    23px/1 Georgia,
-    serif;
-  letter-spacing: -3px;
-  padding-right: 3px;
+  object-fit: contain;
 }
+
 .brand-name {
   font:
     21px/1.04 Georgia,
@@ -811,8 +803,11 @@ small {
   color: white;
 }
 .login-art .brand-icon {
-  color: white;
+  background: #fff;
+  border-radius: 4px;
+  padding: 4px;
 }
+
 .login-art .brand-name {
   font-size: 27px;
 }
@@ -1712,4 +1707,28 @@ dialog::backdrop {
   .daily-head {
     width: 100%;
   }
+}
+
+/* Официальный знак сохраняется и в компактной шапке. */
+@media (max-width: 650px) {
+  .sidebar .brand-icon {
+    display: block;
+    flex: 0 0 32px;
+    width: 32px;
+    height: 32px;
+  }
+  .sidebar .brand-name {
+    display: none;
+  }
+}
+
+.daily-head input,
+.daily-head select {
+  min-height: 42px;
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fff;
+  color: var(--ink);
 }

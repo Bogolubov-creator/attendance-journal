@@ -1,15 +1,17 @@
 import { passwordHash } from "../src/management-auth.js";
 import test from "node:test";
+import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 test("Добавление иностранного студента: только руководство, привязка к преподавателю, сохранность после перезапуска", async () => {
-  const tmp = mkdtempSync("work/add-student-"),
+  const tmp = mkdtempSync(join(tmpdir(), "attendance-add-student-")),
     origin = "http://127.0.0.1:3105",
-    roster = JSON.parse(readFileSync("data/roster.json"));
+    roster = JSON.parse(readFileSync("tests/fixtures/roster.json"));
   const env = {
     ...process.env,
+    ROSTER_PATH: "tests/fixtures/roster.json",
     MANAGEMENT_PASSWORD_HASH: passwordHash("test-management-password"),
     DEMO_MODE: "true",
     AUTH_MODE: "selection",
@@ -66,7 +68,7 @@ test("Добавление иностранного студента: тольк
       (await req("/api/admin/students", "POST", student)).status,
       403,
     );
-    await login("admin", "bakhareva");
+    await login("admin", "gadzhieva");
     for (const bad of [
       { ...student, name: "" },
       { ...student, links: [] },
@@ -101,7 +103,7 @@ test("Добавление иностранного студента: тольк
     assert.ok(daily.students.some((s) => s.id === id));
     await stop();
     await start();
-    await login("admin", "bakhareva");
+    await login("admin", "gadzhieva");
     assert.equal((await req("/api/admin/students/" + id)).status, 200);
     const overview = await (await req("/api/admin/overview")).json();
     assert.ok(overview.students.some((s) => s.id === id));

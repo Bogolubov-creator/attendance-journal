@@ -1,12 +1,12 @@
-// Распределение опубликовано ЦУУП; сверено 16.09.2026. Не выводим курс из номера группы.
+// Базовое распределение ЦУУП; администратор журнала заменён по указанию владельца 21.09.2026.
 export const directorySource = "https://pravo.hse.ru/centre/contact";
 const scope = (program, year = null) => ({ program, year });
 export const managers = [
   {
-    id: "bakhareva",
-    name: "Бахарева Татьяна Анатольевна",
+    id: "gadzhieva",
+    name: "Гаджиева Альбина Омаровна",
     role: "admin",
-    title: "Директор центра",
+    title: "Администратор журнала",
     scopes: [scope("Право", 4)],
   },
   {

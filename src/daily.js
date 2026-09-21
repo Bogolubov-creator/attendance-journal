@@ -1,3 +1,4 @@
+import { csvCell } from "./csv.js";
 import { moscowDate } from "./domain.js";
 import { validDate } from "./office.js";
 
@@ -72,6 +73,7 @@ export function registerDaily(
     return roster.students
       .map((s) => studentProfile(s.id))
       .filter((s) => ids.has(s.id) && active(s))
+      .map(({ id, name }) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name, "ru"));
   };
   const checkDate = (date) => {
@@ -126,7 +128,8 @@ export function registerDaily(
       !Array.isArray(marks) ||
       marks.length > ids.size ||
       new Set(marks.map((m) => m?.studentId)).size !== marks.length ||
-      !Number.isInteger(expected)
+      !Number.isSafeInteger(expected) ||
+      expected < 0
     )
       throw fail(400, "Некорректные отметки");
     if (
@@ -209,12 +212,7 @@ export function registerDaily(
         absent: "Присутствие не отмечено",
         unknown: "Нет данных",
       };
-    const cell = (x) =>
-      '"' +
-      String(x ?? "")
-        .replace(/^[\s]*[=+@-]/, "'$&")
-        .replaceAll('"', '""') +
-      '"';
+    const cell = csvCell;
     const rows = [
       [
         "Студент",

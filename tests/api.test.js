@@ -1,13 +1,14 @@
 import { passwordHash } from "../src/management-auth.js";
 import test from "node:test";
+import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { readFileSync, mkdtempSync, rmSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 const origin = "http://127.0.0.1:3101",
-  roster = JSON.parse(readFileSync("data/roster.json"));
-const temp = mkdtempSync("work/api-test-"),
+  roster = JSON.parse(readFileSync("tests/fixtures/roster.json"));
+const temp = mkdtempSync(join(tmpdir(), "attendance-api-test-")),
   path = join(temp, "test.sqlite");
 let child, cookie;
 async function request(
@@ -31,6 +32,7 @@ test("API: изоляция, сохранение, редактирование 
   child = spawn(process.execPath, ["src/server.js"], {
     env: {
       ...process.env,
+      ROSTER_PATH: "tests/fixtures/roster.json",
       MANAGEMENT_PASSWORD_HASH: passwordHash("test-management-password"),
       DEMO_MODE: "true",
       AUTO_BACKUP: "true",
