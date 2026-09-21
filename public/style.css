@@ -97,20 +97,11 @@ small {
   gap: 12px;
   color: var(--ink);
 }
-.brand-icon {
-  flex: 0 0 40px;
-  width: 40px;
-  height: 48px;
-  display: grid;
-  place-items: center;
-  border-top: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  color: var(--blue);
-  font:
-    23px/1 Georgia,
-    serif;
-  letter-spacing: -3px;
-  padding-right: 3px;
+/* Официальный знак НИУ ВШЭ из брендбука: файл без правок, цвет живёт внутри SVG. */
+.brand-hse {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
 }
 .brand-name {
   font:
@@ -810,8 +801,14 @@ small {
 .login-art .brand {
   color: white;
 }
-.login-art .brand-icon {
-  color: white;
+/* На синей панели синий знак теряется: даём ему белое поле, сам знак не меняется. */
+.login-art .brand-hse {
+  flex-basis: 60px;
+  width: 60px;
+  height: 60px;
+  padding: 3px;
+  border-radius: 50%;
+  background: white;
 }
 .login-art .brand-name {
   font-size: 27px;
@@ -1129,9 +1126,10 @@ dialog::backdrop {
   .sidebar .brand small {
     display: none;
   }
-  .brand-icon {
-    width: 31px;
-    height: 33px;
+  .sidebar .brand-hse {
+    flex-basis: 34px;
+    width: 34px;
+    height: 34px;
   }
   .sidebar .section-label,
   .side-note,
@@ -1365,7 +1363,13 @@ dialog::backdrop {
     font-size: 11px;
     padding: 7px;
   }
-  .sidebar .brand-icon {
+  /* На телефоне в строке остаётся знак ВШЭ: название не помещается рядом с навигацией. */
+  .sidebar .brand-hse {
+    flex-basis: 32px;
+    width: 32px;
+    height: 32px;
+  }
+  .sidebar .brand-name {
     display: none;
   }
   .dialog-body {

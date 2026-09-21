@@ -74,7 +74,7 @@ const initials = (n) =>
     .map((x) => x[0])
     .join("");
 const brand =
-  '<div class="brand" aria-label="Факультет права – учебный журнал"><span class="brand-icon" aria-hidden="true">ФП</span><span class="brand-name">Факультет<br>права<small>Учебный журнал</small></span></div>';
+  '<div class="brand" aria-label="НИУ ВШЭ, факультет права – учебный журнал"><img class="brand-hse" src="/hse-logo.svg" alt="" width="44" height="44"><span class="brand-name">Факультет<br>права<small>Учебный журнал</small></span></div>';
 const search = (id, placeholder, value = "") =>
   `<div class="search"><input id="${id}" type="search" placeholder="${placeholder}" aria-label="${placeholder}" value="${esc(value)}"></div>`;
 function loginView() {
