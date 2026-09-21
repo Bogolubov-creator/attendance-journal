@@ -835,7 +835,8 @@ app.put("/api/admin/students/:id/procedures/:kind", (req, res) => {
 });
 function studentRows() {
   const records = attendanceRecords(db),
-    debts = all("SELECT * FROM debts");
+    debts = all("SELECT * FROM debts"),
+    teacherNames = new Map(roster.teachers.map((t) => [t.id, t.name]));
   return roster.students.map((s) => {
     const profile = studentProfile(s.id),
       procedures = proceduresFor(s.id);
@@ -859,6 +860,16 @@ function studentRows() {
         records.filter((r) => r.studentId === s.id),
         debts.filter((d) => d.studentId === s.id),
       ),
+      // Где и на каких занятиях был студент: новые отметки сверху.
+      records: records
+        .filter((r) => r.studentId === s.id)
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .map((r) => ({
+          date: r.date,
+          course: r.course,
+          teacher: teacherNames.get(r.teacherId),
+          status: r.status,
+        })),
     };
   });
 }
@@ -895,15 +906,7 @@ app.get("/api/admin/students/:id", (req, res) => {
     canEdit: canEditStudent(req.session.user, student),
     programs,
     procedures: proceduresFor(student.id),
-    records: attendanceRecords(db)
-      .filter((r) => r.studentId === student.id)
-      .sort((a, b) => b.date.localeCompare(a.date))
-      .map((r) => ({
-        date: r.date,
-        course: r.course,
-        teacher: roster.teachers.find((t) => t.id === r.teacherId)?.name,
-        status: r.status,
-      })),
+    records: student.records,
     debts: all(
       "SELECT * FROM debts WHERE studentId=? ORDER BY createdAt DESC",
       student.id,
