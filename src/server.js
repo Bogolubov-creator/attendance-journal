@@ -1,6 +1,5 @@
-import { registerDaily } from "./daily.js";
+import { registerDaily, attendanceRecords } from "./daily.js";
 import { verifyPassword } from "./management-auth.js";
-import { parseRuzResponse, loadSchedules } from "./ruz.js";
 import express from "express";
 import {
   managers,
@@ -14,18 +13,12 @@ import {
   validDate,
 } from "./office.js";
 import { DatabaseSync } from "node:sqlite";
-import { readFileSync, mkdirSync } from "node:fs";
+import { readFileSync, mkdirSync, existsSync } from "node:fs";
 import { randomBytes, createHash } from "node:crypto";
 import * as oidc from "openid-client";
-import { createScheduler, resolveTeacherEmail } from "./scheduler.js";
 import { backup } from "node:sqlite";
 import path from "node:path";
-import {
-  moscowDate,
-  prioritizeLessons,
-  studentMetrics,
-  statuses,
-} from "./domain.js";
+import { moscowDate, studentMetrics } from "./domain.js";
 const app = express(),
   port = Number(process.env.PORT || 3100),
   demo = process.env.DEMO_MODE === "true";
@@ -34,40 +27,81 @@ const selection =
 const origin = process.env.APP_ORIGIN || `http://127.0.0.1:${port}`;
 if (!demo && !origin.startsWith("https://"))
   throw Error("В рабочем режиме нужен APP_ORIGIN с HTTPS");
-const roster = JSON.parse(readFileSync("data/roster.json", "utf8"));
+// Реестр хранится в базе; в памяти лежит его копия, все правки идут через базу.
+const roster = { students: [], teachers: [], enrollments: [], quality: {} };
 mkdirSync("data", { recursive: true });
+// Таблицы lessons и marks больше не пополняются: в них исторические отметки прежнего журнала по парам.
 const db = new DatabaseSync(
   process.env.DB_PATH || `data/${demo ? "demo" : "attendance"}.sqlite`,
 );
 db.exec(
-  `PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS lessons(id TEXT PRIMARY KEY,teacherId TEXT,data TEXT);CREATE TABLE IF NOT EXISTS marks(lessonId TEXT,studentId TEXT,status TEXT,note TEXT,updatedAt TEXT, PRIMARY KEY(lessonId,studentId)); CREATE TABLE IF NOT EXISTS revisions(lessonId TEXT PRIMARY KEY,version INTEGER); CREATE TABLE IF NOT EXISTS debts(id TEXT PRIMARY KEY,studentId TEXT,title TEXT,resolved INTEGER DEFAULT 0,createdAt TEXT);CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,actor TEXT,action TEXT,entity TEXT,at TEXT); CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY,data TEXT,expires INTEGER); CREATE TABLE IF NOT EXISTS sync(teacherId TEXT PRIMARY KEY,at TEXT);`,
+  `PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS lessons(id TEXT PRIMARY KEY,teacherId TEXT,data TEXT);CREATE TABLE IF NOT EXISTS marks(lessonId TEXT,studentId TEXT,status TEXT,note TEXT,updatedAt TEXT, PRIMARY KEY(lessonId,studentId)); CREATE TABLE IF NOT EXISTS debts(id TEXT PRIMARY KEY,studentId TEXT,title TEXT,resolved INTEGER DEFAULT 0,createdAt TEXT);CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,actor TEXT,action TEXT,entity TEXT,at TEXT); CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY,data TEXT,expires INTEGER);`,
 );
 db.exec(
-  "PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS teacher_links(teacherId TEXT PRIMARY KEY,personId TEXT NOT NULL,email TEXT,checkedAt TEXT); CREATE TABLE IF NOT EXISTS auto_accounts(subject TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE,teacherId TEXT NOT NULL UNIQUE); CREATE TABLE IF NOT EXISTS service_state(key TEXT PRIMARY KEY,value TEXT);",
+  "PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS service_state(key TEXT PRIMARY KEY,value TEXT);",
 );
 db.exec(`CREATE TABLE IF NOT EXISTS student_profiles(studentId TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS procedures(studentId TEXT, kind TEXT, data TEXT NOT NULL, PRIMARY KEY(studentId,kind));
-CREATE TABLE IF NOT EXISTS roster_additions(id TEXT PRIMARY KEY, data TEXT NOT NULL);`);
-// Студенты, добавленные руководством вручную, дополняют импортированный реестр.
-function applyAddition(addition) {
-  if (!roster.students.some((s) => s.id === addition.id))
-    roster.students.push({ id: addition.id, name: addition.name });
-  for (const link of addition.links)
-    roster.enrollments.push({
-      studentId: addition.id,
-      teacherId: link.teacherId,
-      group: "",
-      course: link.course,
-      kind: "ручной ввод",
-    });
-}
-for (const row of db.prepare("SELECT data FROM roster_additions").all())
-  applyAddition(JSON.parse(row.data));
+CREATE TABLE IF NOT EXISTS roster_additions(id TEXT PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS roster_students(id TEXT PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS roster_teachers(id TEXT PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS roster_enrollments(studentId TEXT NOT NULL, teacherId TEXT NOT NULL, grp TEXT NOT NULL, course TEXT NOT NULL, kind TEXT NOT NULL);`);
 const get = (sql, ...a) => db.prepare(sql).get(...a),
   all = (sql, ...a) => db.prepare(sql).all(...a),
   run = (sql, ...a) => db.prepare(sql).run(...a);
 const token = () => randomBytes(32).toString("base64url"),
   hash = (s) => createHash("sha256").update(s).digest("hex");
+const addEnrollment = (e) =>
+  run(
+    "INSERT INTO roster_enrollments VALUES(?,?,?,?,?)",
+    e.studentId,
+    e.teacherId,
+    e.group,
+    e.course,
+    e.kind,
+  );
+// Первое наполнение пустой базы: файл импорта и прежние ручные добавления. Дальше файл не читается.
+if (
+  !get("SELECT 1 FROM roster_students") &&
+  !get("SELECT 1 FROM roster_teachers")
+) {
+  const rosterPath = process.env.ROSTER_PATH || "data/roster.json";
+  const file = existsSync(rosterPath)
+    ? JSON.parse(readFileSync(rosterPath, "utf8"))
+    : { students: [], teachers: [], enrollments: [], quality: {} };
+  db.exec("BEGIN IMMEDIATE");
+  for (const s of file.students)
+    run("INSERT INTO roster_students VALUES(?,?)", s.id, s.name);
+  for (const t of file.teachers)
+    run("INSERT INTO roster_teachers VALUES(?,?)", t.id, t.name);
+  file.enrollments.forEach(addEnrollment);
+  for (const row of all("SELECT data FROM roster_additions")) {
+    const a = JSON.parse(row.data);
+    run("INSERT OR IGNORE INTO roster_students VALUES(?,?)", a.id, a.name);
+    for (const l of a.links)
+      addEnrollment({
+        studentId: a.id,
+        teacherId: l.teacherId,
+        group: "",
+        course: l.course,
+        kind: "ручной ввод",
+      });
+  }
+  run(
+    "INSERT OR REPLACE INTO service_state VALUES('rosterQuality',?)",
+    JSON.stringify(file.quality || {}),
+  );
+  db.exec("COMMIT");
+}
+roster.students = all("SELECT id,name FROM roster_students ORDER BY rowid");
+roster.teachers = all("SELECT id,name FROM roster_teachers ORDER BY rowid");
+roster.enrollments = all(
+  "SELECT studentId,teacherId,grp AS 'group',course,kind FROM roster_enrollments ORDER BY rowid",
+);
+roster.quality = JSON.parse(
+  get("SELECT value FROM service_state WHERE key='rosterQuality'")?.value ||
+    "{}",
+);
 const audit = (u, action, entity) =>
   run(
     "INSERT INTO audit(actor,action,entity,at) VALUES(?,?,?,?)",
@@ -177,31 +211,13 @@ app.use((req, res, next) => {
     }
   } else if (!demo && req.session?.user) {
     const u = req.session.user;
-    const valid =
-      u.source === "ruz"
-        ? all(
-            "SELECT * FROM teacher_links WHERE email=? AND checkedAt>?",
-            u.email,
-            new Date(Date.now() - 7 * 86400000).toISOString(),
-          ).length === 1 &&
-          get(
-            "SELECT 1 FROM teacher_links WHERE teacherId=? AND email=?",
-            u.id,
-            u.email,
-          ) &&
-          get(
-            "SELECT 1 FROM auto_accounts WHERE subject=? AND email=? AND teacherId=?",
-            u.subject,
-            u.email,
-            u.id,
-          )
-        : accounts.some(
-            (a) =>
-              a.subject === u.subject &&
-              a.email.toLowerCase() === u.email &&
-              a.role === u.role &&
-              (u.role === "admin" || a.teacherId === u.id),
-          );
+    const valid = accounts.some(
+      (a) =>
+        a.subject === u.subject &&
+        a.email.toLowerCase() === u.email &&
+        a.role === u.role &&
+        (u.role === "admin" || a.teacherId === u.id),
+    );
     if (!valid) {
       run("DELETE FROM sessions WHERE id=?", req.sessionKey);
       req.session = null;
@@ -331,48 +347,9 @@ app.get("/auth/callback", async (req, res) => {
   );
   const claims = t.claims();
   const email = String(claims.email || "").toLowerCase();
-  let account = accounts.find(
+  const account = accounts.find(
     (a) => a.email.toLowerCase() === email && a.subject === claims.sub,
   );
-  if (
-    !account &&
-    process.env.AUTO_ENROLL_TEACHERS === "true" &&
-    claims.email_verified === true &&
-    /^[^\s@]+@hse\.ru$/.test(email)
-  ) {
-    const links = all(
-      "SELECT * FROM teacher_links WHERE email=? AND checkedAt>?",
-      email,
-      new Date(Date.now() - 7 * 86400000).toISOString(),
-    );
-    if (links.length === 1) {
-      const linked = get(
-        "SELECT * FROM auto_accounts WHERE subject=? OR email=? OR teacherId=?",
-        claims.sub,
-        email,
-        links[0].teacherId,
-      );
-      if (
-        !linked ||
-        (linked.subject === claims.sub &&
-          linked.email === email &&
-          linked.teacherId === links[0].teacherId)
-      ) {
-        run(
-          "INSERT OR IGNORE INTO auto_accounts VALUES(?,?,?)",
-          claims.sub,
-          email,
-          links[0].teacherId,
-        );
-        account = {
-          role: "teacher",
-          teacherId: links[0].teacherId,
-          name: roster.teachers.find((t) => t.id === links[0].teacherId)?.name,
-          source: "ruz",
-        };
-      }
-    }
-  }
   if (
     claims.email_verified !== true ||
     !email.endsWith("@hse.ru") ||
@@ -394,7 +371,7 @@ app.get("/auth/callback", async (req, res) => {
       name: account.name,
       email,
       role: account.role,
-      source: account.source || "explicit",
+      source: "explicit",
       subject: claims.sub,
     },
   });
@@ -402,324 +379,7 @@ app.get("/auth/callback", async (req, res) => {
 });
 app.use("/api", auth);
 registerDaily(app, { db, roster, auth, admin, studentProfile, audit });
-function lessonsFor(u, includeUnmatched = false) {
-  return all(
-    "SELECT data FROM lessons" +
-      (u.role === "teacher" ? " WHERE teacherId=?" : ""),
-    ...(u.role === "teacher" ? [u.id] : []),
-  )
-    .map((x) => JSON.parse(x.data))
-    .filter((l) => includeUnmatched || lessonStudents(l).length > 0);
-}
-function ownedLesson(req) {
-  const row = get("SELECT data FROM lessons WHERE id=?", req.params.id);
-  if (!row) throw fail(404, "Занятие не найдено");
-  const l = JSON.parse(row.data);
-  if (
-    req.session.user.role === "teacher" &&
-    l.teacherId !== req.session.user.id
-  )
-    throw fail(403, "Это занятие другого преподавателя");
-  if (!lessonStudents(l).length)
-    throw fail(404, "Эта пара не относится к отслеживаемым студентам");
-  return l;
-}
-function lessonStudents(l) {
-  const ids = new Set(
-    roster.enrollments
-      .filter(
-        (e) =>
-          e.teacherId === l.teacherId &&
-          e.course === l.course &&
-          l.groups.includes(e.group),
-      )
-      .map((e) => e.studentId),
-  );
-  return roster.students
-    .filter((s) => {
-      if (!ids.has(s.id)) return false;
-      const profile = studentProfile(s.id);
-      return (
-        profile.foreignStatus !== "excluded" &&
-        (!profile.enrollmentStatus || profile.enrollmentStatus === "active")
-      );
-    })
-    .sort((a, b) => a.name.localeCompare(b.name, "ru"));
-}
-function visibleMarks(lesson) {
-  const ids = new Set(lessonStudents(lesson).map((s) => s.id));
-  return all(
-    "SELECT studentId,status,note FROM marks WHERE lessonId=?",
-    lesson.id,
-  ).filter((m) => ids.has(m.studentId));
-}
-app.get("/api/lessons", (req, res) =>
-  res.json({
-    lessons: prioritizeLessons(lessonsFor(req.session.user)).map((l) => ({
-      ...l,
-      studentCount: lessonStudents(l).length,
-      marked: visibleMarks(l).length,
-      version:
-        get("SELECT version FROM revisions WHERE lessonId=?", l.id)?.version ||
-        0,
-    })),
-    sync:
-      req.session.user.role === "teacher"
-        ? get("SELECT at FROM sync WHERE teacherId=?", req.session.user.id)
-        : null,
-  }),
-);
-app.get("/api/lessons/:id", (req, res) => {
-  const l = ownedLesson(req);
-  res.json({
-    lesson: l,
-    students: lessonStudents(l),
-    marks: visibleMarks(l),
-    version:
-      get("SELECT version FROM revisions WHERE lessonId=?", l.id)?.version || 0,
-  });
-});
-app.put("/api/lessons/:id/marks", (req, res) => {
-  if (req.session.user.role === "office")
-    throw fail(403, "Посещение отмечает преподаватель");
-  const l = ownedLesson(req);
-  if (new Date(`${l.date}T${l.start}:00+03:00`) > new Date())
-    throw fail(400, "Занятие ещё не началось");
-  const allowed = new Set(lessonStudents(l).map((s) => s.id)),
-    items = req.body.marks;
-  if (
-    !Array.isArray(items) ||
-    items.length > allowed.size ||
-    items.some((x) => !x || typeof x !== "object") ||
-    new Set(items.map((x) => x.studentId)).size !== items.length ||
-    items.some(
-      (x) =>
-        !allowed.has(x.studentId) ||
-        !(statuses.includes(x.status) || x.status === null) ||
-        typeof x.note !== "string" ||
-        x.note.length > 500,
-    )
-  )
-    throw fail(400, "Проверьте отметки и состав студентов");
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    const version =
-      get("SELECT version FROM revisions WHERE lessonId=?", l.id)?.version || 0;
-    if (req.body.version !== version)
-      throw fail(
-        409,
-        "Журнал изменился в другой вкладке. Обновите страницу перед сохранением.",
-      );
-    for (const x of items) {
-      if (x.status === null)
-        run(
-          "DELETE FROM marks WHERE lessonId=? AND studentId=?",
-          l.id,
-          x.studentId,
-        );
-      else
-        run(
-          "INSERT OR REPLACE INTO marks VALUES(?,?,?,?,?)",
-          l.id,
-          x.studentId,
-          x.status,
-          x.note,
-          new Date().toISOString(),
-        );
-    }
-    run("INSERT OR REPLACE INTO revisions VALUES(?,?)", l.id, version + 1);
-    audit(req.session.user, "attendance.update", l.id);
-    db.exec("COMMIT");
-    res.json({ version: version + 1, savedAt: new Date().toISOString() });
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
-});
-async function ruzFetch(path) {
-  let response;
-  try {
-    response = await fetch("https://ruz.hse.ru/api/" + path, {
-      signal: AbortSignal.timeout(15000),
-    });
-  } catch {
-    throw fail(502, "Не удалось связаться с РУЗ. Повтор запланирован.");
-  }
-  if (!response.ok)
-    throw fail(502, "РУЗ временно недоступен. Сохранённый журнал доступен.");
-  const text = await response.text();
-  return parseRuzResponse(text, response.url);
-}
-const syncing = new Map();
-async function performSync(tid, u = { name: "Автоматическое обновление" }) {
-  const t = roster.teachers.find((t) => t.id === tid);
-  if (!t) throw fail(400, "Выберите преподавателя");
-  try {
-    const cached = get(
-      "SELECT personId FROM teacher_links WHERE teacherId=?",
-      tid,
-    );
-    // В РУЗ у одного человека бывает несколько карточек; храним все ID через запятую.
-    const people = cached
-      ? cached.personId.split(",").map((id) => ({ id, label: t.name }))
-      : await ruzFetch("search?type=person&term=" + encodeURIComponent(t.name));
-    const matches = people.filter((p) => p.label?.trim() === t.name);
-    if (!matches.length)
-      throw fail(
-        409,
-        "В РУЗ нет точного совпадения ФИО. Требуется ручное сопоставление.",
-      );
-    const today = moscowDate(),
-      start = new Date(today + "T12:00:00Z"),
-      end = new Date(start);
-    start.setUTCDate(start.getUTCDate() - 7);
-    end.setUTCDate(end.getUTCDate() + 7);
-    const fmt = (d) => d.toISOString().slice(0, 10).replaceAll("-", ".");
-    const entries = await loadSchedules(
-      ruzFetch,
-      t.name,
-      matches.map((m) => String(m.id)),
-      `start=${fmt(start)}&finish=${fmt(end)}&lng=1`,
-    );
-    const email = resolveTeacherEmail(entries, t.name);
-    const received = entries.map((e) => ({
-      id:
-        "ruz_" +
-        hash(
-          [tid, e.lessonOid, e.date, e.beginLesson, e.groupOid].join("|"),
-        ).slice(0, 24),
-      teacherId: tid,
-      date: e.date?.replaceAll(".", "-"),
-      start: e.beginLesson,
-      end: e.endLesson,
-      course: e.discipline,
-      kind: e.kindOfWork,
-      room: e.auditorium || "",
-      building: e.building || "",
-      groups: [
-        ...new Set(
-          [...(e.listGroups || []).map((g) => g.group), e.group]
-            .filter(Boolean)
-            .map((g) => g.split("#")[0]),
-        ),
-      ],
-      source: "ruz",
-    }));
-    if (
-      received.some(
-        (l) =>
-          !/^\d{4}-\d{2}-\d{2}$/.test(l.date) ||
-          !/^\d{2}:\d{2}$/.test(l.start) ||
-          !/^\d{2}:\d{2}$/.test(l.end) ||
-          !l.course,
-      )
-    )
-      throw fail(502, "Не удалось проверить формат расписания РУЗ");
-    const normalized = received.filter((l) => lessonStudents(l).length > 0);
-    db.exec("BEGIN");
-    try {
-      const ids = new Set(normalized.map((l) => l.id));
-      for (const old of lessonsFor({ id: tid, role: "teacher" }, true)) {
-        if (
-          old.date >= fmt(start).replaceAll(".", "-") &&
-          old.date <= fmt(end).replaceAll(".", "-") &&
-          !ids.has(old.id)
-        ) {
-          if (!get("SELECT 1 FROM marks WHERE lessonId=?", old.id))
-            run("DELETE FROM lessons WHERE id=?", old.id);
-          else
-            run(
-              "UPDATE lessons SET data=? WHERE id=?",
-              JSON.stringify({ ...old, scheduleRemoved: true }),
-              old.id,
-            );
-        }
-      }
-      for (const l of normalized)
-        run(
-          "INSERT OR REPLACE INTO lessons VALUES(?,?,?)",
-          l.id,
-          tid,
-          JSON.stringify(l),
-        );
-      run(
-        "INSERT OR REPLACE INTO teacher_links VALUES(?,?,?,?)",
-        tid,
-        matches.map((m) => m.id).join(","),
-        email,
-        new Date().toISOString(),
-      );
-      run(
-        "INSERT OR REPLACE INTO sync VALUES(?,?)",
-        tid,
-        new Date().toISOString(),
-      );
-      audit(u, "ruz.sync", tid);
-      db.exec("COMMIT");
-    } catch (e) {
-      db.exec("ROLLBACK");
-      throw e;
-    }
-    return {
-      count: normalized.length,
-      matched: normalized.filter((l) => lessonStudents(l).length).length,
-    };
-  } catch (e) {
-    throw e;
-  }
-}
-function syncTeacher(tid, u) {
-  if (syncing.has(tid)) return syncing.get(tid);
-  const pending = performSync(tid, u).finally(() => syncing.delete(tid));
-  syncing.set(tid, pending);
-  return pending;
-}
-const scheduler = createScheduler({
-  db,
-  teacherIds: roster.teachers.map((t) => t.id),
-  syncTeacher,
-  intervalMs:
-    Math.max(15, Number(process.env.SYNC_INTERVAL_MINUTES) || 360) * 60000,
-});
-app.post("/api/ruz/sync", async (req, res) => {
-  const u = req.session.user,
-    tid = u.role === "teacher" ? u.id : req.body.teacherId;
-  if (typeof tid !== "string" || !roster.teachers.some((t) => t.id === tid))
-    throw fail(400, "Выберите преподавателя");
-  const previous = get("SELECT at FROM sync WHERE teacherId=?", tid);
-  if (previous && Date.now() - Date.parse(previous.at) < 60000)
-    return res.json({
-      cached: true,
-      count: lessonsFor({ id: tid, role: "teacher" }).length,
-    });
-  const result = await syncTeacher(tid, u);
-  scheduler.success(tid);
-  res.json(result);
-});
 app.use("/api/admin", admin);
-app.get("/api/admin/automation", (req, res) => {
-  const jobs = scheduler.state(),
-    links = all("SELECT * FROM teacher_links");
-  res.json({
-    enabled: process.env.AUTO_SYNC === "true",
-    intervalMinutes: Math.max(
-      15,
-      Number(process.env.SYNC_INTERVAL_MINUTES) || 360,
-    ),
-    total: jobs.length,
-    synced: jobs.filter((j) => j.lastSuccess).length,
-    failed: jobs.filter((j) => j.error).length,
-    pending: jobs.filter((j) => !j.lastSuccess && !j.error).length,
-    linkedEmails: links.filter((l) => l.email).length,
-    backup: get("SELECT value FROM service_state WHERE key='backup'"),
-    issues: jobs
-      .filter((j) => j.error)
-      .map((j) => ({
-        ...j,
-        name: roster.teachers.find((t) => t.id === j.teacherId)?.name,
-      })),
-  });
-});
 function studentProfile(id) {
   const base = roster.students.find((s) => s.id === id);
   if (!base) throw fail(404, "Студент не найден");
@@ -732,7 +392,8 @@ function studentProfile(id) {
   };
 }
 function proceduresFor(id) {
-  const rows = all("SELECT kind,data FROM procedures WHERE studentId=?", id);
+  const rows = all("SELECT kind,data FROM procedures WHERE studentId=?", id),
+    today = moscowDate();
   return procedureCatalog.map((c) => {
     const row = rows.find((r) => r.kind === c.id);
     const record = row
@@ -744,7 +405,7 @@ function proceduresFor(id) {
           completedAt: "",
           note: "",
         };
-    return { ...c, ...record, status: procedureStatus(record, moscowDate()) };
+    return { ...c, ...record, status: procedureStatus(record, today) };
   });
 }
 function editable(req, id) {
@@ -819,16 +480,13 @@ app.post("/api/admin/students", (req, res) => {
     a.toLocaleLowerCase("ru") === b.toLocaleLowerCase("ru");
   if (roster.students.some((s) => s.id === id || same(s.name, clean)))
     throw fail(409, "Студент с таким ФИО уже есть в реестре");
-  const addition = {
-    id,
-    name: clean,
-    links: links.map((l) => ({
-      teacherId: l.teacherId,
-      course: l.course.trim(),
-    })),
-    addedBy: req.session.user.name,
-    addedAt: new Date().toISOString(),
-  };
+  const enrollments = links.map((l) => ({
+    studentId: id,
+    teacherId: l.teacherId,
+    group: "",
+    course: l.course.trim(),
+    kind: "ручной ввод",
+  }));
   const profile = {
     version: 1,
     program,
@@ -841,11 +499,8 @@ app.post("/api/admin/students", (req, res) => {
   };
   db.exec("BEGIN IMMEDIATE");
   try {
-    run(
-      "INSERT INTO roster_additions VALUES(?,?)",
-      id,
-      JSON.stringify(addition),
-    );
+    run("INSERT INTO roster_students VALUES(?,?)", id, clean);
+    enrollments.forEach(addEnrollment);
     run(
       "INSERT OR REPLACE INTO student_profiles VALUES(?,?)",
       id,
@@ -857,8 +512,184 @@ app.post("/api/admin/students", (req, res) => {
     db.exec("ROLLBACK");
     throw e;
   }
-  applyAddition(addition);
+  roster.students.push({ id, name: clean });
+  roster.enrollments.push(...enrollments);
   res.json({ id, version: 1, manager: managerFor(profile) });
+});
+// Правка реестра через сайт: преподаватели, ФИО студентов, связи «студент – преподаватель – дисциплина».
+function registryAdmin(req) {
+  if (req.session.user.role !== "admin")
+    throw fail(403, "Реестр меняет руководство учебного офиса");
+}
+function registryName(name, list, exceptId) {
+  const clean =
+    typeof name === "string" ? name.trim().replace(/\s+/g, " ") : "";
+  if (clean.length < 3 || clean.length > 150)
+    throw fail(400, "Укажите ФИО от 3 до 150 символов");
+  const lower = clean.toLocaleLowerCase("ru");
+  if (
+    list.some(
+      (x) => x.id !== exceptId && x.name.toLocaleLowerCase("ru") === lower,
+    )
+  )
+    throw fail(409, "Такое ФИО уже есть в реестре");
+  return clean;
+}
+function registryEntry(list, id, message) {
+  const entry = list.find((x) => x.id === id);
+  if (!entry) throw fail(404, message);
+  return entry;
+}
+app.post("/api/admin/teachers", (req, res) => {
+  registryAdmin(req);
+  const name = registryName(req.body.name, roster.teachers),
+    id = "t_" + randomBytes(8).toString("hex");
+  run("INSERT INTO roster_teachers VALUES(?,?)", id, name);
+  audit(req.session.user, "teacher.add", id);
+  roster.teachers.push({ id, name });
+  res.json({ id, name });
+});
+app.put("/api/admin/teachers/:id", (req, res) => {
+  registryAdmin(req);
+  const teacher = registryEntry(
+    roster.teachers,
+    req.params.id,
+    "Преподаватель не найден",
+  );
+  const name = registryName(req.body.name, roster.teachers, teacher.id);
+  run("UPDATE roster_teachers SET name=? WHERE id=?", name, teacher.id);
+  audit(req.session.user, "teacher.rename", teacher.id);
+  teacher.name = name;
+  res.json({ ok: true, name });
+});
+app.delete("/api/admin/teachers/:id", (req, res) => {
+  registryAdmin(req);
+  const { id } = registryEntry(
+    roster.teachers,
+    req.params.id,
+    "Преподаватель не найден",
+  );
+  if (
+    roster.enrollments.some((e) => e.teacherId === id) ||
+    get("SELECT 1 FROM daily_marks WHERE teacherId=?", id) ||
+    get(
+      "SELECT 1 FROM marks m JOIN lessons l ON l.id=m.lessonId WHERE l.teacherId=?",
+      id,
+    )
+  )
+    throw fail(
+      409,
+      "У преподавателя есть студенты или отметки. Удалить можно только запись без связей и истории",
+    );
+  run("DELETE FROM roster_teachers WHERE id=?", id);
+  audit(req.session.user, "teacher.delete", id);
+  roster.teachers = roster.teachers.filter((t) => t.id !== id);
+  res.json({ ok: true });
+});
+app.put("/api/admin/students/:id", (req, res) => {
+  registryAdmin(req);
+  const student = registryEntry(
+    roster.students,
+    req.params.id,
+    "Студент не найден",
+  );
+  const name = registryName(req.body.name, roster.students, student.id);
+  run("UPDATE roster_students SET name=? WHERE id=?", name, student.id);
+  audit(req.session.user, "student.rename", student.id);
+  student.name = name;
+  res.json({ ok: true, name });
+});
+app.delete("/api/admin/students/:id", (req, res) => {
+  registryAdmin(req);
+  const { id } = registryEntry(
+    roster.students,
+    req.params.id,
+    "Студент не найден",
+  );
+  if (
+    get("SELECT 1 FROM daily_marks WHERE studentId=?", id) ||
+    get("SELECT 1 FROM marks WHERE studentId=?", id)
+  )
+    throw fail(
+      409,
+      "У студента есть отметки. Вместо удаления смените статус обучения в карточке",
+    );
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const table of [
+      "roster_enrollments",
+      "student_profiles",
+      "procedures",
+      "debts",
+    ])
+      run(`DELETE FROM ${table} WHERE studentId=?`, id);
+    run("DELETE FROM roster_students WHERE id=?", id);
+    audit(req.session.user, "student.delete", id);
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+  roster.students = roster.students.filter((s) => s.id !== id);
+  roster.enrollments = roster.enrollments.filter((e) => e.studentId !== id);
+  res.json({ ok: true });
+});
+function enrollmentKey(body) {
+  const { studentId, teacherId, course } = body;
+  if (
+    !roster.students.some((s) => s.id === studentId) ||
+    !roster.teachers.some((t) => t.id === teacherId) ||
+    typeof course !== "string" ||
+    !course.trim() ||
+    course.length > 200
+  )
+    throw fail(400, "Укажите студента, преподавателя и дисциплину");
+  return { studentId, teacherId, course: course.trim() };
+}
+app.post("/api/admin/enrollments", (req, res) => {
+  registryAdmin(req);
+  const key = enrollmentKey(req.body);
+  if (
+    roster.enrollments.some(
+      (e) =>
+        e.studentId === key.studentId &&
+        e.teacherId === key.teacherId &&
+        e.course === key.course,
+    )
+  )
+    throw fail(409, "Такая связь уже есть в реестре");
+  const enrollment = { ...key, group: "", kind: "ручной ввод" };
+  addEnrollment(enrollment);
+  audit(
+    req.session.user,
+    "enrollment.add",
+    key.studentId + ":" + key.teacherId + ":" + key.course,
+  );
+  roster.enrollments.push(enrollment);
+  res.json({ ok: true });
+});
+app.delete("/api/admin/enrollments", (req, res) => {
+  registryAdmin(req);
+  const key = enrollmentKey(req.body);
+  const { changes } = run(
+    "DELETE FROM roster_enrollments WHERE studentId=? AND teacherId=? AND course=?",
+    key.studentId,
+    key.teacherId,
+    key.course,
+  );
+  if (!changes) throw fail(404, "Связь не найдена");
+  audit(
+    req.session.user,
+    "enrollment.delete",
+    key.studentId + ":" + key.teacherId + ":" + key.course,
+  );
+  roster.enrollments = roster.enrollments.filter(
+    (e) =>
+      e.studentId !== key.studentId ||
+      e.teacherId !== key.teacherId ||
+      e.course !== key.course,
+  );
+  res.json({ ok: true });
 });
 app.put("/api/admin/students/:id/profile", (req, res) => {
   if (req.session.user.role !== "admin")
@@ -875,7 +706,25 @@ app.put("/api/admin/students/:id/profile", (req, res) => {
     arrivalDate = "",
     residence = "",
     enrollmentStatus = "active",
+    nameLatin = "",
+    sendingCountry = "",
+    programVersion = "",
+    curator = "",
+    housing = "",
+    inRussia = "",
+    passportUntil = "",
+    migrationCardUntil = "",
   } = req.body;
+  if (
+    [nameLatin, sendingCountry, programVersion, curator].some(
+      (v) => typeof v !== "string" || v.length > 200,
+    ) ||
+    !["", "dormitory", "private"].includes(housing) ||
+    !["", "yes", "no"].includes(inRussia) ||
+    !validDate(passportUntil) ||
+    !validDate(migrationCardUntil)
+  )
+    throw fail(400, "Проверьте сведения о проживании и сроки документов");
   if (
     (program !== "" && !programs.includes(program)) ||
     !Number.isInteger(year) ||
@@ -911,6 +760,14 @@ app.put("/api/admin/students/:id/profile", (req, res) => {
     arrivalDate,
     residence,
     enrollmentStatus,
+    nameLatin: nameLatin.trim(),
+    sendingCountry: sendingCountry.trim(),
+    programVersion: programVersion.trim(),
+    curator: curator.trim(),
+    housing,
+    inRussia,
+    passportUntil,
+    migrationCardUntil,
   };
   run(
     "INSERT OR REPLACE INTO student_profiles VALUES(?,?)",
@@ -976,46 +833,36 @@ app.put("/api/admin/students/:id/procedures/:kind", (req, res) => {
   res.json({ ok: true, version: data.version });
 });
 function studentRows() {
-  const lessons = all("SELECT data FROM lessons").map((x) =>
-      JSON.parse(x.data),
-    ),
-    map = new Map(lessons.map((l) => [l.id, l]));
-  const marks = all("SELECT * FROM marks").map((m) => ({
-    ...m,
-    ...map.get(m.lessonId),
-  }));
-  const debts = all("SELECT * FROM debts");
-  return roster.students.map((s) => ({
-    ...studentProfile(s.id),
-    manager: managerFor(studentProfile(s.id)),
-    procedureOverdue: proceduresFor(s.id).filter((p) =>
-      ["overdue", "expired"].includes(p.status),
-    ).length,
-    procedureUnknown: proceduresFor(s.id).filter((p) => p.status === "unknown")
-      .length,
-    procedureReview: proceduresFor(s.id).filter((p) => p.status === "submitted")
-      .length,
-    groups: [
-      ...new Set(
-        roster.enrollments
-          .filter((e) => e.studentId === s.id)
-          .map((e) => e.group),
+  const records = attendanceRecords(db),
+    debts = all("SELECT * FROM debts");
+  return roster.students.map((s) => {
+    const profile = studentProfile(s.id),
+      procedures = proceduresFor(s.id);
+    return {
+      ...profile,
+      manager: managerFor(profile),
+      procedureOverdue: procedures.filter((p) =>
+        ["overdue", "expired"].includes(p.status),
+      ).length,
+      procedureUnknown: procedures.filter((p) => p.status === "unknown").length,
+      procedureReview: procedures.filter((p) => p.status === "submitted")
+        .length,
+      groups: [
+        ...new Set(
+          roster.enrollments
+            .filter((e) => e.studentId === s.id)
+            .map((e) => e.group),
+        ),
+      ],
+      ...studentMetrics(
+        records.filter((r) => r.studentId === s.id),
+        debts.filter((d) => d.studentId === s.id),
       ),
-    ],
-    ...studentMetrics(
-      marks.filter((m) => m.studentId === s.id),
-      debts.filter((d) => d.studentId === s.id),
-    ),
-  }));
+    };
+  });
 }
 app.get("/api/admin/overview", (req, res) => {
-  const students = studentRows(),
-    lessons = lessonsFor(req.session.user);
-  const lessonIds = new Set(lessons.map((l) => l.id)),
-    studentIds = new Set(roster.students.map((s) => s.id));
-  const scopedMarks = all(
-    "SELECT m.*,json_extract(l.data,'$.date') date FROM marks m JOIN lessons l ON l.id=m.lessonId",
-  ).filter((m) => lessonIds.has(m.lessonId) && studentIds.has(m.studentId));
+  const students = studentRows();
   res.json({
     students: students.map((s) => ({
       ...s,
@@ -1035,9 +882,7 @@ app.get("/api/admin/overview", (req, res) => {
     },
     quality: roster.quality,
     teachers: roster.teachers.length,
-    lessons: lessons.length,
-    markedLessons: new Set(scopedMarks.map((m) => m.lessonId)).size,
-    attendance: studentMetrics(scopedMarks, []).attendance,
+    backup: get("SELECT value FROM service_state WHERE key='backup'"),
     audit: all("SELECT * FROM audit ORDER BY id DESC LIMIT 12"),
   });
 });
@@ -1049,10 +894,15 @@ app.get("/api/admin/students/:id", (req, res) => {
     canEdit: canEditStudent(req.session.user, student),
     programs,
     procedures: proceduresFor(student.id),
-    records: all(
-      "SELECT m.*,l.data FROM marks m JOIN lessons l ON l.id=m.lessonId WHERE m.studentId=? ORDER BY json_extract(l.data,'$.date') DESC",
-      student.id,
-    ).map((r) => ({ ...r, lesson: JSON.parse(r.data), data: undefined })),
+    records: attendanceRecords(db)
+      .filter((r) => r.studentId === student.id)
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .map((r) => ({
+        date: r.date,
+        course: r.course,
+        teacher: roster.teachers.find((t) => t.id === r.teacherId)?.name,
+        status: r.status,
+      })),
     debts: all(
       "SELECT * FROM debts WHERE studentId=? ORDER BY createdAt DESC",
       student.id,
@@ -1063,6 +913,20 @@ app.get("/api/admin/students/:id", (req, res) => {
           .filter((e) => e.studentId === student.id)
           .map((e) => e.course),
       ),
+    ],
+    links: [
+      ...new Map(
+        roster.enrollments
+          .filter((e) => e.studentId === student.id)
+          .map((e) => [
+            e.teacherId + "\n" + e.course,
+            {
+              teacherId: e.teacherId,
+              teacher: roster.teachers.find((t) => t.id === e.teacherId)?.name,
+              course: e.course,
+            },
+          ]),
+      ).values(),
     ],
   });
 });
@@ -1176,7 +1040,6 @@ const server = app.listen(port, host, () =>
     `Журнал: ${origin} | ${demo ? "Локальный демонстрационный режим" : "Рабочий режим"}`,
   ),
 );
-if (process.env.AUTO_SYNC === "true") scheduler.start();
 let backupTimer,
   backupRunning = false;
 async function createBackup() {
@@ -1212,10 +1075,8 @@ let shuttingDown = false;
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
-  scheduler.stop();
   clearInterval(backupTimer);
   server.close(async () => {
-    await Promise.allSettled([...syncing.values()]);
     while (backupRunning) await new Promise((r) => setTimeout(r, 50));
     db.close();
     process.exit(0);

@@ -10,7 +10,6 @@ services:
       REQUIRE_AUTH_CONFIG: "true"
       HOST: 0.0.0.0
       PORT: "3100"
-      AUTO_SYNC: "true"
       AUTO_BACKUP: "true"
       BACKUP_DIR: /app/backups
     volumes:

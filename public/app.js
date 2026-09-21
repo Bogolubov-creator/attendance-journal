@@ -4,6 +4,7 @@ import {
   hasDailyChanges,
   discardDailyChanges,
 } from "./daily.js";
+import { registryView } from "./registry.js";
 const $ = (s) => document.querySelector(s),
   root = $("#app");
 const esc = (s) =>
@@ -15,28 +16,14 @@ const esc = (s) =>
       ],
   );
 const labels = { present: "Присутствовал", absent: "Отсутствовал" };
-const symbols = { present: "✓", absent: "×" };
-let syncError = "";
 let session,
   user,
   page = "journal",
-  lessons = [],
-  selected = null,
-  current = null,
-  marks = {},
-  dirty = false,
   overview,
   filter = "all",
   query = "",
-  teacherSearch = "",
-  lastSave = "",
   toastTimer,
   tablePage = 0;
-let autosaveTimer,
-  savePromise,
-  editSequence = 0,
-  saveConflict = false,
-  automation;
 async function api(path, options = {}) {
   const r = await fetch(path, {
     signal: AbortSignal.timeout(25000),
@@ -175,8 +162,6 @@ function loginView() {
         officeProgram = "";
         officeYear = "";
         page = user.role === "teacher" ? "journal" : "dashboard";
-        syncError = "";
-        selected = null;
         filter = "all";
         query = "";
         tablePage = 0;
@@ -189,7 +174,7 @@ function loginView() {
   fill();
 }
 function shell() {
-  root.innerHTML = `<div class="layout"><aside class="sidebar">${brand}<div class="section-label">${user.role !== "teacher" ? "Руководство" : "Преподаватель"}</div><nav class="nav" aria-label="Основная навигация">${user.role !== "teacher" ? `<button data-page="dashboard" class="${page === "dashboard" ? "active" : ""}"><span class="nav-icon">▦</span>Обзор</button><button data-page="students" class="${page === "students" ? "active" : ""}"><span class="nav-icon">♙</span>Студенты</button><button data-page="automation" class="${page === "automation" ? "active" : ""}"><span class="nav-icon">↻</span>Сбор данных</button>` : `<button data-page="journal" class="active"><span class="nav-icon">▤</span>Мой журнал</button>`}</nav><div class="side-bottom"><div class="side-note">${user.role !== "teacher" ? "Студенты, которым нужна поддержка, собраны в одном месте." : "Выберите дату, отметьте студентов и нажмите «Сохранить»."}</div><div class="identity"><span class="avatar">${initials(user.name)}</span><div><strong>${esc(user.name.split(" ").slice(0, 2).join(" "))}</strong><small>${user.role !== "teacher" ? "Руководство" : "Преподаватель"}</small></div></div><button id="logout" class="logout">Выйти ↗</button></div></aside><main class="main"><header class="topbar"><span class="crumb">Учебный процесс <b>/ ${user.role !== "teacher" ? "Руководство" : "Посещаемость"}</b></span>${session.demo ? '<span class="demo-tag">Локальный просмотр · тестовые отметки</span>' : ""}</header><div class="content" id="content"></div></main></div>`;
+  root.innerHTML = `<div class="layout"><aside class="sidebar">${brand}<div class="section-label">${user.role !== "teacher" ? "Руководство" : "Преподаватель"}</div><nav class="nav" aria-label="Основная навигация">${user.role !== "teacher" ? `<button data-page="dashboard" class="${page === "dashboard" ? "active" : ""}"><span class="nav-icon">▦</span>Обзор</button><button data-page="students" class="${page === "students" ? "active" : ""}"><span class="nav-icon">♙</span>Студенты</button>${user.role === "admin" ? `<button data-page="registry" class="${page === "registry" ? "active" : ""}"><span class="nav-icon">☰</span>Реестр</button>` : ""}` : `<button data-page="journal" class="active"><span class="nav-icon">▤</span>Мой журнал</button>`}</nav><div class="side-bottom"><div class="side-note">${user.role !== "teacher" ? "Студенты, которым нужна поддержка, собраны в одном месте." : "Выберите дату, отметьте студентов и нажмите «Сохранить»."}</div><div class="identity"><span class="avatar">${initials(user.name)}</span><div><strong>${esc(user.name.split(" ").slice(0, 2).join(" "))}</strong><small>${user.role !== "teacher" ? "Руководство" : "Преподаватель"}</small></div></div><button id="logout" class="logout">Выйти ↗</button></div></aside><main class="main"><header class="topbar"><span class="crumb">Учебный процесс <b>/ ${user.role !== "teacher" ? "Руководство" : "Посещаемость"}</b></span>${session.demo ? '<span class="demo-tag">Локальный просмотр · тестовые отметки</span>' : ""}</header><div class="content" id="content"></div></main></div>`;
   $$("[data-page]").forEach(
     (b) =>
       (b.onclick = () =>
@@ -207,9 +192,7 @@ function shell() {
       if (hasDailyChanges() && !confirm("Выйти без сохранения отметок?"))
         return;
       discardDailyChanges();
-      await flushSave();
       await api("/api/logout", { method: "POST" });
-      dirty = false;
       user = null;
       loginView();
     });
@@ -221,257 +204,11 @@ async function showApp() {
   shell();
   $("#content").innerHTML = '<div class="loading">Загружаем данные…</div>';
   if (user.role === "teacher") return dailyJournal({ api, esc, toast });
-  if (page !== "students" && page !== "automation")
-    return dailyDashboard({ api, esc, toast });
+  if (page === "registry") return registryView({ api, esc, toast });
+  if (page !== "students") return dailyDashboard({ api, esc, toast });
   overview = await api("/api/admin/overview");
-  if (page === "automation") {
-    automation = await api("/api/admin/automation");
-    automationView();
-  } else adminView();
+  adminView();
 }
-async function loadLessons() {
-  const r = await api("/api/lessons");
-  lessons = r.lessons;
-  session.syncedAt = r.sync?.at;
-  if (!selected || !lessons.some((l) => l.id === selected))
-    selected = lessons[0]?.id || null;
-  if (selected) await loadCurrent();
-  else current = null;
-}
-async function loadCurrent() {
-  current = await api("/api/lessons/" + selected);
-  clearTimeout(autosaveTimer);
-  saveConflict = false;
-  editSequence = 0;
-  marks = Object.fromEntries(
-    current.marks.map((m) => [
-      m.studentId,
-      { status: m.status, note: m.note || "" },
-    ]),
-  );
-  dirty = false;
-  teacherSearch = "";
-  lastSave = "";
-}
-function lessonState(l) {
-  const now = new Date(),
-    start = new Date(`${l.date}T${l.start}:00+03:00`),
-    end = new Date(`${l.date}T${l.end}:00+03:00`);
-  if (l.marked && l.marked === l.studentCount) return ["done", "Заполнено"];
-  if (start <= now && end >= now) return ["now", "Сейчас"];
-  if (start > now) return ["", "Предстоит"];
-  return ["", l.marked ? "Частично" : "Не заполнено"];
-}
-function journalView() {
-  const content = $("#content");
-  content.innerHTML = `<div class="page-heading"><div><div class="eyebrow">Кабинет преподавателя</div><h1>Мой журнал</h1><p>${esc(user.name)}</p></div><button class="btn" id="sync">↻ Обновить из РУЗ</button></div><div class="date-strip"><div><strong>${fmtDate(new Date().toISOString(), { weekday: "long", day: "numeric", month: "long" })}</strong><small>Время московское</small></div><div class="sync-info">${session.syncedAt ? `<span class="dot"></span>РУЗ обновлён ${fmtDate(session.syncedAt, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : "Расписание ещё не загружено"}</div></div>${
-    syncError
-      ? `<div class="panel" role="alert"><h3>Расписание не обновлено</h3><p>${esc(syncError)}</p></div>`
-      : ""
-  }${
-    !lessons.length
-      ? `<div class="panel empty"><h3>${syncError ? "Не удалось загрузить занятия" : session.syncedAt ? "Нет подходящих занятий" : "Расписание ещё не загружено"}</h3><p>Показываем только пары, где есть студенты из отслеживаемого списка. Остальное расписание скрыто.</p><button id="empty-sync" class="btn primary">Загрузить расписание</button></div>`
-      : `<div class="journal-grid"><aside><div class="schedule-title"><span>Занятия</span><span class="muted">${lessons.length}</span></div><div class="schedule">${lessons
-          .map((l) => {
-            const [cls, label] = lessonState(l);
-            return `<button data-lesson="${l.id}" class="lesson-card ${selected === l.id ? "selected" : ""}" aria-pressed="${selected === l.id}"><div class="lesson-time">${l.start}<span>${l.end}</span></div><small>${fmtDate(l.date, { weekday: "short", day: "numeric", month: "short" })}</small><strong>${esc(l.course.replace(/ \(рус\)$/, ""))}</strong><small>${esc(l.kind)}${l.room ? " · ауд. " + esc(l.room) : ""}</small><div class="lesson-foot"><span class="status-label ${cls}">${label}</span><small>${l.studentCount} в списке</small></div></button>`;
-          })
-          .join(
-            "",
-          )}</div><p class="footer-note">Только пары со студентами из отслеживаемого списка. Сначала текущая, затем ближайшие.</p></aside><section class="journal" id="journal"></section></div>`
-  }`;
-  $("#sync").onclick = sync;
-  if ($("#empty-sync")) $("#empty-sync").onclick = sync;
-  $$("[data-lesson]").forEach(
-    (b) =>
-      (b.onclick = () =>
-        safe(async () => {
-          await flushSave();
-          selected = b.dataset.lesson;
-          await loadCurrent();
-          journalView();
-        })),
-  );
-  if (current) renderJournal();
-}
-async function sync() {
-  try {
-    await flushSave();
-  } catch (e) {
-    toast(e.message, true);
-    return;
-  }
-  const b = $("#sync");
-  b.disabled = true;
-  b.textContent = "Сверяем с РУЗ…";
-  await safe(async () => {
-    let r;
-    try {
-      r = await api("/api/ruz/sync", { method: "POST", body: "{}" });
-      syncError = "";
-    } catch (e) {
-      syncError = e.message;
-      journalView();
-      throw e;
-    }
-    await loadLessons();
-    journalView();
-    toast(
-      r.cached
-        ? "Расписание уже актуально"
-        : `Загружено занятий: ${r.count}. Со студентами из Excel: ${r.matched}.`,
-    );
-  });
-  if (b.isConnected) {
-    b.disabled = false;
-    b.textContent = "↻ Обновить из РУЗ";
-  }
-}
-function renderJournal() {
-  const l = current.lesson;
-  const future = new Date(`${l.date}T${l.start}:00+03:00`) > new Date();
-  $("#journal").innerHTML =
-    `<div class="journal-head"><div class="eyebrow">${esc(l.kind)} · ${fmtDate(l.date, { day: "numeric", month: "long" })}</div><h2>${esc(l.course.replace(/ \(рус\)$/, ""))}</h2><div class="metadata"><span>◷ ${l.start}–${l.end}</span>${l.room ? `<span>Аудитория ${esc(l.room)}</span>` : ""}<span>${esc(l.building)}</span></div>${l.scheduleRemoved ? '<div class="notice warn">Пара больше не найдена в РУЗ. Сохранённые отметки оставлены для проверки.</div>' : ""}${future ? '<div class="notice">Занятие ещё не началось. Отмечать посещение можно с начала пары.</div>' : ""}<div class="journal-counts" id="counts"></div></div>${current.students.length ? `<div class="toolbar">${search("student-search", "Найти студента", teacherSearch)}<button class="btn small" id="mark-all" ${future ? "disabled" : ""}>✓ Все присутствуют</button></div><div class="table-head"><span>№</span><span>Студент</span><span>Посещение</span></div><div id="rows"></div><div class="legend"><span><b>✓</b> Присутствовал</span><span><b>×</b> Отсутствовал</span></div><div class="save-bar"><small id="save-state">Отметки сохраняются автоматически</small><button class="btn primary" id="save" disabled>Сохранить журнал</button></div>` : `<div class="empty"><h3>В Excel нет студентов этой пары</h3><p>Сопоставление проверяет дисциплину и учебную группу. Для отметок нужен подтверждённый список.</p><a class="btn" href="https://ruz.hse.ru/ruz/main" target="_blank" rel="noopener">Проверить в РУЗ ↗</a></div>`}<div class="legend">Только отслеживаемые студенты. Остальной состав группы не отображается.</div>`;
-  renderCounts();
-  if (current.students.length) {
-    renderRows();
-    $("#student-search").oninput = (e) => {
-      teacherSearch = e.target.value;
-      renderRows();
-    };
-    $("#mark-all").onclick = () => {
-      current.students.forEach(
-        (s) =>
-          (marks[s.id] = { status: "present", note: marks[s.id]?.note || "" }),
-      );
-      changed();
-      renderRows();
-    };
-    $("#save").onclick = () => safe(save);
-  }
-}
-function renderCounts() {
-  const values = Object.values(marks).filter((m) => m.status),
-    present = values.filter((m) => m.status === "present").length;
-  $("#counts").innerHTML =
-    `<div><strong>${current.students.length}</strong><small>В списке</small></div><div><strong>${present}</strong><small>Присутствуют</small></div><div><strong>${values.filter((m) => m.status === "absent").length}</strong><small>Отсутствуют</small></div><div><strong>${current.students.length - values.length}</strong><small>Без отметки</small></div>`;
-}
-function renderRows() {
-  const future =
-      new Date(`${current.lesson.date}T${current.lesson.start}:00+03:00`) >
-      new Date(),
-    rows = current.students.filter((s) =>
-      s.name.toLowerCase().includes(teacherSearch.toLowerCase()),
-    );
-  $("#rows").innerHTML = rows.length
-    ? rows
-        .map((s) => {
-          const index = current.students.findIndex((x) => x.id === s.id) + 1;
-          return `<div class="student-row"><span class="index">${String(index).padStart(2, "0")}</span><div><div class="student-name">${esc(s.name)}</div><div class="student-sub">${marks[s.id]?.status ? labels[marks[s.id].status] : "Не отмечен"}</div></div><div class="mark-controls" role="group" aria-label="Посещение: ${esc(s.name)}">${Object.keys(
-            labels,
-          )
-            .map(
-              (status) =>
-                `<button class="mark ${status} ${marks[s.id]?.status === status ? "on" : ""}" data-student="${s.id}" data-status="${status}" aria-label="${labels[status]}: ${esc(s.name)}" aria-pressed="${marks[s.id]?.status === status}" title="${labels[status]}" ${future ? "disabled" : ""}>${symbols[status]}</button>`,
-            )
-            .join("")}</div></div>`;
-        })
-        .join("")
-    : '<div class="empty">Студенты не найдены. Измените запрос.</div>';
-  $$("[data-status]").forEach(
-    (b) =>
-      (b.onclick = () => {
-        const id = b.dataset.student,
-          status = b.dataset.status;
-        marks[id] = {
-          status: marks[id]?.status === status ? null : status,
-          note: marks[id]?.note || "",
-        };
-        changed();
-        renderRows();
-      }),
-  );
-}
-function changed() {
-  dirty = true;
-  editSequence++;
-  renderCounts();
-  $("#save").disabled = false;
-  $("#save-state").textContent = saveConflict
-    ? "Конфликт версии. Обновите журнал."
-    : "Сохраняем автоматически…";
-  if (!saveConflict) {
-    clearTimeout(autosaveTimer);
-    autosaveTimer = setTimeout(() => safe(save), 600);
-  }
-}
-async function flushSave() {
-  clearTimeout(autosaveTimer);
-  if (savePromise) await savePromise;
-  while (dirty) await save();
-}
-async function save() {
-  clearTimeout(autosaveTimer);
-  if (savePromise) return savePromise;
-  if (!dirty) return;
-  if (saveConflict)
-    throw Error(
-      "Журнал изменён в другой вкладке. Скопируйте свои изменения и обновите страницу.",
-    );
-  const id = selected,
-    seq = editSequence,
-    payload = {
-      version: current.version,
-      marks: Object.entries(marks).map(([studentId, m]) => ({
-        studentId,
-        ...m,
-      })),
-    };
-  const b = $("#save");
-  if (b) {
-    b.disabled = true;
-    b.textContent = "Сохраняем…";
-  }
-  savePromise = (async () => {
-    try {
-      const r = await api("/api/lessons/" + id + "/marks", {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      });
-      current.version = r.version;
-      dirty = seq !== editSequence;
-      lastSave = r.savedAt;
-      const state = $("#save-state");
-      if (state)
-        state.textContent = dirty
-          ? "Сохраняем следующие отметки…"
-          : "Автоматически сохранено в " +
-            fmtDate(lastSave, { hour: "2-digit", minute: "2-digit" });
-      const item = lessons.find((l) => l.id === id);
-      if (item)
-        item.marked = Object.values(marks).filter((m) => m.status).length;
-    } catch (e) {
-      saveConflict = e.status === 409;
-      const state = $("#save-state");
-      if (state)
-        state.textContent = saveConflict
-          ? "Конфликт версии. Обновите журнал."
-          : "Не сохранено. Проверьте связь и нажмите «Сохранить».";
-      throw e;
-    } finally {
-      savePromise = null;
-      if (b?.isConnected) {
-        b.textContent = "Сохранить журнал";
-        b.disabled = !dirty;
-      }
-    }
-  })();
-  await savePromise;
-  if (dirty && !saveConflict) autosaveTimer = setTimeout(() => safe(save), 100);
-}
-window.addEventListener("online", () => {
-  if (dirty && !saveConflict) safe(save);
-});
 const procedureLabels = {
   unknown: "Нет данных",
   pending: "Не выполнено",
@@ -531,7 +268,7 @@ function adminView() {
     )
     .join("")}</div>
   <div class="table-scroll"><table class="admin-table"><thead><tr><th>Студент / менеджер</th><th>Посещение</th><th>Без явки</th><th>Процедуры</th></tr></thead><tbody id="admin-rows"></tbody></table></div><div class="pagination"><small id="result-count"></small><div class="actions"><button class="btn small" id="prev-page" aria-label="Предыдущая страница">←</button><button class="btn small" id="next-page" aria-label="Следующая страница">→</button></div></div></div>
-  <aside class="admin-aside"><section class="panel mini-panel"><h3>Ваш участок</h3><p>${esc(user.scopes?.map((s) => s.program + (s.year ? ", " + s.year + " курс" : "")).join(" · ") || "Весь факультет")}</p><a href="https://pravo.hse.ru/centre/contact" target="_blank" rel="noopener">Распределение менеджеров ↗</a><p>Сверено 16.09.2026. Изменения состава требуют обновления справочника.</p></section><section class="panel mini-panel"><h3>Полнота данных</h3><div class="quality-row"><span>Без менеджера</span><strong>${overview.faculty.unassigned}</strong></div><div class="quality-row"><span>Пар с отметками</span><strong>${overview.markedLessons} / ${overview.lessons}</strong></div><p>Нет отметки – не значит отсутствовал. Несколько пропусков за день считаются одним учебным днём.</p></section><section class="panel mini-panel"><h3>Сопровождение иностранцев</h3><p>Применимость процедур проверяется индивидуально: гражданство, основание пребывания, дата въезда и действующие подтверждения.</p><a href="https://ivisa.hse.ru/" target="_blank" rel="noopener">Визовая поддержка ↗</a><p><a href="https://istudents.hse.ru/" target="_blank" rel="noopener">Сервисы и инструкции для иностранцев ↗</a></p><p>Поддержка: istudents.support@hse.ru</p><p>Электронный пропуск, связь и адаптация – сервисные вопросы, они не создают долг по обязательной процедуре.</p></section></aside></div>`;
+  <aside class="admin-aside"><section class="panel mini-panel"><h3>Ваш участок</h3><p>${esc(user.scopes?.map((s) => s.program + (s.year ? ", " + s.year + " курс" : "")).join(" · ") || "Весь факультет")}</p><a href="https://pravo.hse.ru/centre/contact" target="_blank" rel="noopener">Распределение менеджеров ↗</a><p>Сверено 16.09.2026. Изменения состава требуют обновления справочника.</p></section><section class="panel mini-panel"><h3>Полнота данных</h3><div class="quality-row"><span>Без менеджера</span><strong>${overview.faculty.unassigned}</strong></div><div class="quality-row"><span>Студентов с отметками</span><strong>${overview.students.filter((s) => s.marked).length} / ${overview.students.length}</strong></div><div class="quality-row"><span>Резервная копия базы</span><strong>${overview.backup ? (JSON.parse(overview.backup.value).ok ? "Создана " : "Ошибка ") + fmtDate(JSON.parse(overview.backup.value).at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Не включена"}</strong></div><p>Нет отметки – не значит отсутствовал. Несколько пропусков за день считаются одним учебным днём.</p></section><section class="panel mini-panel"><h3>Сопровождение иностранцев</h3><p>Применимость процедур проверяется индивидуально: гражданство, основание пребывания, дата въезда и действующие подтверждения.</p><a href="https://ivisa.hse.ru/" target="_blank" rel="noopener">Визовая поддержка ↗</a><p><a href="https://istudents.hse.ru/" target="_blank" rel="noopener">Сервисы и инструкции для иностранцев ↗</a></p><p>Поддержка: istudents.support@hse.ru</p><p>Электронный пропуск, связь и адаптация – сервисные вопросы, они не создают долг по обязательной процедуре.</p></section></aside></div>`;
   if ($("#add-student-open"))
     $("#add-student-open").onclick = () => safe(addStudentDialog);
   $("#office-scope").value = officeScope;
@@ -706,7 +443,8 @@ async function addStudentDialog() {
 async function profile(id) {
   const data = await api("/api/admin/students/" + id),
     s = data.student,
-    d = $("#profile");
+    d = $("#profile"),
+    teachers = user.role === "admin" ? await api("/api/admin/teachers") : [];
   const options = (items, value) =>
     items
       .map(
@@ -741,7 +479,22 @@ async function profile(id) {
       ["other", "Другое"],
     ],
     s.residence,
-  )}</select></label><button class="btn primary small">Сохранить данные студента</button></fieldset></form></details>
+  )}</select></label><label>Находится в РФ<select name="inRussia">${options(
+    [
+      ["", "Не указано"],
+      ["yes", "Да"],
+      ["no", "Нет"],
+    ],
+    s.inRussia,
+  )}</select></label><label>Проживание<select name="housing">${options(
+    [
+      ["", "Не указано"],
+      ["dormitory", "Общежитие"],
+      ["private", "Частный адрес"],
+    ],
+    s.housing,
+  )}</select></label><label>Куратор по миграционному учёту<input name="curator" maxlength="200" value="${esc(s.curator)}"></label><label>Паспорт действителен до<input type="date" name="passportUntil" value="${esc(s.passportUntil)}"></label><label>Миграционная карта до<input type="date" name="migrationCardUntil" value="${esc(s.migrationCardUntil)}"></label><label>ФИО латиницей<input name="nameLatin" maxlength="200" value="${esc(s.nameLatin)}"></label><label>Страна, направившая на обучение<input name="sendingCountry" maxlength="200" value="${esc(s.sendingCountry)}"></label><label class="wide">Версия образовательной программы<input name="programVersion" maxlength="200" value="${esc(s.programVersion)}"></label><button class="btn primary small">Сохранить данные студента</button></fieldset></form></details>
+  ${user.role === "admin" ? `<details id="registry-block"><summary>Реестр: ФИО, преподаватели и дисциплины</summary><form id="student-rename" class="profile-form"><fieldset><label class="wide">ФИО студента<input name="name" required minlength="3" maxlength="150" autocomplete="off" value="${esc(s.name)}"></label><button class="btn primary small">Сохранить ФИО</button></fieldset></form><div id="student-links">${data.links.map((l, i) => `<div class="record"><div>${esc(l.course)}<small>${esc(l.teacher)}</small></div><button class="btn small" data-unlink="${i}" aria-label="Убрать связь">×</button></div>`).join("") || '<p class="muted">Студент не привязан ни к одному преподавателю и не виден в журналах.</p>'}</div><datalist id="profile-teachers">${teachers.map((t) => `<option value="${esc(t.name)}"></option>`).join("")}</datalist><datalist id="profile-courses"></datalist><form id="student-link" class="link-row"><input name="teacher" list="profile-teachers" placeholder="Преподаватель: начните вводить фамилию" required autocomplete="off"><input name="course" list="profile-courses" placeholder="Дисциплина" required maxlength="200" autocomplete="off"><button class="btn small">+ Связь</button></form><p><button type="button" class="btn small" id="student-delete">Удалить студента из реестра</button> <span class="muted">Только для ошибочных записей без отметок. Отчисленным меняйте статус обучения.</span></p></details>` : ""}
   <h3>Обязательные процедуры</h3><p class="muted">Сроки устанавливает сотрудник после проверки применимости. Отправленные документы ожидают проверки и не считаются подтверждённым нарушением. Подтверждения, направленные через HSE App X, здесь автоматически не появляются.</p>
   ${data.procedures
     .map(
@@ -754,7 +507,7 @@ async function profile(id) {
         )}</select></label><label>Выполнить до<input type="date" name="dueDate" value="${esc(p.dueDate)}"></label><label>Дата выполнения<input type="date" name="completedAt" value="${esc(p.completedAt)}"></label><label>Действительно до<input type="date" name="validUntil" value="${esc(p.validUntil)}"></label><label class="wide">Комментарий / основание освобождения<textarea name="note" maxlength="1000" rows="2">${esc(p.note)}</textarea></label><button class="btn primary small">Сохранить процедуру</button></fieldset></form>${p.updatedAt ? `<small>Обновлено ${fmtDate(p.updatedAt)} · ${esc(p.checkedBy)}</small>` : ""}</details>`,
     )
     .join("")}
-  <h3>Посещаемость</h3><p>${s.attendance === null ? "Пока нет отметок" : "Посещение: " + s.attendance + "%"} · Без явки: ${s.days} учебных дней</p>${data.records.length ? data.records.map((r) => `<div class="record"><div>${esc(r.lesson.course)}<small>${fmtDate(r.lesson.date)} · ${r.lesson.start}</small></div><span>${labels[r.status]}</span></div>`).join("") : '<p class="muted">Преподаватели ещё не внесли отметки.</p>'}${data.debts.length ? '<p class="notice">В прежней версии внесены отдельные учебные задолженности. Они сохранены, но не считаются долгами по процедурам.</p>' + data.debts.map((x) => `<p>${esc(x.title)}: ${x.resolved ? "закрыта" : "открыта"}</p>`).join("") : ""}</div>`;
+  <h3>Посещаемость</h3><p>${s.attendance === null ? "Пока нет отметок" : "Посещение: " + s.attendance + "%"} · Без явки: ${s.days} учебных дней</p>${data.records.length ? data.records.map((r) => `<div class="record"><div>${esc(r.course || "Без дисциплины")}<small>${fmtDate(r.date)} · ${esc(r.teacher || "Преподаватель")}</small></div><span>${labels[r.status]}</span></div>`).join("") : '<p class="muted">Преподаватели ещё не внесли отметки.</p>'}${data.debts.length ? '<p class="notice">В прежней версии внесены отдельные учебные задолженности. Они сохранены, но не считаются долгами по процедурам.</p>' + data.debts.map((x) => `<p>${esc(x.title)}: ${x.resolved ? "закрыта" : "открыта"}</p>`).join("") : ""}</div>`;
   if (!d.open) d.showModal();
   $("#close-profile").onclick = () => d.close();
   const submit = (form, url, transform = (x) => x) => {
@@ -803,6 +556,78 @@ async function profile(id) {
       });
     };
   };
+  if (user.role === "admin") {
+    // После правки реестра карточка перечитывается; блок остаётся раскрытым.
+    const registry = (action, done) =>
+      safe(async () => {
+        await action();
+        toast(done);
+        await profile(id);
+        $("#registry-block").open = true;
+      });
+    const link = (method, body) =>
+      api("/api/admin/enrollments", { method, body: JSON.stringify(body) });
+    $("#student-rename").onsubmit = (e) => {
+      e.preventDefault();
+      const name = new FormData(e.currentTarget).get("name");
+      registry(async () => {
+        await api("/api/admin/students/" + id, {
+          method: "PUT",
+          body: JSON.stringify({ name }),
+        });
+        overview = await api("/api/admin/overview");
+        adminView();
+      }, "ФИО изменено");
+    };
+    $$("[data-unlink]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          const l = data.links[b.dataset.unlink];
+          if (confirm(`Убрать связь: ${l.teacher} – ${l.course}?`))
+            registry(
+              () =>
+                link("DELETE", {
+                  studentId: id,
+                  teacherId: l.teacherId,
+                  course: l.course,
+                }),
+              "Связь убрана",
+            );
+        }),
+    );
+    const linkForm = $("#student-link");
+    linkForm.elements.teacher.oninput = (e) => {
+      const t = teachers.find((t) => t.name === e.target.value.trim());
+      $("#profile-courses").innerHTML = (t?.courses || [])
+        .map((c) => `<option value="${esc(c)}"></option>`)
+        .join("");
+    };
+    linkForm.onsubmit = (e) => {
+      e.preventDefault();
+      const f = new FormData(linkForm),
+        t = teachers.find((t) => t.name === f.get("teacher").trim());
+      if (!t) return toast("Преподаватель не найден в реестре", true);
+      registry(
+        () =>
+          link("POST", {
+            studentId: id,
+            teacherId: t.id,
+            course: f.get("course"),
+          }),
+        "Связь добавлена",
+      );
+    };
+    $("#student-delete").onclick = () => {
+      if (confirm(`Удалить из реестра: ${s.name}?`))
+        safe(async () => {
+          await api("/api/admin/students/" + id, { method: "DELETE" });
+          d.close();
+          overview = await api("/api/admin/overview");
+          adminView();
+          toast("Студент удалён из реестра");
+        });
+    };
+  }
   submit(
     $("#student-profile"),
     "/api/admin/students/" + id + "/profile",
@@ -821,12 +646,6 @@ async function profile(id) {
     ),
   );
 }
-window.addEventListener("beforeunload", (e) => {
-  if (dirty) {
-    e.preventDefault();
-    e.returnValue = "";
-  }
-});
 try {
   session = await api("/api/session");
   user = session.user;
@@ -841,22 +660,15 @@ try {
   toast(e.message, true);
 }
 
-function automationView() {
-  const a = automation,
-    backup = a.backup ? JSON.parse(a.backup.value) : null;
-  $("#content").innerHTML =
-    `<div class="page-heading"><div><div class="eyebrow">Руководство</div><h1>Автоматический сбор</h1><p>Расписание обновляется на сервере, даже когда никто не открыл сайт.</p></div></div><div class="metrics"><div class="metric"><label>Преподавателей</label><strong>${a.total}</strong></div><div class="metric"><label>Обновлено</label><strong>${a.synced}</strong></div><div class="metric"><label>Ожидают</label><strong>${a.pending}</strong></div><div class="metric alert"><label>Требуют проверки</label><strong>${a.failed}</strong></div></div><div class="panel mini-panel"><h2>${a.enabled ? "Фоновое обновление работает" : "Фоновое обновление отключено"}</h2><p>Интервал: ${a.intervalMinutes} мин. Запросы выполняются по очереди. При ошибке сервер сохраняет предыдущие данные и назначает повтор.</p><div class="quality-row"><span>Почт преподавателей найдено в РУЗ</span><strong>${a.linkedEmails}</strong></div><div class="quality-row"><span>Резервная копия базы</span><strong>${backup ? (backup.ok ? "Создана " : "Ошибка ") + fmtDate(backup.at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Ещё не создана"}</strong></div></div><div class="panel mini-panel automation-issues"><h2>Исключения</h2>${a.issues.length ? a.issues.map((j) => `<div class="activity-item"><strong>${esc(j.name)}</strong><p>${esc(j.error)}</p><small>Повтор после: ${fmtDate(new Date(j.nextRun).toISOString(), { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small></div>`).join("") : "<p>Ошибок обновления пока нет.</p>"}</div><p class="footer-note">Состав студентов берётся из загруженного реестра. Смена группы и новые студенты требуют обновления реестра. Посещение фиксирует преподаватель.</p>`;
-}
 let refreshing = false;
 setInterval(async () => {
   if (
     !user ||
     user.role === "teacher" ||
     page === "dashboard" ||
+    page === "registry" ||
     document.hidden ||
     refreshing ||
-    dirty ||
-    savePromise ||
     $("#profile").open ||
     ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName)
   )
@@ -866,41 +678,8 @@ setInterval(async () => {
     view = page;
   const stillHere = () => user?.id === viewer && page === view;
   try {
-    if (user.role !== "teacher") {
-      if (page === "automation") {
-        automation = await api("/api/admin/automation");
-        if (stillHere()) automationView();
-      } else {
-        overview = await api("/api/admin/overview");
-        if (stillHere()) adminView();
-      }
-    } else {
-      // Обновляем выбранный журнал без смены пары и без потери локальных правок.
-      const before = editSequence,
-        id = selected;
-      const list = await api("/api/lessons");
-      const detail = id ? await api("/api/lessons/" + id) : null;
-      if (
-        stillHere() &&
-        !dirty &&
-        !savePromise &&
-        before === editSequence &&
-        id === selected
-      ) {
-        lessons = list.lessons;
-        session.syncedAt = list.sync?.at;
-        if (detail) {
-          current = detail;
-          marks = Object.fromEntries(
-            detail.marks.map((m) => [
-              m.studentId,
-              { status: m.status, note: m.note || "" },
-            ]),
-          );
-        }
-        journalView();
-      }
-    }
+    overview = await api("/api/admin/overview");
+    if (stillHere()) adminView();
   } catch (e) {
     if (e.status !== 401)
       toast(

@@ -13,7 +13,6 @@ test("Добавление иностранного студента: тольк
     MANAGEMENT_PASSWORD_HASH: passwordHash("test-management-password"),
     DEMO_MODE: "true",
     AUTH_MODE: "selection",
-    AUTO_SYNC: "false",
     AUTO_BACKUP: "false",
     DB_PATH: join(tmp, "db.sqlite"),
     PORT: "3105",

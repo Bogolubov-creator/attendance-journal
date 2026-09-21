@@ -64,7 +64,6 @@ test("Рабочий выбор сотрудника запускается бе
       AUTH_MODE: "selection",
       DEMO_MODE: "false",
       REQUIRE_AUTH_CONFIG: "true",
-      AUTO_SYNC: "false",
       AUTO_BACKUP: "false",
       APP_ORIGIN: "https://attendance.example.edu",
       OIDC_ISSUER: "",
