@@ -225,3 +225,33 @@ test("Дневной журнал: изоляция, конфликты, сох�
     db.close();
   }
 });
+
+test("Тревога дашборда учитывает всю историю, границу 7/8 и сброс после явки", () => {
+  const absent = Array.from({ length: 8 }, (_, i) => ({
+    studentId: "a",
+    date: `2026-09-${String(i + 1).padStart(2, "0")}`,
+    status: "absent",
+  }));
+  const summarize = (records) =>
+    summarizeAttendance(
+      [{ id: "a" }],
+      records,
+      "2026-09-20",
+      "2026-09-21",
+      "2026-09-21",
+    )[0];
+  assert.equal(summarize(absent.slice(0, 7)).absenceAlert, false);
+  const alert = summarize(absent);
+  assert.equal(alert.absenceAlert, true);
+  assert.equal(alert.absenceDays, 8);
+  assert.equal(alert.status, "unknown");
+  assert.equal(alert.history.length, 0);
+  assert.equal(summarize([...absent, absent[0]]).absenceDays, 8);
+  const sameDay = summarize([
+    ...absent,
+    { studentId: "a", date: "2026-09-08", status: "present" },
+  ]);
+  assert.equal(sameDay.absenceAlert, false);
+  assert.equal(sameDay.absenceDays, 0);
+  assert.equal(summarize([]).absenceAlert, false);
+});

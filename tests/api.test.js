@@ -147,9 +147,9 @@ test("API: изоляция, сохранение, редактирование 
       assert.equal((await request("/api/admin/automation")).status, 403);
     });
     await t.test(
-      "Семь учебных дней проходят через API и собираются в дашборде",
+      "Восемь учебных дней проходят через API и собираются в дашборде",
       async () => {
-        for (let day = 2; day <= 8; day++)
+        for (let day = 2; day <= 9; day++)
           assert.equal(
             (
               await request("/api/daily", "PUT", {
@@ -188,9 +188,9 @@ test("API: изоляция, сохранение, редактирование 
         await request("/api/admin/students/" + e.studentId)
       ).json();
       assert.equal(s.student.debtCount, 1);
-      assert.equal(s.records.length, 8);
+      assert.equal(s.records.length, 9);
       assert.equal(s.student.lastVisit, "2026-09-01");
-      assert.equal(s.student.days, 7);
+      assert.equal(s.student.days, 8);
       assert.equal(s.student.absenceAlert, true);
       assert.equal(s.student.attention, true);
       await request("/api/admin/debts/" + r.id, "PATCH", { resolved: true });

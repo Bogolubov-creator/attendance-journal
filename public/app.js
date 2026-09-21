@@ -260,7 +260,7 @@ function adminView() {
     }${rows.length > 5 ? `<button class="btn small" data-filter="${type === "absence" ? "attention" : "debt"}">Показать весь список</button>` : ""}</section>`;
   $("#content").innerHTML =
     `<div class="page-heading"><div><div class="eyebrow">Руководство · Факультет права</div><h1>${page === "dashboard" ? "Иностранные студенты" : "Реестр студентов"}</h1><p>Общая статистика факультета. Работа со студентами – по программам и курсам.</p></div><div class="heading-actions">${user.role === "admin" ? '<button class="btn primary" id="add-student-open">+ Добавить студента</button>' : ""}<a class="btn" href="/api/admin/export">↓ Выгрузить CSV</a></div></div>
-  <div class="metrics"><div class="metric"><label>Иностранные студенты</label><strong>${faculty.length}</strong><small>Подтверждённые, обучаются сейчас</small></div><div class="metric alert"><label>7 дней без явки</label><strong>${attention.length}</strong><small>По отметкам преподавателей</small></div><div class="metric alert"><label>Просрочены процедуры</label><strong>${overdue.length}</strong><small>Студентов с просроченными документами</small></div><div class="metric"><label>Нет данных о процедурах</label><strong>${faculty.filter((s) => s.procedureUnknown).length}</strong><small>Нужна проверка руководства</small></div></div>
+  <div class="metrics"><div class="metric"><label>Иностранные студенты</label><strong>${faculty.length}</strong><small>Подтверждённые, обучаются сейчас</small></div><div class="metric alert"><label>Больше 7 дней без явки</label><strong>${attention.length}</strong><small>По отметкам преподавателей</small></div><div class="metric alert"><label>Просрочены процедуры</label><strong>${overdue.length}</strong><small>Студентов с просроченными документами</small></div><div class="metric"><label>Нет данных о процедурах</label><strong>${faculty.filter((s) => s.procedureUnknown).length}</strong><small>Нужна проверка руководства</small></div></div>
   ${overview.faculty.unverified ? `<div class="notice">Полнота реестра ещё не подтверждена. Загружено ${students.length} студентов; иностранный статус не проверен у ${overview.faculty.unverified}. Они видны в реестре, но не включены в статистику иностранцев. Программы и курсы заполняет руководство.</div>` : ""}
   ${page === "dashboard" ? `<div class="attention-grid">${list("Не посещают занятия", attention, "absence")}${list("Должники по процедурам", overdue, "procedure")}</div>` : ""}
   <div class="admin-columns"><div class="panel"><div class="panel-heading"><div><h2>Список студентов</h2><small>Статистика сверху всегда по факультету, фильтры действуют на таблицу</small></div>${search("admin-search", "Поиск по ФИО", query)}</div>
@@ -268,7 +268,7 @@ function adminView() {
   <div class="filter-tabs">${[
     ["all", "Весь реестр"],
     ["foreign", "Подтверждённые иностранцы"],
-    ["attention", "7 дней без явки"],
+    ["attention", "Больше 7 дней без явки"],
     ["debt", "Просрочены процедуры"],
     ["combined", "Обе проблемы"],
     ["review", "На проверке"],

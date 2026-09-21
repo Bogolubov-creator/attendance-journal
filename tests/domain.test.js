@@ -6,12 +6,14 @@ const absent = (date) => ({ date, status: "absent" }),
 const seven = Array.from({ length: 7 }, (_, i) =>
   absent(`2026-09-${String(i + 1).padStart(2, "0")}`),
 );
-test("Семь учебных дней, а не календарные", () => {
+const eight = [...seven, absent("2026-09-08")];
+test("Тревога: семь учебных дней без тревоги, восемь с тревогой", () => {
   assert.equal(
     studentMetrics([absent("2026-09-01")], [], "2026-09-16").absenceAlert,
     false,
   );
-  assert.equal(studentMetrics(seven, [], "2026-09-16").absenceAlert, true);
+  assert.equal(studentMetrics(seven, [], "2026-09-16").absenceAlert, false);
+  assert.equal(studentMetrics(eight, [], "2026-09-16").absenceAlert, true);
 });
 test("Несколько пар в день считаются один раз", () =>
   assert.equal(
@@ -35,11 +37,11 @@ test("Пустой журнал не создаёт пропуск и проце
 });
 test("Долги считаются отдельно, закрытый долг исключён", () => {
   assert.equal(
-    studentMetrics(seven, [{ resolved: 0 }], "2026-09-16").attention,
+    studentMetrics(eight, [{ resolved: 0 }], "2026-09-16").attention,
     true,
   );
   assert.equal(
-    studentMetrics(seven, [{ resolved: 1 }], "2026-09-16").attention,
+    studentMetrics(eight, [{ resolved: 1 }], "2026-09-16").attention,
     false,
   );
 });

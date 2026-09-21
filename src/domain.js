@@ -38,7 +38,7 @@ export function studentMetrics(records, debts, today = moscowDate()) {
       ? Math.round((visits.length / denominator) * 100)
       : null,
     debtCount: activeDebts.length,
-    absenceAlert: days >= 7,
-    attention: days >= 7 && absenceDates.length > 0 && activeDebts.length > 0,
+    absenceAlert: days > 7,
+    attention: days > 7 && absenceDates.length > 0 && activeDebts.length > 0,
   };
 }

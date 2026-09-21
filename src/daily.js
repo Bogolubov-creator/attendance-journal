@@ -1,12 +1,23 @@
 import { csvCell } from "./csv.js";
-import { moscowDate } from "./domain.js";
+import { moscowDate, studentMetrics } from "./domain.js";
 import { validDate } from "./office.js";
 
-export function summarizeAttendance(students, records, from, to) {
+export function summarizeAttendance(
+  students,
+  records,
+  from,
+  to,
+  today = moscowDate(),
+) {
   return students.map((s) => {
     const history = records
       .filter((r) => r.studentId === s.id && r.date >= from && r.date <= to)
       .sort((a, b) => b.date.localeCompare(a.date));
+    const current = studentMetrics(
+      records.filter((r) => r.studentId === s.id),
+      [],
+      today,
+    );
     const visits = history.filter((r) => r.status === "present");
     return {
       ...s,
@@ -17,6 +28,8 @@ export function summarizeAttendance(students, records, from, to) {
           .map((r) => r.date)
           .sort()
           .at(-1) || null,
+      absenceDays: current.days,
+      absenceAlert: current.absenceAlert,
       daysPresent: new Set(visits.map((r) => r.date)).size,
       history,
     };
@@ -191,6 +204,7 @@ export function registerDaily(
     return {
       from,
       to,
+      alertAsOf: moscowDate(),
       students: summarizeAttendance(
         roster.students.map((s) => studentProfile(s.id)).filter(active),
         records.map((r) => ({
@@ -222,6 +236,8 @@ export function registerDaily(
         "Дней с присутствием",
         "Последнее посещение",
         "История",
+        "Учебных дней без явки на сегодня",
+        "Тревога на сегодня: больше 7 учебных дней",
       ],
       ...data.students.map((s) => [
         s.name,
@@ -236,6 +252,8 @@ export function registerDaily(
               `${r.date}: ${r.teacher}${r.course ? ": " + r.course : ""}: ${r.status === "present" ? "Был" : "Не был"}`,
           )
           .join(" | "),
+        s.absenceDays,
+        s.absenceAlert ? "Да" : "Нет",
       ]),
     ];
     res

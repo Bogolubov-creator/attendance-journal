@@ -69,3 +69,74 @@ test("Форма журнала: смена пользователя, блоки
     delete globalThis.confirm;
   }
 });
+
+test("Дашборд: счётчик тревог, фильтр, поиск и отсутствие ложной тревоги на седьмой день", async () => {
+  const dom = new JSDOM('<main id="content"></main>', {
+    url: "http://localhost",
+  });
+  globalThis.window = dom.window;
+  globalThis.document = dom.window.document;
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  const { dailyDashboard } = await import("../public/daily.js");
+  const students = [
+    {
+      id: "a",
+      name: "Студент Восемь",
+      status: "unknown",
+      absenceAlert: true,
+      absenceDays: 8,
+      daysPresent: 0,
+      history: [],
+    },
+    {
+      id: "b",
+      name: "Студент Семь",
+      status: "absent",
+      absenceAlert: false,
+      absenceDays: 7,
+      daysPresent: 0,
+      history: [],
+    },
+    {
+      id: "c",
+      name: "Без Отметок",
+      status: "unknown",
+      absenceAlert: false,
+      absenceDays: 0,
+      daysPresent: 0,
+      history: [],
+    },
+  ];
+  try {
+    await dailyDashboard({
+      api: async () => ({ students }),
+      esc: (s) => s,
+      toast: () => {},
+    });
+    assert.match(
+      document.querySelector(".absence-notice").textContent,
+      /Тревоги на сегодня: 1/,
+    );
+    assert.equal(
+      document.querySelectorAll(".daily-person.has-alert").length,
+      1,
+    );
+    document.querySelector("#show-absence-alerts").click();
+    assert.equal(document.querySelectorAll(".daily-person").length, 1);
+    assert.match(
+      document.querySelector("#daily-results").textContent,
+      /Студент Восемь/,
+    );
+    const search = document.querySelector("#daily-search");
+    search.value = "несуществующий";
+    search.oninput();
+    assert.match(
+      document.querySelector("#daily-results").textContent,
+      /Студенты не найдены/,
+    );
+  } finally {
+    dom.window.close();
+    delete globalThis.window;
+    delete globalThis.document;
+  }
+});

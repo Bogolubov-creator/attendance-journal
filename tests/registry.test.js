@@ -236,7 +236,7 @@ test("Реестр в базе: файл нужен только для перв
     );
     // Показатели студента считаются по дневным отметкам преподавателей.
     await login("teacher", "t_1");
-    for (let back = 1; back <= 7; back++)
+    for (let back = 1; back <= 8; back++)
       assert.equal(
         (
           await req("/api/daily", "PUT", {
@@ -252,8 +252,12 @@ test("Реестр в базе: файл нужен только для перв
     const alerted = (
       await (await req("/api/admin/overview")).json()
     ).students.find((x) => x.id === "s_1");
-    assert.equal(alerted.days, 7);
+    assert.equal(alerted.days, 8);
     assert.equal(alerted.absenceAlert, true);
+    const dashboard = await (await req("/api/daily/overview")).json();
+    const warning = dashboard.students.find((s) => s.id === "s_1");
+    assert.equal(warning.absenceAlert, true);
+    assert.equal(warning.absenceDays, 8);
     await login("teacher", "t_1");
     assert.equal(
       (
@@ -280,7 +284,10 @@ test("Реестр в базе: файл нужен только для перв
     );
     assert.equal(overview.students[0].lastVisit, moscowDate());
     assert.equal(overview.students[0].absenceAlert, false);
-    assert.equal(overview.students[0].marked, 8);
+    const afterVisit = await (await req("/api/daily/overview")).json();
+    assert.equal(afterVisit.students[0].absenceAlert, false);
+    assert.equal(afterVisit.students[0].absenceDays, 0);
+    assert.equal(overview.students[0].marked, 9);
     const card = await (await req("/api/admin/students/s_1")).json();
     assert.deepEqual(card.records[0], {
       date: moscowDate(),
@@ -288,7 +295,7 @@ test("Реестр в базе: файл нужен только для перв
       teacher: "Преподаватель Первый",
       status: "present",
     });
-    assert.equal(card.records.length, 8);
+    assert.equal(card.records.length, 9);
     assert.deepEqual(
       (await (await req("/api/admin/teachers")).json()).map((t) => t.name),
       ["Преподаватель Второй", "Преподаватель Первый"],

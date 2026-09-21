@@ -172,12 +172,13 @@ export async function dailyDashboard({ api, esc, toast }) {
     "/api/daily/overview?" + new URLSearchParams({ from, to }),
   );
   const root = document.querySelector("#content");
+  const alerts = data.students.filter((s) => s.absenceAlert);
   const labels = {
     present: "Был хотя бы раз",
     absent: "Присутствие не отмечено",
     unknown: "Нет данных",
   };
-  root.innerHTML = `<div class="page-heading"><div><div class="eyebrow">Руководство</div><h1>Посещаемость за период</h1><p>Сводка по отметкам преподавателей.</p></div></div><form class="daily-toolbar panel daily-panel" id="period"><label>С даты<input type="date" name="from" value="${from}" max="${today()}" required></label><label>По дату<input type="date" name="to" value="${to}" max="${today()}" required></label><button class="btn primary">Показать</button><a class="btn" href="/api/daily/export?${new URLSearchParams({ from, to })}">Выгрузить для Excel · CSV</a></form><div class="metrics">${["present", "absent", "unknown"].map((status) => `<div class="metric"><label>${labels[status]}</label><strong>${data.students.filter((s) => s.status === status).length}</strong></div>`).join("")}</div><p class="footer-note">«Присутствие не отмечено» – есть только ответы «Не был». Это не подтверждает отсутствие на всех занятиях. «Нет данных» – за период нет ни одного ответа.</p><section class="panel daily-panel"><div class="daily-toolbar"><input type="search" id="daily-search" placeholder="Найти студента" aria-label="Найти студента"><select id="daily-filter" aria-label="Результат"><option value="all">Все студенты</option>${Object.entries(
+  root.innerHTML = `<div class="page-heading"><div><div class="eyebrow">Руководство</div><h1>Посещаемость за период</h1><p>Сводка по отметкам преподавателей.</p></div></div><form class="daily-toolbar panel daily-panel" id="period"><label>С даты<input type="date" name="from" value="${from}" max="${today()}" required></label><label>По дату<input type="date" name="to" value="${to}" max="${today()}" required></label><button class="btn primary">Показать</button><a class="btn" href="/api/daily/export?${new URLSearchParams({ from, to })}">Выгрузить для Excel · CSV</a></form><section class="panel absence-notice ${alerts.length ? "has-alerts" : ""}" aria-label="Тревоги посещаемости"><div><h2>Тревоги на сегодня: ${alerts.length}</h2><p>Больше 7 учебных дней без посещения. Считаются только даты с отметкой «Не был» после последней явки, независимо от выбранного периода.</p></div><button class="btn ${alerts.length ? "primary" : ""}" id="show-absence-alerts" ${alerts.length ? "" : "disabled"}>Показать тревоги</button></section><div class="metrics">${["present", "absent", "unknown"].map((status) => `<div class="metric"><label>${labels[status]}</label><strong>${data.students.filter((s) => s.status === status).length}</strong></div>`).join("")}</div><p class="footer-note">«Присутствие не отмечено» – есть только ответы «Не был». Это не подтверждает отсутствие на всех занятиях. «Нет данных» – за период нет ни одного ответа.</p><section class="panel daily-panel"><div class="daily-toolbar"><input type="search" id="daily-search" placeholder="Найти студента" aria-label="Найти студента"><select id="daily-filter" aria-label="Результат"><option value="all">Все студенты</option><option value="alert">Тревога: больше 7 учебных дней</option>${Object.entries(
     labels,
   )
     .map(([v, l]) => `<option value="${v}">${l}</option>`)
@@ -194,19 +195,26 @@ export async function dailyDashboard({ api, esc, toast }) {
     const rows = data.students.filter(
       (s) =>
         s.name.toLocaleLowerCase("ru").replaceAll("ё", "е").includes(q) &&
-        (filter === "all" || s.status === filter),
+        (filter === "all" ||
+          (filter === "alert" ? s.absenceAlert : s.status === filter)),
     );
     root.querySelector("#daily-results").innerHTML =
       rows
         .map(
           (s) =>
-            `<details class="daily-person"><summary><strong>${esc(s.name)}</strong><span class="daily-result ${s.status}">${labels[s.status]}</span><span class="muted">Последний раз: ${s.lastVisit || "нет отметок"} · дней за период: ${s.daysPresent}</span></summary><div class="daily-history"><p>Ответы за выбранный период</p>${s.history.length ? s.history.map((r) => `<div class="daily-row"><span>${esc(r.date)} · ${esc(r.teacher)}${r.course ? " · " + esc(r.course) : ""}${r.source === "lesson" ? " · из журнала занятий" : ""}</span><strong>${r.status === "present" ? "Был" : "Не был"}</strong></div>`).join("") : '<p class="muted">Ответов нет</p>'}</div></details>`,
+            `<details class="daily-person ${s.absenceAlert ? "has-alert" : ""}"><summary><strong>${esc(s.name)}</strong>${s.absenceAlert ? `<span class="pill red">Тревога · ${s.absenceDays} уч. дней без явки</span>` : ""}<span class="daily-result ${s.status}">${labels[s.status]}</span><span class="muted">Последний раз: ${s.lastVisit || "нет отметок"} · дней за период: ${s.daysPresent}</span></summary><div class="daily-history"><p>Ответы за выбранный период</p>${s.history.length ? s.history.map((r) => `<div class="daily-row"><span>${esc(r.date)} · ${esc(r.teacher)}${r.course ? " · " + esc(r.course) : ""}${r.source === "lesson" ? " · из журнала занятий" : ""}</span><strong>${r.status === "present" ? "Был" : "Не был"}</strong></div>`).join("") : '<p class="muted">Ответов нет</p>'}</div></details>`,
         )
         .join("") || "<p>Студенты не найдены</p>";
   };
   root.querySelector("#daily-search").oninput = render;
   root.querySelector("#daily-filter").onchange = render;
   render();
+  root.querySelector("#show-absence-alerts").onclick = () => {
+    root.querySelector("#daily-search").value = "";
+    root.querySelector("#daily-filter").value = "alert";
+    render();
+    root.querySelector("#daily-results").scrollIntoView({ block: "nearest" });
+  };
   root.querySelector("#period").onsubmit = async (e) => {
     e.preventDefault();
     const f = new FormData(e.currentTarget),
