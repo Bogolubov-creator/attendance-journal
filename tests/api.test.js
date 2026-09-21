@@ -33,7 +33,6 @@ test("API: изоляция, сохранение, редактирование 
       ...process.env,
       MANAGEMENT_PASSWORD_HASH: passwordHash("test-management-password"),
       DEMO_MODE: "true",
-      AUTO_SYNC: "false",
       AUTO_BACKUP: "true",
       BACKUP_DIR: join(temp, "backups"),
       DB_PATH: path,
@@ -49,7 +48,6 @@ test("API: изоляция, сохранение, редактирование 
   });
   try {
     const e = roster.enrollments[0],
-      other = roster.teachers.find((t) => t.id !== e.teacherId),
       db = new DatabaseSync(path);
     const lesson = {
       id: "test_past",
@@ -61,17 +59,19 @@ test("API: изоляция, сохранение, редактирование 
       end: "10:00",
       source: "test",
     };
-    for (const l of [
-      lesson,
-      { ...lesson, id: "test_other", teacherId: other.id },
-      { ...lesson, id: "test_future", date: "2099-01-01" },
-      { ...lesson, id: "test_unrelated", groups: ["unrelated-group"] },
-    ])
-      db.prepare("INSERT INTO lessons VALUES(?,?,?)").run(
-        l.id,
-        l.teacherId,
-        JSON.stringify(l),
-      );
+    // Историческая отметка прежнего журнала по парам: новые так не создаются.
+    db.prepare("INSERT INTO lessons VALUES(?,?,?)").run(
+      lesson.id,
+      lesson.teacherId,
+      JSON.stringify(lesson),
+    );
+    db.prepare("INSERT INTO marks VALUES(?,?,?,?,?)").run(
+      lesson.id,
+      e.studentId,
+      "present",
+      "",
+      new Date().toISOString(),
+    );
     db.close();
     await t.test(
       "Резервная копия автоматически создаётся и открывается",
@@ -85,26 +85,25 @@ test("API: изоляция, сохранение, редактирование 
           await new Promise((r) => setTimeout(r, 50));
         }
         assert.equal(files.length, 1);
-        const copy = new DatabaseSync(join(temp, "backups", files[0]));
-        assert.equal(
-          copy.prepare("PRAGMA integrity_check").get().integrity_check,
-          "ok",
-        );
-        copy.close();
-      },
-    );
-    await t.test(
-      "Состояние автоматики закрыто без административной роли",
-      async () => {
-        assert.equal(
-          (await request("/api/admin/automation", "GET", null, null)).status,
-          401,
-        );
+        // Файл появляется раньше, чем копирование завершено: ждём снятия блокировки.
+        let check;
+        for (let i = 0; i < 100 && !check; i++) {
+          const copy = new DatabaseSync(join(temp, "backups", files[0]));
+          try {
+            check = copy.prepare("PRAGMA integrity_check").get();
+          } catch (e) {
+            if (e.errcode !== 5) throw e;
+            await new Promise((r) => setTimeout(r, 50));
+          } finally {
+            copy.close();
+          }
+        }
+        assert.equal(check?.integrity_check, "ok");
       },
     );
     await t.test("Без входа API закрыт; файлы базы не отдаются", async () => {
       assert.equal(
-        (await request("/api/lessons", "GET", null, null)).status,
+        (await request("/api/daily", "GET", null, null)).status,
         401,
       );
       assert.equal(
@@ -133,162 +132,33 @@ test("API: изоляция, сохранение, редактирование 
       null,
     );
     cookie = login.headers.get("set-cookie").split(";")[0];
-    await t.test("Учитель не видит админку и чужие пары", async () => {
+    await t.test("Учитель не видит админку", async () => {
       assert.equal((await request("/api/admin/overview")).status, 403);
-      assert.equal((await request("/api/lessons/test_other")).status, 403);
       assert.equal(
         (await request("/api/admin/students/" + e.studentId)).status,
         403,
       );
     });
-    await t.test(
-      "Пара без отслеживаемых студентов скрыта и недоступна по прямой ссылке",
-      async () => {
-        const response = await (await request("/api/lessons")).json();
-        assert.equal(
-          response.lessons.some((l) => l.id === "test_unrelated"),
-          false,
-        );
-        assert.equal(
-          response.lessons.every((l) => l.studentCount > 0),
-          true,
-        );
-        assert.equal(
-          (await request("/api/lessons/test_unrelated")).status,
-          404,
-        );
-        assert.equal(
-          (
-            await request("/api/lessons/test_unrelated/marks", "PUT", {
-              version: 0,
-              marks: [],
-            })
-          ).status,
-          404,
-        );
-      },
-    );
-    await t.test(
-      "Старые отметки выбывшего студента не попадают в журнал и счётчик",
-      async () => {
-        const conn = new DatabaseSync(path);
-        conn
-          .prepare("INSERT INTO marks VALUES(?,?,?,?,?)")
-          .run(
-            "test_past",
-            "removed_student",
-            "absent",
-            "",
-            new Date().toISOString(),
-          );
-        const response = await (await request("/api/lessons/test_past")).json();
-        assert.equal(
-          response.marks.some((m) => m.studentId === "removed_student"),
-          false,
-        );
-        const list = await (await request("/api/lessons")).json();
-        assert.equal(list.lessons.find((l) => l.id === "test_past").marked, 0);
-        assert.equal(
-          conn
-            .prepare("SELECT COUNT(*) n FROM marks WHERE studentId=?")
-            .get("removed_student").n,
-          1,
-        );
-        conn.close();
-      },
-    );
-    const mark = { studentId: e.studentId, status: "present", note: "" };
-    await t.test(
-      "Нельзя отметить будущую пару или постороннего студента",
-      async () => {
-        assert.equal(
-          (
-            await request("/api/lessons/test_future/marks", "PUT", {
-              version: 0,
-              marks: [mark],
-            })
-          ).status,
-          400,
-        );
-        assert.equal(
-          (
-            await request("/api/lessons/test_past/marks", "PUT", {
-              version: 0,
-              marks: [{ ...mark, studentId: "alien" }],
-            })
-          ).status,
-          400,
-        );
-      },
-    );
-    await t.test("Сохранение и конфликт второй вкладки", async () => {
-      assert.equal(
-        (
-          await request("/api/lessons/test_past/marks", "PUT", {
-            version: 0,
-            marks: [mark],
-          })
-        ).status,
-        200,
-      );
-      assert.equal(
-        (
-          await request("/api/lessons/test_past/marks", "PUT", {
-            version: 0,
-            marks: [{ ...mark, status: "absent" }],
-          })
-        ).status,
-        409,
-      );
-      const r = await (await request("/api/lessons/test_past")).json();
-      assert.equal(r.marks[0].status, "present");
-      assert.equal(r.version, 1);
-    });
-    await t.test("Редактирование записывает новую версию", async () => {
-      assert.equal(
-        (
-          await request("/api/lessons/test_past/marks", "PUT", {
-            version: 1,
-            marks: [{ ...mark, status: "absent" }],
-          })
-        ).status,
-        200,
-      );
-      const d = new DatabaseSync(path);
-      d.exec("PRAGMA busy_timeout=5000");
-      assert.equal(
-        d.prepare("SELECT status FROM marks").get().status,
-        "absent",
-      );
-      d.close();
+    await t.test("Адреса журнала по парам и РУЗ сняты", async () => {
+      assert.equal((await request("/api/lessons")).status, 404);
+      assert.equal((await request("/api/ruz/sync", "POST", {})).status, 404);
+      assert.equal((await request("/api/admin/automation")).status, 403);
     });
     await t.test(
       "Семь учебных дней проходят через API и собираются в дашборде",
       async () => {
-        const d = new DatabaseSync(path);
-        d.exec("PRAGMA busy_timeout=5000");
-        for (let day = 2; day <= 7; day++) {
-          const l = {
-            ...lesson,
-            id: "test_day_" + day,
-            date: "2026-09-0" + day,
-          };
-          d.prepare("INSERT INTO lessons VALUES(?,?,?)").run(
-            l.id,
-            l.teacherId,
-            JSON.stringify(l),
-          );
+        for (let day = 2; day <= 8; day++)
           assert.equal(
             (
-              await request("/api/lessons/" + l.id + "/marks", "PUT", {
+              await request("/api/daily", "PUT", {
+                date: "2026-09-0" + day,
+                course: e.course,
                 version: 0,
-                marks: [{ ...mark, status: "absent" }],
+                marks: [{ studentId: e.studentId, status: "absent" }],
               })
             ).status,
             200,
           );
-        }
-        d.close();
       },
     );
     const login2 = await request("/api/demo-login", "POST", {
@@ -299,7 +169,7 @@ test("API: изоляция, сохранение, редактирование 
     cookie = login2.headers.get("set-cookie").split(";")[0];
     await t.test("Старая сессия отозвана при смене входа", async () =>
       assert.equal(
-        (await request("/api/lessons", "GET", null, teacherCookie)).status,
+        (await request("/api/daily", "GET", null, teacherCookie)).status,
         401,
       ),
     );
@@ -316,7 +186,8 @@ test("API: изоляция, сохранение, редактирование 
         await request("/api/admin/students/" + e.studentId)
       ).json();
       assert.equal(s.student.debtCount, 1);
-      assert.equal(s.records.length, 7);
+      assert.equal(s.records.length, 8);
+      assert.equal(s.student.lastVisit, "2026-09-01");
       assert.equal(s.student.days, 7);
       assert.equal(s.student.absenceAlert, true);
       assert.equal(s.student.attention, true);

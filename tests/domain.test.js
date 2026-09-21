@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { studentMetrics, prioritizeLessons } from "../src/domain.js";
+import { studentMetrics } from "../src/domain.js";
 const absent = (date) => ({ date, status: "absent" }),
   present = (date) => ({ date, status: "present" });
 const seven = Array.from({ length: 7 }, (_, i) =>
@@ -48,16 +48,3 @@ test("Будущие отметки не влияют на показатели"
     studentMetrics([absent("2026-10-01")], [], "2026-09-16").days,
     0,
   ));
-test("Текущая пара, ближайшая, прошедшая", () => {
-  const lessons = [
-    { id: "past", date: "2026-09-15", start: "09:00", end: "10:00" },
-    { id: "future", date: "2026-09-16", start: "14:00", end: "15:00" },
-    { id: "now", date: "2026-09-16", start: "12:00", end: "13:00" },
-  ];
-  assert.deepEqual(
-    prioritizeLessons(lessons, new Date("2026-09-16T12:30:00+03:00")).map(
-      (x) => x.id,
-    ),
-    ["now", "future", "past"],
-  );
-});

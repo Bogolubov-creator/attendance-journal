@@ -1,6 +1,5 @@
 import { passwordHash } from "../src/management-auth.js";
 import test from "node:test";
-import { DatabaseSync } from "node:sqlite";
 import assert from "node:assert/strict";
 import {
   managerFor,
@@ -67,7 +66,6 @@ test("Выбор сотрудника, зоны редактирования и 
       MANAGEMENT_PASSWORD_HASH: passwordHash("test-management-password"),
       DEMO_MODE: "true",
       AUTH_MODE: "selection",
-      AUTO_SYNC: "false",
       AUTO_BACKUP: "false",
       DB_PATH: join(tmp, "db.sqlite"),
       PORT: "3103",
@@ -261,29 +259,15 @@ test("Выбор сотрудника, зоны редактирования и 
     );
     const roster = JSON.parse(readFileSync("data/roster.json"));
     const enrollment = roster.enrollments.find((e) => e.studentId === sid);
-    const db = new DatabaseSync(join(tmp, "db.sqlite"));
-    db.prepare("INSERT INTO lessons VALUES(?,?,?)").run(
-      "scope_test",
-      enrollment.teacherId,
-      JSON.stringify({
-        id: "scope_test",
-        teacherId: enrollment.teacherId,
-        course: enrollment.course,
-        groups: [enrollment.group],
-        date: "2026-09-01",
-        start: "09:00",
-        end: "10:00",
-      }),
-    );
-    db.close();
+    // Исключённый из контингента студент пропадает из журнала преподавателя.
     await login("teacher", enrollment.teacherId);
-    const lessonResponse = await req("/api/lessons/scope_test");
-    if (lessonResponse.status === 200)
-      assert.equal(
-        (await lessonResponse.json()).students.some((s) => s.id === sid),
-        false,
-      );
-    else assert.equal(lessonResponse.status, 404);
+    const journal = await (
+      await req("/api/daily?course=" + encodeURIComponent(enrollment.course))
+    ).json();
+    assert.equal(
+      journal.students.some((s) => s.id === sid),
+      false,
+    );
     await login("teacher", tid);
     assert.equal((await req("/api/admin/students/" + sid)).status, 403);
     for (let attempt = 0; attempt < 5; attempt++)

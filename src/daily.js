@@ -22,6 +22,18 @@ export function summarizeAttendance(students, records, from, to) {
   });
 }
 
+// Все ответы преподавателей: дневные отметки и исторические отметки по занятиям.
+export function attendanceRecords(db) {
+  const records = db.prepare("SELECT * FROM daily_marks").all();
+  for (const r of db
+    .prepare(
+      "SELECT m.studentId,m.status,l.teacherId,json_extract(l.data,'$.date') date,json_extract(l.data,'$.course') course FROM marks m JOIN lessons l ON l.id=m.lessonId WHERE m.status IN ('present','absent')",
+    )
+    .all())
+    records.push({ ...r, source: "lesson" });
+  return records;
+}
+
 export function registerDaily(
   app,
   { db, roster, auth, admin, studentProfile, audit },
@@ -171,14 +183,7 @@ export function registerDaily(
     checkDate(to);
     if (from > to)
       throw fail(400, "Начало периода должно быть не позже окончания");
-    const records = db.prepare("SELECT * FROM daily_marks").all();
-    // Исторические отметки по занятиям сохраняются в общей истории.
-    for (const r of db
-      .prepare(
-        "SELECT m.studentId,m.status,l.teacherId,json_extract(l.data,'$.date') date,json_extract(l.data,'$.course') course FROM marks m JOIN lessons l ON l.id=m.lessonId WHERE m.status IN ('present','absent')",
-      )
-      .all())
-      records.push({ ...r, source: "lesson" });
+    const records = attendanceRecords(db);
     const names = new Map(roster.teachers.map((t) => [t.id, t.name]));
     return {
       from,
