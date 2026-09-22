@@ -1,9 +1,9 @@
 // Страница «Реестр»: руководство ведёт список преподавателей прямо на сайте.
-export async function registryView({ api, esc, toast, admin }) {
+export async function registryView({ api, esc, toast, ask, admin }) {
   const teachers = await api("/api/admin/teachers");
   const root = document.querySelector("#content");
   const again = () =>
-    registryView({ api, esc, toast, admin }).catch((e) =>
+    registryView({ api, esc, toast, ask, admin }).catch((e) =>
       toast(e.message, true),
     );
   root.innerHTML = `<div class="page-heading"><div><div class="eyebrow">Факультет права</div><h1>Сотрудники</h1><p>${admin ? "Добавляйте преподавателей и меняйте их ФИО." : "Добавляйте преподавателей, которых нет в списке."} Дисциплины назначаются в карточке студента.</p></div></div><form class="daily-toolbar panel daily-panel" id="teacher-add"><label>ФИО нового преподавателя<input name="name" required minlength="3" maxlength="150" autocomplete="off"></label><button class="btn primary">+ Добавить преподавателя</button></form><section class="panel daily-panel"><div class="daily-toolbar"><input type="search" id="teacher-search" placeholder="Найти преподавателя" aria-label="Найти преподавателя"><span class="muted">Всего: ${teachers.length}</span></div><div id="teacher-rows"></div><div class="daily-toolbar"><button class="btn" id="teacher-more" hidden>Показать ещё</button><span class="muted" id="teacher-count"></span></div></section>`;
@@ -56,7 +56,15 @@ export async function registryView({ api, esc, toast, admin }) {
         });
         toast("ФИО изменено");
       } else {
-        if (!confirm(`Удалить из реестра: ${teacher.name}?`)) return;
+        if (
+          !(await ask({
+            title: "Удалить преподавателя из реестра?",
+            text: `${teacher.name}. Удалить можно только запись без студентов и отметок.`,
+            ok: "Удалить",
+            danger: true,
+          }))
+        )
+          return;
         await api("/api/admin/teachers/" + id, { method: "DELETE" });
         toast("Преподаватель удалён из реестра");
       }
