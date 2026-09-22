@@ -15,3 +15,4 @@ outputs/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+.env.server
