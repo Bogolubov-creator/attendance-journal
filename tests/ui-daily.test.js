@@ -149,6 +149,23 @@ test("Дашборд: счётчик тревог, фильтр, поиск и �
       document.querySelector("#daily-results").textContent,
       /Студент Восемь/,
     );
+    // Метрика работает как фильтр, повторный щелчок снимает его; готовый период «Неделя» выбран по умолчанию.
+    document.querySelector('.metric-filter[data-status="absent"]').click();
+    assert.equal(document.querySelector("#daily-filter").value, "absent");
+    assert.deepEqual(
+      [...document.querySelectorAll(".daily-person strong")].map(
+        (e) => e.textContent,
+      ),
+      ["Студент Семь"],
+    );
+    document.querySelector('.metric-filter[data-status="absent"]').click();
+    assert.equal(document.querySelector("#daily-filter").value, "all");
+    assert.equal(
+      document
+        .querySelector('[data-preset="week"]')
+        .getAttribute("aria-pressed"),
+      "true",
+    );
     const filter = document.querySelector("#daily-filter");
     filter.value = "absent4";
     filter.onchange();

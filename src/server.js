@@ -451,6 +451,11 @@ app.get("/api/admin/teachers", (req, res) =>
               .map((e) => e.course),
           ),
         ].sort((a, b) => a.localeCompare(b, "ru")),
+        students: new Set(
+          roster.enrollments
+            .filter((e) => e.teacherId === t.id)
+            .map((e) => e.studentId),
+        ).size,
       }))
       .sort((a, b) => a.name.localeCompare(b.name, "ru")),
   ),
@@ -916,6 +921,13 @@ function studentRows() {
           roster.enrollments
             .filter((e) => e.studentId === s.id)
             .map((e) => e.group),
+        ),
+      ],
+      teacherIds: [
+        ...new Set(
+          roster.enrollments
+            .filter((e) => e.studentId === s.id)
+            .map((e) => e.teacherId),
         ),
       ],
       ...studentMetrics(

@@ -31,7 +31,22 @@ let session,
   filter = "all",
   query = "",
   toastTimer,
-  tablePage = 0;
+  tablePage = 0,
+  // Сортировка таблицы студентов: default – тревоги и просрочки сверху.
+  sortKey = "default",
+  sortDir = 1,
+  // Фильтр «студенты преподавателя», приходит со страницы «Сотрудники».
+  officeTeacher = null;
+const plural = (n, forms) =>
+  n +
+  " " +
+  forms[
+    n % 10 === 1 && n % 100 !== 11
+      ? 0
+      : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)
+        ? 1
+        : 2
+  ];
 async function api(path, options = {}) {
   const r = await fetch(path, {
     signal: AbortSignal.timeout(25000),
@@ -187,6 +202,7 @@ function shell() {
           page = b.dataset.page;
           query = "";
           filter = "all";
+          officeTeacher = null;
           tablePage = 0;
 
           await showApp();
@@ -242,7 +258,17 @@ async function showApp() {
       esc,
       toast,
       ask,
+      plural,
       admin: user.role === "admin",
+      openStudents: (t) =>
+        safe(async () => {
+          officeTeacher = { id: t.id, name: t.name };
+          page = "students";
+          query = "";
+          filter = "all";
+          tablePage = 0;
+          await showApp();
+        }),
     });
   if (page !== "students") return dailyDashboard({ api, esc, toast });
   overview = await api("/api/admin/overview");
@@ -304,8 +330,8 @@ function adminView() {
   <div class="metrics"><div class="metric"><label>Иностранные студенты</label><strong>${faculty.length}</strong><small>Подтверждённые, обучаются сейчас</small></div><div class="metric alert"><label>Больше 7 дней без явки</label><strong>${attention.length}</strong><small>По отметкам преподавателей</small></div><div class="metric alert"><label>Не выполнены требования</label><strong>${overdue.length}</strong><small>Студентов с просроченными требованиями</small></div><div class="metric"><label>Нет данных о требованиях</label><strong>${faculty.filter((s) => s.procedureUnknown).length}</strong></div></div>
   ${overview.faculty.unverified ? `<div class="notice">Полнота реестра ещё не подтверждена. Загружено ${students.length} студентов; иностранный статус не проверен у ${overview.faculty.unverified}. Они видны в реестре, но не включены в статистику иностранцев. Программы и курсы заполняет руководство.</div>` : ""}
   ${page === "dashboard" ? `<div class="attention-grid">${list("Не посещают занятия", attention, "absence")}${list("Не выполнены требования", overdue, "procedure")}</div>` : ""}
-  <div class="admin-columns"><div class="panel"><div class="panel-heading"><div><h2>Список студентов</h2><small>${user.role === "admin" ? "Статистика сверху всегда по факультету, фильтры действуют на таблицу" : "Статистика сверху по вашим программам и курсам, фильтры действуют на таблицу"}</small></div>${search("admin-search", "Поиск по ФИО", query)}</div>
-  <div class="office-filters">${user.role === "admin" ? '<label>Ответственность<select id="office-scope"><option value="all">Весь факультет</option><option value="mine">Мои программы и курсы</option><option value="unassigned">Не распределены</option></select></label>' : ""}<label>Программа<select id="office-program"><option value="">Все программы</option>${programs.map((p) => `<option>${esc(p)}</option>`).join("")}</select></label><label>Курс<select id="office-year"><option value="">Все курсы</option>${years.map((y) => `<option>${y}</option>`).join("")}</select></label></div>
+  <div class="admin-columns"><div class="panel"><div class="panel-heading"><div><h2>Список студентов</h2><small>${user.role === "admin" ? "Статистика сверху всегда по факультету, фильтры действуют на таблицу" : "Статистика сверху по вашим программам и курсам, фильтры действуют на таблицу"}</small></div></div>
+  <div class="office-filters"><label class="filter-search">Поиск по ФИО${search("admin-search", "Фамилия студента", query)}</label>${user.role === "admin" ? '<label>Ответственность<select id="office-scope"><option value="all">Весь факультет</option><option value="mine">Мои программы и курсы</option><option value="unassigned">Не распределены</option></select></label>' : ""}<label>Программа<select id="office-program"><option value="">Все программы</option>${programs.map((p) => `<option>${esc(p)}</option>`).join("")}</select></label><label>Курс<select id="office-year"><option value="">Все курсы</option>${years.map((y) => `<option>${y}</option>`).join("")}</select></label>${officeTeacher ? `<span class="filter-chip">Преподаватель: ${esc(officeTeacher.name)} <button type="button" id="clear-teacher" aria-label="Снять фильтр по преподавателю">×</button></span>` : ""}</div>
   <div class="filter-tabs">${[
     ["all", "Весь реестр"],
     ["foreign", "Подтверждённые иностранцы"],
@@ -323,7 +349,7 @@ function adminView() {
     )
     .join("")}</div>
   <details class="filter-legend"><summary>Что означают фильтры</summary><dl><dt>Подтверждённые иностранцы</dt><dd>Студенты с подтверждённым иностранным статусом, которые обучаются сейчас. Только они входят в статистику сверху и в четыре следующих фильтра.</dd><dt>Больше 7 дней без явки</dt><dd>Больше 7 учебных дней с отметкой «Отсутствовал(а)» после последней явки. Считаются только дни, отмеченные преподавателями.</dd><dt>Не выполнены требования</dt><dd>Хотя бы одно из обязательных требований в карточке просрочено: миграционный учёт, виза и срок пребывания, медицинское освидетельствование, дактилоскопия и фотографирование, медицинское страхование. Просрочено требование в работе, у которого прошёл назначенный срок, либо подтверждённое требование, у которого истёк срок действия. Требования без данных, освобождённые и сданные на проверку просроченными не считаются.</dd><dt>Пропуски и требования</dt><dd>Одновременно тревога по посещаемости и хотя бы одно просроченное требование – пересечение двух предыдущих фильтров.</dd><dt>Требования на проверке</dt><dd>Хотя бы одно требование сдано на проверку и ждёт подтверждения.</dd><dt>Нет данных о требованиях</dt><dd>Хотя бы одно требование в карточке не заполнено.</dd><dt>Статус не проверен</dt><dd>Иностранный статус в карточке ещё не подтверждён. В статистику иностранцев такие студенты не входят.</dd><dt>Нет отметок</dt><dd>Преподаватели ещё не ставили этому студенту ни одной отметки.</dd></dl></details>
-  <div class="table-scroll"><table class="admin-table"><thead><tr><th>Студент / менеджер</th><th>Посещение</th><th>Без явки</th><th>Требования</th></tr></thead><tbody id="admin-rows"></tbody></table></div><div class="pagination"><small id="result-count"></small><div class="actions"><button class="btn small" id="prev-page" aria-label="Предыдущая страница">←</button><button class="btn small" id="next-page" aria-label="Следующая страница">→</button></div></div></div>
+  <div class="table-scroll"><table class="admin-table"><thead><tr><th><button type="button" class="sort" data-sort="name">Студент / менеджер</button></th><th><button type="button" class="sort" data-sort="attendance">Посещение</button></th><th><button type="button" class="sort" data-sort="days">Без явки</button></th><th><button type="button" class="sort" data-sort="overdue">Требования</button></th></tr></thead><tbody id="admin-rows"></tbody></table></div><div class="pagination"><small id="result-count"></small><div class="actions"><button class="btn small" id="prev-page" aria-label="Предыдущая страница">←</button><button class="btn small" id="next-page" aria-label="Следующая страница">→</button></div></div></div>
   <aside class="admin-aside">${user.role === "admin" ? `<section class="panel mini-panel"><h3>Последние изменения</h3><p class="muted">Реестр: студенты, преподаватели и связи. Правки менеджеров помечены.</p>${overview.audit.length ? overview.audit.map((a) => `<div class="record"><div>${esc(changeLabels[a.action] || a.action)}<small>${esc(a.label || a.entity)}</small><small>${esc(a.actor)}${a.role === "office" ? " · менеджер" : ""} · ${fmtDate(a.at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small></div></div>`).join("") : '<p class="muted">Изменений пока нет.</p>'}</section>` : ""}<section class="panel mini-panel"><h3>Ваши программы и курсы</h3><p>${user.role === "admin" ? "Весь факультет" : esc(user.scopes?.map((s) => s.program + (s.year ? ", " + s.year + " курс" : "")).join(" · ") || "Весь факультет")}</p><a href="https://pravo.hse.ru/centre/contact" target="_blank" rel="noopener">Распределение менеджеров ↗</a><p>Распределение в журнале обновлено 21.09.2026.</p></section><section class="panel mini-panel"><h3>Полнота данных</h3><div class="quality-row"><span>Без менеджера</span><strong>${overview.faculty.unassigned}</strong></div><div class="quality-row"><span>Студентов с отметками</span><strong>${overview.students.filter((s) => s.marked).length} / ${overview.students.length}</strong></div><div class="quality-row"><span>Резервная копия базы</span><strong>${overview.backup ? (JSON.parse(overview.backup.value).ok ? "Создана " : "Ошибка ") + fmtDate(JSON.parse(overview.backup.value).at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Не включена"}</strong></div><p>Нет отметки – не значит отсутствовал. Несколько пропусков за день считаются одним учебным днём.</p></section><section class="panel mini-panel"><h3>Сопровождение иностранцев</h3><p>Применимость требований проверяется индивидуально: гражданство, основание пребывания, дата въезда и действующие подтверждения.</p><a href="https://ivisa.hse.ru/" target="_blank" rel="noopener">Визовая поддержка ↗</a><p><a href="https://istudents.hse.ru/" target="_blank" rel="noopener">Сервисы и инструкции для иностранцев ↗</a></p><p>Поддержка: istudents.support@hse.ru</p><p>Электронный пропуск, связь и адаптация – сервисные вопросы, они не создают долг по обязательному требованию.</p></section></aside></div>`;
   if ($("#add-student-open"))
     $("#add-student-open").onclick = () => safe(addStudentDialog);
@@ -360,6 +386,25 @@ function adminView() {
         adminView();
       }),
   );
+  // Щелчок по заголовку столбца: ФИО – по алфавиту, числа – сначала большие; повторный щелчок меняет порядок.
+  $$(".admin-table [data-sort]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        if (sortKey === b.dataset.sort) sortDir = -sortDir;
+        else {
+          sortKey = b.dataset.sort;
+          sortDir = sortKey === "name" ? 1 : -1;
+        }
+        tablePage = 0;
+        renderAdminRows();
+      }),
+  );
+  if ($("#clear-teacher"))
+    $("#clear-teacher").onclick = () => {
+      officeTeacher = null;
+      tablePage = 0;
+      adminView();
+    };
   renderAdminRows();
 }
 const matchesFilter = (s, id) =>
@@ -391,7 +436,8 @@ function renderAdminRows() {
         ? s.manager?.id === user.id
         : officeScope === "unassigned"
           ? !s.manager
-          : true),
+          : true) &&
+      (!officeTeacher || (s.teacherIds || []).includes(officeTeacher.id)),
   );
   $$(".filter-tabs [data-filter]").forEach((b) => {
     const n = base.filter((s) => matchesFilter(s, b.dataset.filter)).length;
@@ -399,14 +445,29 @@ function renderAdminRows() {
     b.hidden =
       n === 0 && b.dataset.filter !== "all" && b.dataset.filter !== filter;
   });
+  const byName = (a, b) => a.name.localeCompare(b.name, "ru");
+  const compare = {
+    name: byName,
+    attendance: (a, b) => (a.attendance ?? -1) - (b.attendance ?? -1),
+    days: (a, b) => a.days - b.days,
+    overdue: (a, b) => a.procedureOverdue - b.procedureOverdue,
+  }[sortKey];
   const rows = base
     .filter((s) => matchesFilter(s, filter))
     .sort(
-      (a, b) =>
-        Number(b.absenceAlert) - Number(a.absenceAlert) ||
-        b.procedureOverdue - a.procedureOverdue ||
-        a.name.localeCompare(b.name, "ru"),
+      compare
+        ? (a, b) => sortDir * compare(a, b) || byName(a, b)
+        : (a, b) =>
+            Number(b.absenceAlert) - Number(a.absenceAlert) ||
+            b.procedureOverdue - a.procedureOverdue ||
+            byName(a, b),
     );
+  $$(".admin-table th").forEach((th) => {
+    const b = th.querySelector("[data-sort]");
+    if (b && b.dataset.sort === sortKey)
+      th.setAttribute("aria-sort", sortDir === 1 ? "ascending" : "descending");
+    else th.removeAttribute("aria-sort");
+  });
   tablePage = Math.min(tablePage, Math.max(0, Math.ceil(rows.length / 20) - 1));
   $("#admin-rows").innerHTML = rows.length
     ? rows
