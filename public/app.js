@@ -9,6 +9,12 @@ import {
 import { registryView } from "./registry.js";
 const $ = (s) => document.querySelector(s),
   root = $("#app");
+const roleLabel = (role) =>
+  role === "admin"
+    ? "Полный доступ"
+    : role === "office"
+      ? "Менеджер"
+      : "Преподаватель";
 const esc = (s) =>
   String(s ?? "").replace(
     /[&<>"']/g,
@@ -81,7 +87,7 @@ const brand =
 const search = (id, placeholder, value = "") =>
   `<div class="search"><input id="${id}" type="search" placeholder="${placeholder}" aria-label="${placeholder}" value="${esc(value)}"></div>`;
 function loginView() {
-  root.innerHTML = `<div class="login"><section class="login-art">${brand}<div><h2 class="login-title">Журнал<br>посещаемости</h2><p>Факультет права НИУ ВШЭ</p></div><small>Посещаемость · Студенты · Документы</small></section><section class="login-main"><div class="login-box"><div class="eyebrow">Факультет права</div><h1>Вход в журнал</h1>${session.selection ? `<form id="select-login" class="access-form"><label for="login-role">Роль</label><select id="login-role"><option value="teacher">Преподаватель</option><option value="office">Руководство · менеджер</option><option value="admin">Руководство · полный доступ</option></select><label for="person-search">Поиск сотрудника</label><input id="person-search" type="search" placeholder="Начните вводить фамилию"><label for="login-person">Сотрудник</label><select id="login-person" required></select><label id="password-label" for="management-password" hidden>Пароль руководства</label><input id="management-password" type="password" autocomplete="current-password" maxlength="256" hidden><p id="person-scope" class="muted" aria-live="polite"></p><button class="btn primary">Открыть кабинет →</button></form><div class="login-footer">Преподаватель входит по выбору имени. Руководство – по паролю.${session.demo ? " Локальный просмотр: отметки сохраняются в тестовой базе." : ""}</div>` : '<a class="btn primary" href="/auth/login">Войти</a>'}</div></section></div>`;
+  root.innerHTML = `<div class="login"><section class="login-art">${brand}<div><h2 class="login-title">Журнал<br>посещаемости</h2><p>Факультет права НИУ ВШЭ</p></div><small>Посещаемость · Студенты · Документы</small></section><section class="login-main"><div class="login-box"><div class="eyebrow">Факультет права</div><h1>Вход в журнал</h1>${session.selection ? `<form id="select-login" class="access-form"><label for="login-role">Роль</label><select id="login-role"><option value="teacher">Преподаватель</option><option value="office">Менеджер</option><option value="admin">Полный доступ</option></select><label for="person-search">Поиск сотрудника</label><input id="person-search" type="search" placeholder="Начните вводить фамилию"><label for="login-person">Сотрудник</label><select id="login-person" required></select><label for="management-password">Пароль</label><input id="management-password" type="password" autocomplete="current-password" maxlength="256" required><p id="person-scope" class="muted" aria-live="polite"></p><button class="btn primary">Открыть кабинет →</button></form><div class="login-footer">Вход по имени и паролю.${session.demo ? " Локальный просмотр: отметки сохраняются в тестовой базе." : ""}</div>` : '<a class="btn primary" href="/auth/login">Войти</a>'}</div></section></div>`;
   if (!session.selection) return;
   const updateSelection = (hint = "Выберите сотрудника из списка.") => {
     const personId = $("#login-person").value;
@@ -118,10 +124,6 @@ function loginView() {
         p.name.toLocaleLowerCase("ru").replace(/ё/g, "е").includes(q),
       )
       .sort((a, b) => a.name.localeCompare(b.name, "ru"));
-    const needsPassword = role !== "teacher";
-    $("#password-label").hidden = !needsPassword;
-    $("#management-password").hidden = !needsPassword;
-    $("#management-password").required = needsPassword;
     $("#login-person").innerHTML =
       '<option value="">Выберите своё имя</option>' +
       people
@@ -154,10 +156,7 @@ function loginView() {
           body: JSON.stringify({
             role: $("#login-role").value,
             personId: $("#login-person").value,
-            password:
-              $("#login-role").value === "teacher"
-                ? undefined
-                : $("#management-password").value,
+            password: $("#management-password").value,
           }),
         });
         user = r.user;
@@ -178,7 +177,7 @@ function loginView() {
   fill();
 }
 function shell() {
-  root.innerHTML = `<div class="layout"><aside class="sidebar">${brand}<div class="section-label">${user.role !== "teacher" ? "Руководство" : "Преподаватель"}</div><nav class="nav" aria-label="Основная навигация">${user.role !== "teacher" ? `<button data-page="dashboard" class="${page === "dashboard" ? "active" : ""}"><span class="nav-icon">▦</span>Обзор</button><button data-page="students" class="${page === "students" ? "active" : ""}"><span class="nav-icon">♙</span>Студенты</button>${user.role === "admin" ? `<button data-page="registry" class="${page === "registry" ? "active" : ""}"><span class="nav-icon">☰</span>Реестр</button>` : ""}` : `<button data-page="journal" class="active"><span class="nav-icon">▤</span>Мой журнал</button>`}</nav><div class="side-bottom"><div class="side-note">${user.role !== "teacher" ? "Посещаемость и документы студентов." : "Выберите дату, отметьте студентов и нажмите «Сохранить»."}</div><div class="identity"><span class="avatar">${initials(user.name)}</span><div><strong>${esc(user.name.split(" ").slice(0, 2).join(" "))}</strong><small>${user.role !== "teacher" ? "Руководство" : "Преподаватель"}</small></div></div><button id="logout" class="logout">Выйти ↗</button></div></aside><main class="main"><header class="topbar"><span class="crumb">Учебный процесс <b>/ ${user.role !== "teacher" ? "Руководство" : "Посещаемость"}</b></span>${session.demo ? '<span class="demo-tag">Локальный просмотр · тестовые отметки</span>' : ""}</header><div class="content" id="content"></div></main></div>`;
+  root.innerHTML = `<div class="layout"><aside class="sidebar">${brand}<div class="section-label">${roleLabel(user.role)}</div><nav class="nav" aria-label="Основная навигация">${user.role !== "teacher" ? `<button data-page="dashboard" class="${page === "dashboard" ? "active" : ""}"><span class="nav-icon">▦</span>Обзор</button><button data-page="students" class="${page === "students" ? "active" : ""}"><span class="nav-icon">♙</span>Студенты</button>${user.role === "admin" ? `<button data-page="registry" class="${page === "registry" ? "active" : ""}"><span class="nav-icon">☰</span>Реестр</button>` : ""}` : `<button data-page="journal" class="active"><span class="nav-icon">▤</span>Мой журнал</button>`}</nav><div class="side-bottom"><div class="side-note">${user.role !== "teacher" ? "Посещаемость и документы студентов." : "Выберите дату, отметьте студентов и нажмите «Сохранить»."}</div><div class="identity"><span class="avatar">${initials(user.name)}</span><div><strong>${esc(user.name.split(" ").slice(0, 2).join(" "))}</strong><small>${roleLabel(user.role)}</small></div></div><button id="logout" class="logout">Выйти ↗</button></div></aside><main class="main"><header class="topbar"><span class="crumb">Учебный процесс <b>/ ${user.role !== "teacher" ? "Руководство" : "Посещаемость"}</b></span>${session.demo ? '<span class="demo-tag">Локальный просмотр · тестовые отметки</span>' : ""}</header><div class="content" id="content"></div></main></div>`;
   $$("[data-page]").forEach(
     (b) =>
       (b.onclick = () =>
@@ -259,7 +258,7 @@ function adminView() {
         : '<p class="muted">В подтверждённом контингенте таких записей нет.</p>'
     }${rows.length > 5 ? `<button class="btn small" data-filter="${type === "absence" ? "attention" : "debt"}">Показать весь список</button>` : ""}</section>`;
   $("#content").innerHTML =
-    `<div class="page-heading"><div><div class="eyebrow">Руководство · Факультет права</div><h1>${page === "dashboard" ? "Иностранные студенты" : "Реестр студентов"}</h1><p>Общая статистика факультета. Работа со студентами – по программам и курсам.</p></div><div class="heading-actions">${user.role === "admin" ? '<button class="btn primary" id="add-student-open">+ Добавить студента</button>' : ""}<a class="btn" href="/api/admin/export">↓ Выгрузить CSV</a></div></div>
+    `<div class="page-heading"><div><div class="eyebrow">Факультет права</div><h1>${page === "dashboard" ? "Иностранные студенты" : "Реестр студентов"}</h1><p>Общая статистика факультета. Работа со студентами – по программам и курсам.</p></div><div class="heading-actions">${user.role === "admin" ? '<button class="btn primary" id="add-student-open">+ Добавить студента</button>' : ""}<a class="btn" href="/api/admin/export">↓ Выгрузить CSV</a></div></div>
   <div class="metrics"><div class="metric"><label>Иностранные студенты</label><strong>${faculty.length}</strong><small>Подтверждённые, обучаются сейчас</small></div><div class="metric alert"><label>Больше 7 дней без явки</label><strong>${attention.length}</strong><small>По отметкам преподавателей</small></div><div class="metric alert"><label>Просрочены процедуры</label><strong>${overdue.length}</strong><small>Студентов с просроченными документами</small></div><div class="metric"><label>Нет данных о процедурах</label><strong>${faculty.filter((s) => s.procedureUnknown).length}</strong><small>Нужна проверка руководства</small></div></div>
   ${overview.faculty.unverified ? `<div class="notice">Полнота реестра ещё не подтверждена. Загружено ${students.length} студентов; иностранный статус не проверен у ${overview.faculty.unverified}. Они видны в реестре, но не включены в статистику иностранцев. Программы и курсы заполняет руководство.</div>` : ""}
   ${page === "dashboard" ? `<div class="attention-grid">${list("Не посещают занятия", attention, "absence")}${list("Должники по процедурам", overdue, "procedure")}</div>` : ""}

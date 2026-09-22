@@ -140,6 +140,15 @@ test("Выбор сотрудника, зоны редактирования и 
       (await req("/api/demo-login", "POST", { role: "admin" })).status,
       403,
     );
+    assert.equal(
+      (
+        await req("/api/select-login", "POST", {
+          role: "teacher",
+          personId: "t_test_1",
+        })
+      ).status,
+      403,
+    );
     await login("admin", "gadzhieva");
     assert.equal(
       (

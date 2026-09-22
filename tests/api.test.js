@@ -119,7 +119,11 @@ test("API: изоляция, сохранение, редактирование 
           await request(
             "/api/demo-login",
             "POST",
-            { role: "teacher", teacherId: e.teacherId },
+            {
+              role: "teacher",
+              teacherId: e.teacherId,
+              password: "test-management-password",
+            },
             null,
             "https://evil.example",
           )
@@ -130,7 +134,11 @@ test("API: изоляция, сохранение, редактирование 
     const login = await request(
       "/api/demo-login",
       "POST",
-      { role: "teacher", teacherId: e.teacherId },
+      {
+        role: "teacher",
+        teacherId: e.teacherId,
+        password: "test-management-password",
+      },
       null,
     );
     cookie = login.headers.get("set-cookie").split(";")[0];

@@ -159,7 +159,7 @@ const managementHash = process.env.MANAGEMENT_PASSWORD_HASH || "";
 const managementVersion = hash(managementHash);
 const loginAttempts = new Map();
 function checkManagementPassword(req) {
-  if (!managementHash) throw fail(503, "Пароль руководства ещё не настроен");
+  if (!managementHash) throw fail(503, "Пароль ещё не настроен");
   const now = Date.now();
   for (const [key, value] of loginAttempts)
     if (value.until <= now) loginAttempts.delete(key);
@@ -173,7 +173,7 @@ function checkManagementPassword(req) {
   if (!verifyPassword(req.body.password, managementHash)) {
     attempt.count++;
     loginAttempts.set(key, attempt);
-    throw fail(403, "Неверный пароль руководства");
+    throw fail(403, "Неверный пароль");
   }
   loginAttempts.delete(key);
 }
@@ -275,24 +275,24 @@ app.post("/api/select-login", (req, res) => {
       : managers.find((m) => m.id === personId && m.role === role);
   if (!person || !["teacher", "office", "admin"].includes(role))
     throw fail(400, "Выберите роль и сотрудника из списка");
-  if (role !== "teacher") checkManagementPassword(req);
+  checkManagementPassword(req);
   if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
   const user = { ...person, role, source: "selection" };
-  session(res, { user, ...(role !== "teacher" ? { managementVersion } : {}) });
+  session(res, { user, managementVersion });
   res.json({ user });
 });
 app.post("/api/demo-login", (req, res) => {
   if (!demo) return res.sendStatus(404);
   const role = req.body.role;
-  if (role === "admin") checkManagementPassword(req);
+  checkManagementPassword(req);
   const teacher = roster.teachers.find((t) => t.id === req.body.teacherId);
   if (role !== "admin" && !teacher) throw fail(400, "Выберите преподавателя");
   if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
   const user =
     role === "admin"
-      ? { id: "demo_admin", name: "Руководство", role: "admin" }
+      ? { id: "demo_admin", name: "Полный доступ", role: "admin" }
       : { ...teacher, role: "teacher" };
-  session(res, { user, ...(role === "admin" ? { managementVersion } : {}) });
+  session(res, { user, managementVersion });
   res.json({ user });
 });
 app.post("/api/logout", (req, res) => {
