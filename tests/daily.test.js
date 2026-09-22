@@ -203,8 +203,8 @@ test("Дневной журнал: изоляция, конфликты, сох�
       )
     ).text();
     assert.match(csv, /Анна/);
-    assert.match(csv, /Был хотя бы раз/);
-    assert.match(csv, /Право: Был/);
+    assert.match(csv, /Присутствовал\(а\) хотя бы раз/);
+    assert.match(csv, /Право: Присутствовал\(а\)/);
     assert.equal(
       (
         await request("/api/daily", "t1", {

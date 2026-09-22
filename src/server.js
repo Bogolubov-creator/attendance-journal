@@ -8,6 +8,7 @@ import {
   directorySource,
   managerFor,
   canEditStudent,
+  canSeeStudent,
   procedureCatalog,
   procedureStates,
   procedureStatus,
@@ -159,7 +160,7 @@ const managementHash = process.env.MANAGEMENT_PASSWORD_HASH || "";
 const managementVersion = hash(managementHash);
 const loginAttempts = new Map();
 function checkManagementPassword(req) {
-  if (!managementHash) throw fail(503, "Пароль руководства ещё не настроен");
+  if (!managementHash) throw fail(503, "Пароль ещё не настроен");
   const now = Date.now();
   for (const [key, value] of loginAttempts)
     if (value.until <= now) loginAttempts.delete(key);
@@ -173,7 +174,7 @@ function checkManagementPassword(req) {
   if (!verifyPassword(req.body.password, managementHash)) {
     attempt.count++;
     loginAttempts.set(key, attempt);
-    throw fail(403, "Неверный пароль руководства");
+    throw fail(403, "Неверный пароль");
   }
   loginAttempts.delete(key);
 }
@@ -275,24 +276,24 @@ app.post("/api/select-login", (req, res) => {
       : managers.find((m) => m.id === personId && m.role === role);
   if (!person || !["teacher", "office", "admin"].includes(role))
     throw fail(400, "Выберите роль и сотрудника из списка");
-  if (role !== "teacher") checkManagementPassword(req);
+  checkManagementPassword(req);
   if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
   const user = { ...person, role, source: "selection" };
-  session(res, { user, ...(role !== "teacher" ? { managementVersion } : {}) });
+  session(res, { user, managementVersion });
   res.json({ user });
 });
 app.post("/api/demo-login", (req, res) => {
   if (!demo) return res.sendStatus(404);
   const role = req.body.role;
-  if (role === "admin") checkManagementPassword(req);
+  checkManagementPassword(req);
   const teacher = roster.teachers.find((t) => t.id === req.body.teacherId);
   if (role !== "admin" && !teacher) throw fail(400, "Выберите преподавателя");
   if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
   const user =
     role === "admin"
-      ? { id: "demo_admin", name: "Руководство", role: "admin" }
+      ? { id: "demo_admin", name: "Полный доступ", role: "admin" }
       : { ...teacher, role: "teacher" };
-  session(res, { user, ...(role === "admin" ? { managementVersion } : {}) });
+  session(res, { user, managementVersion });
   res.json({ user });
 });
 app.post("/api/logout", (req, res) => {
@@ -835,7 +836,8 @@ app.put("/api/admin/students/:id/procedures/:kind", (req, res) => {
 });
 function studentRows() {
   const records = attendanceRecords(db),
-    debts = all("SELECT * FROM debts");
+    debts = all("SELECT * FROM debts"),
+    teacherNames = new Map(roster.teachers.map((t) => [t.id, t.name]));
   return roster.students.map((s) => {
     const profile = studentProfile(s.id),
       procedures = proceduresFor(s.id);
@@ -859,11 +861,23 @@ function studentRows() {
         records.filter((r) => r.studentId === s.id),
         debts.filter((d) => d.studentId === s.id),
       ),
+      // Где и на каких занятиях был студент: новые отметки сверху.
+      records: records
+        .filter((r) => r.studentId === s.id)
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .map((r) => ({
+          date: r.date,
+          course: r.course,
+          teacher: teacherNames.get(r.teacherId),
+          status: r.status,
+        })),
     };
   });
 }
 app.get("/api/admin/overview", (req, res) => {
-  const students = studentRows();
+  const students = studentRows().filter((s) =>
+    canSeeStudent(req.session.user, s),
+  );
   res.json({
     students: students.map((s) => ({
       ...s,
@@ -890,20 +904,14 @@ app.get("/api/admin/overview", (req, res) => {
 app.get("/api/admin/students/:id", (req, res) => {
   const student = studentRows().find((s) => s.id === req.params.id);
   if (!student) throw fail(404, "Студент не найден");
+  if (!canSeeStudent(req.session.user, student))
+    throw fail(403, "Студент не относится к вашим программам и курсам");
   res.json({
     student,
     canEdit: canEditStudent(req.session.user, student),
     programs,
     procedures: proceduresFor(student.id),
-    records: attendanceRecords(db)
-      .filter((r) => r.studentId === student.id)
-      .sort((a, b) => b.date.localeCompare(a.date))
-      .map((r) => ({
-        date: r.date,
-        course: r.course,
-        teacher: roster.teachers.find((t) => t.id === r.teacherId)?.name,
-        status: r.status,
-      })),
+    records: student.records,
     debts: all(
       "SELECT * FROM debts WHERE studentId=? ORDER BY createdAt DESC",
       student.id,
@@ -971,24 +979,26 @@ app.patch("/api/admin/debts/:id", (req, res) => {
 });
 app.get("/api/admin/export", (req, res) => {
   const esc = csvCell;
-  const rows = studentRows().map((s) => [
-    s.name,
-    s.attendance ?? "",
-    s.absences,
-    s.lastVisit || "",
-    s.debtCount,
-    s.days,
-    s.absenceAlert ? "Да" : "Нет",
-    s.attention ? "Да" : "Нет",
-    s.program || "",
-    s.year || "",
-    s.foreignStatus || "unknown",
-    s.enrollmentStatus || "active",
-    s.manager?.name || "",
-    s.procedureOverdue,
-    s.procedureReview,
-    s.procedureUnknown,
-  ]);
+  const rows = studentRows()
+    .filter((s) => canSeeStudent(req.session.user, s))
+    .map((s) => [
+      s.name,
+      s.attendance ?? "",
+      s.absences,
+      s.lastVisit || "",
+      s.debtCount,
+      s.days,
+      s.absenceAlert ? "Да" : "Нет",
+      s.attention ? "Да" : "Нет",
+      s.program || "",
+      s.year || "",
+      s.foreignStatus || "unknown",
+      s.enrollmentStatus || "active",
+      s.manager?.name || "",
+      s.procedureOverdue,
+      s.procedureReview,
+      s.procedureUnknown,
+    ]);
   res.set({
     "Content-Type": "text/csv; charset=utf-8",
     "Content-Disposition": 'attachment; filename="attendance.csv"',

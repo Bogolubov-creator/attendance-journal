@@ -685,6 +685,38 @@ small {
   padding: 7px 10px;
   border-radius: 4px;
 }
+.filter-legend {
+  padding: 12px 24px;
+  font-size: 13px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+.filter-legend summary {
+  cursor: pointer;
+  color: var(--blue);
+}
+.filter-legend dl {
+  margin: 10px 0 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 16px;
+}
+.filter-legend dt {
+  font-weight: 600;
+  color: var(--ink);
+}
+.filter-legend dd {
+  margin: 0;
+  line-height: 1.5;
+}
+@media (max-width: 650px) {
+  .filter-legend dl {
+    grid-template-columns: 1fr;
+  }
+  .filter-legend dd {
+    margin-bottom: 4px;
+  }
+}
 .filter-tabs button.active {
   background: #eaf0fc;
   color: var(--blue);
@@ -715,6 +747,23 @@ small {
   text-align: left;
   font-weight: 550;
   color: var(--ink);
+}
+.records-toggle {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--blue);
+}
+.records-row td {
+  padding-top: 0;
+  padding-bottom: 8px;
+  border-top: 0;
+  background: #f8fafc;
+}
+.records-row .pill {
+  align-self: center;
+}
+.records-row .record:last-child {
+  border-bottom: 0;
 }
 .student-link:hover {
   color: var(--blue);

@@ -119,7 +119,11 @@ test("API: изоляция, сохранение, редактирование 
           await request(
             "/api/demo-login",
             "POST",
-            { role: "teacher", teacherId: e.teacherId },
+            {
+              role: "teacher",
+              teacherId: e.teacherId,
+              password: "test-management-password",
+            },
             null,
             "https://evil.example",
           )
@@ -130,7 +134,11 @@ test("API: изоляция, сохранение, редактирование 
     const login = await request(
       "/api/demo-login",
       "POST",
-      { role: "teacher", teacherId: e.teacherId },
+      {
+        role: "teacher",
+        teacherId: e.teacherId,
+        password: "test-management-password",
+      },
       null,
     );
     cookie = login.headers.get("set-cookie").split(";")[0];
@@ -176,7 +184,20 @@ test("API: изоляция, сохранение, редактирование 
       ),
     );
     await t.test("Админ видит историю, создаёт и закрывает долг", async () => {
-      assert.equal((await request("/api/admin/overview")).status, 200);
+      const overview = await request("/api/admin/overview");
+      assert.equal(overview.status, 200);
+      // В строке студента – все его занятия: дата, дисциплина, преподаватель, отметка; новые сверху.
+      const listed = (await overview.json()).students.find(
+        (s) => s.id === e.studentId,
+      ).records;
+      assert.deepEqual(listed[0], {
+        date: "2026-09-09",
+        course: e.course,
+        teacher: roster.teachers.find((x) => x.id === e.teacherId).name,
+        status: "absent",
+      });
+      assert.ok(listed.length >= 8);
+      assert.ok(listed.every((r, i) => !i || listed[i - 1].date >= r.date));
       const r = await (
         await request("/api/admin/debts", "POST", {
           studentId: e.studentId,

@@ -140,6 +140,15 @@ test("Выбор сотрудника, зоны редактирования и 
       (await req("/api/demo-login", "POST", { role: "admin" })).status,
       403,
     );
+    assert.equal(
+      (
+        await req("/api/select-login", "POST", {
+          role: "teacher",
+          personId: "t_test_1",
+        })
+      ).status,
+      403,
+    );
     await login("admin", "gadzhieva");
     assert.equal(
       (
@@ -206,6 +215,20 @@ test("Выбор сотрудника, зоны редактирования и 
     );
     let data = await (await req("/api/admin/overview")).json();
     assert.equal(data.faculty.confirmed, 1);
+    assert.deepEqual(
+      data.students.map((s) => s.id),
+      [sid],
+      "менеджер видит только студентов своего курса",
+    );
+    assert.equal((await req("/api/admin/students/s_test_2")).status, 403);
+    assert.doesNotMatch(
+      await (await req("/api/admin/export")).text(),
+      /Студент Второй/,
+    );
+    const period = await (
+      await req("/api/daily/overview?from=2026-09-01&to=2026-09-07")
+    ).json();
+    assert.ok(period.students.every((s) => s.id === sid));
     assert.equal(data.students.find((s) => s.id === sid).procedureOverdue, 1);
     assert.equal(data.students.find((s) => s.id === sid).absenceAlert, false);
     assert.equal(

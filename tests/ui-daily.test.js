@@ -127,6 +127,22 @@ test("Дашборд: счётчик тревог, фильтр, поиск и �
       document.querySelector("#daily-results").textContent,
       /Студент Восемь/,
     );
+    const filter = document.querySelector("#daily-filter");
+    filter.value = "absent4";
+    filter.onchange();
+    assert.deepEqual(
+      [...document.querySelectorAll(".daily-person strong")].map(
+        (e) => e.textContent,
+      ),
+      ["Студент Восемь", "Студент Семь"],
+      "фильтр «Не были более 4 дней»",
+    );
+    assert.match(
+      document.querySelector("#daily-results").textContent,
+      /Отсутствуют · 7 уч\. дн\./,
+    );
+    filter.value = "all";
+    filter.onchange();
     const search = document.querySelector("#daily-search");
     search.value = "несуществующий";
     search.oninput();

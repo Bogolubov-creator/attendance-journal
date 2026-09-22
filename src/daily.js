@@ -1,6 +1,6 @@
 import { csvCell } from "./csv.js";
 import { moscowDate, studentMetrics } from "./domain.js";
-import { validDate } from "./office.js";
+import { canSeeStudent, validDate } from "./office.js";
 
 export function summarizeAttendance(
   students,
@@ -206,7 +206,10 @@ export function registerDaily(
       to,
       alertAsOf: moscowDate(),
       students: summarizeAttendance(
-        roster.students.map((s) => studentProfile(s.id)).filter(active),
+        roster.students
+          .map((s) => studentProfile(s.id))
+          .filter(active)
+          .filter((s) => canSeeStudent(req.session.user, s)),
         records.map((r) => ({
           ...r,
           teacher: names.get(r.teacherId) || "Преподаватель",
@@ -222,8 +225,8 @@ export function registerDaily(
   app.get("/api/daily/export", auth, admin, (req, res) => {
     const data = overview(req),
       labels = {
-        present: "Был хотя бы раз",
-        absent: "Присутствие не отмечено",
+        present: "Присутствовал(а) хотя бы раз",
+        absent: "Отсутствуют",
         unknown: "Нет данных",
       };
     const cell = csvCell;
@@ -249,7 +252,7 @@ export function registerDaily(
         s.history
           .map(
             (r) =>
-              `${r.date}: ${r.teacher}${r.course ? ": " + r.course : ""}: ${r.status === "present" ? "Был" : "Не был"}`,
+              `${r.date}: ${r.teacher}${r.course ? ": " + r.course : ""}: ${r.status === "present" ? "Присутствовал(а)" : "Отсутствовал(а)"}`,
           )
           .join(" | "),
         s.absenceDays,
