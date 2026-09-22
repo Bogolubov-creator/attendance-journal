@@ -1739,6 +1739,70 @@ dialog::backdrop {
   justify-content: flex-end;
 }
 /* Добавление студента: строки «преподаватель – дисциплина» */
+/* Карточка студента: занятия и преподаватели – отдельная панель, чтобы правка расписания не терялась. */
+.schedule-block {
+  margin: 24px 0 8px;
+  padding: 18px 20px 20px;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.dialog-body .schedule-block h3 {
+  margin: 0 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.schedule-note {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.schedule-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.schedule-row small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+}
+.schedule-add {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.schedule-add h4 {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+.schedule-add .link-row {
+  align-items: end;
+  margin-bottom: 0;
+}
+.schedule-add label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.schedule-more {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+.schedule-more .profile-form fieldset {
+  padding-bottom: 8px;
+}
 .link-row {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(0, 0.8fr) auto;
