@@ -198,7 +198,15 @@ function shell() {
         toast("Дождитесь сохранения отметок");
         return;
       }
-      if (hasDailyChanges() && !confirm("Выйти без сохранения отметок?"))
+      if (
+        hasDailyChanges() &&
+        !(await ask({
+          title: "Выйти без сохранения отметок?",
+          text: "Несохранённые отметки будут потеряны.",
+          ok: "Выйти",
+          danger: true,
+        }))
+      )
         return;
       discardDailyChanges();
       await api("/api/logout", { method: "POST" });
@@ -214,13 +222,28 @@ async function showApp() {
     toast("Дождитесь сохранения отметок");
     return;
   }
-  if (hasDailyChanges() && !confirm("Перейти без сохранения отметок?")) return;
+  if (
+    hasDailyChanges() &&
+    !(await ask({
+      title: "Перейти без сохранения отметок?",
+      text: "Несохранённые отметки будут потеряны.",
+      ok: "Перейти",
+      danger: true,
+    }))
+  )
+    return;
   discardDailyChanges();
   shell();
   $("#content").innerHTML = '<div class="loading">Загружаем данные…</div>';
   if (user.role === "teacher") return dailyJournal({ api, esc, toast });
   if (page === "registry")
-    return registryView({ api, esc, toast, admin: user.role === "admin" });
+    return registryView({
+      api,
+      esc,
+      toast,
+      ask,
+      admin: user.role === "admin",
+    });
   if (page !== "students") return dailyDashboard({ api, esc, toast });
   overview = await api("/api/admin/overview");
   adminView();
@@ -503,6 +526,28 @@ async function addStudentDialog() {
     });
   };
 }
+// Вкладка карточки запоминается, пока открыт тот же студент: после правок карточка перечитывается.
+let profileId = null,
+  profileTab = "data";
+// Код группы РУЗ длиннее названия дисциплины: прячем длинный числовой идентификатор, различающие части
+// (программа, Г/П, номер группы) остаются; полный код – по наведению.
+const shortGroup = (g) => (g.length > 20 ? g.replace(/_(\d{5,})_/, "_…_") : g);
+// Своё окно подтверждения вместо системного: заголовок, последствия, кнопка действия.
+function ask({ title, text = "", ok = "Подтвердить", danger = false }) {
+  let dlg = $("#ask");
+  if (!dlg) {
+    dlg = document.createElement("dialog");
+    dlg.id = "ask";
+    dlg.className = "ask";
+    document.body.append(dlg);
+  }
+  dlg.innerHTML = `<form method="dialog"><h3>${esc(title)}</h3>${text ? `<p>${esc(text)}</p>` : ""}<div class="ask-actions"><button value="cancel" class="btn">Отмена</button><button value="ok" class="btn primary ${danger ? "danger" : ""}" autofocus>${esc(ok)}</button></div></form>`;
+  return new Promise((resolve) => {
+    dlg.onclose = () => resolve(dlg.returnValue === "ok");
+    dlg.returnValue = "";
+    dlg.showModal();
+  });
+}
 const scheduleOpen = () => {
   try {
     return localStorage.getItem("scheduleOpen") !== "0";
@@ -522,8 +567,25 @@ async function profile(id) {
           `<option value="${esc(v)}" ${String(value ?? "") === String(v) ? "selected" : ""}>${esc(l)}</option>`,
       )
       .join("");
-  d.innerHTML = `<div class="dialog-head"><div><div class="eyebrow">Карточка студента</div><h2>${esc(s.name)}</h2></div><button class="btn small" id="close-profile" aria-label="Закрыть карточку">×</button></div><div class="dialog-body"><p id="student-assignment">${esc(s.manager?.name || "Менеджер не назначен")} · ${esc(s.program || "Программа не указана")} ${s.year ? "· " + s.year + " курс" : ""}</p>${!data.canEdit ? '<div class="notice">Просмотр. Изменения доступны менеджеру программы и курса или руководству.</div>' : ""}
-  <details ${!s.program || !s.year ? "open" : ""}><summary>Контингент и распределение</summary>${!s.program || !s.year ? '<p class="notice warn">Без программы и курса студент не закреплён за менеджером и не попадает в его список.</p>' : ""}<form id="student-profile" class="profile-form"><fieldset ${user.role !== "admin" ? "disabled" : ""}><label>Программа<select name="program">${options([["", "Не указана"], ...data.programs.map((p) => [p, p])], s.program)}</select></label><label>Курс<select name="year">${options([[0, "Не указан"], ...[1, 2, 3, 4, 5, 6].map((y) => [y, y])], s.year || 0)}</select></label><label>Иностранный контингент<select name="foreignStatus">${options(
+  const overdueCount = data.procedures.filter((p) =>
+    ["overdue", "expired"].includes(p.status),
+  ).length;
+  const procDate = (p) =>
+    ["pending", "overdue", "submitted"].includes(p.status) && p.dueDate
+      ? "до " +
+        fmtDate(p.dueDate, { day: "numeric", month: "short", year: "numeric" })
+      : ["confirmed", "expired"].includes(p.status) && p.validUntil
+        ? "действует до " +
+          fmtDate(p.validUntil, {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          })
+        : p.status === "exempt"
+          ? "не требуется"
+          : "";
+  d.innerHTML = `<div class="dialog-sticky"><div class="dialog-head"><div><div class="eyebrow">Карточка студента</div><h2>${esc(s.name)}</h2></div><button class="btn small" id="close-profile" aria-label="Закрыть карточку">×</button></div><nav class="card-tabs" role="tablist" aria-label="Разделы карточки"><button role="tab" data-tab="data">Данные</button><button role="tab" data-tab="lessons">Занятия <span class="count">${data.links.length}</span></button><button role="tab" data-tab="requirements">Требования${overdueCount ? ` <span class="count red">${overdueCount}</span>` : ""}</button><button role="tab" data-tab="attendance">Посещаемость</button></nav></div><div class="dialog-body"><p id="student-assignment">${esc(s.manager?.name || "Менеджер не назначен")} · ${esc(s.program || "Программа не указана")} ${s.year ? "· " + s.year + " курс" : ""}</p>${!data.canEdit ? '<div class="notice">Просмотр. Изменения доступны менеджеру программы и курса или руководству.</div>' : ""}
+  <section class="card-tab" data-tab="data"><details ${!s.program || !s.year ? "open" : ""}><summary>Контингент и распределение</summary>${!s.program || !s.year ? '<p class="notice warn">Без программы и курса студент не закреплён за менеджером и не попадает в его список.</p>' : ""}<form id="student-profile" class="profile-form"><fieldset ${user.role !== "admin" ? "disabled" : ""}><label>Программа<select name="program">${options([["", "Не указана"], ...data.programs.map((p) => [p, p])], s.program)}</select></label><label>Курс<select name="year">${options([[0, "Не указан"], ...[1, 2, 3, 4, 5, 6].map((y) => [y, y])], s.year || 0)}</select></label><label>Иностранный контингент<select name="foreignStatus">${options(
     [
       ["unknown", "Не проверено"],
       ["confirmed", "Подтверждён"],
@@ -563,23 +625,37 @@ async function profile(id) {
       ["private", "Частный адрес"],
     ],
     s.housing,
-  )}</select></label><label>Куратор по миграционному учёту<input name="curator" maxlength="200" value="${esc(s.curator)}"></label><label>Паспорт действителен до<input type="date" name="passportUntil" value="${esc(s.passportUntil)}"></label><label>Миграционная карта до<input type="date" name="migrationCardUntil" value="${esc(s.migrationCardUntil)}"></label><label>ФИО латиницей<input name="nameLatin" maxlength="200" value="${esc(s.nameLatin)}"></label><label>Страна, направившая на обучение<input name="sendingCountry" maxlength="200" value="${esc(s.sendingCountry)}"></label><label class="wide">Версия образовательной программы<input name="programVersion" maxlength="200" value="${esc(s.programVersion)}"></label><button class="btn primary small">Сохранить данные студента</button></fieldset></form></details>
-  ${data.canEdit ? `<details id="registry-block" class="schedule-block" ${scheduleOpen() ? "open" : ""}><summary><h3>Занятия и преподаватели <span class="pill">${data.links.length}</span></h3></summary><p class="schedule-note">Кто ведёт студента: дисциплина, группа, преподаватель. Правки сразу попадают в журнал преподавателя.</p><datalist id="profile-teachers">${teachers.map((t) => `<option value="${esc(t.name)}"></option>`).join("")}</datalist><datalist id="profile-courses"></datalist><form id="student-link" class="schedule-add"><h4>Добавить занятие</h4><div class="link-row"><label>Преподаватель<input name="teacher" list="profile-teachers" placeholder="Начните вводить фамилию" required autocomplete="off"></label><label>Дисциплина<input name="course" list="profile-courses" placeholder="Название дисциплины" required maxlength="200" autocomplete="off"></label><label>Группа<input name="group" placeholder="Необязательно" maxlength="100" autocomplete="off"></label><button class="btn primary small">+ Добавить занятие</button></div></form><div id="student-links">${data.links.map((l, i) => `<div class="schedule-row"><div><strong>${esc(l.course)}</strong><small>${esc(l.teacher)}${l.group ? " · группа " + esc(l.group) : ""}</small></div><button class="btn small" data-unlink="${i}" aria-label="Убрать занятие: ${esc(l.course)}, ${esc(l.teacher)}">Убрать</button></div>`).join("") || '<p class="notice warn">Студент не привязан ни к одному преподавателю и не виден в журналах. Добавьте занятие ниже.</p>'}</div><details class="schedule-more"><summary>ФИО студента и удаление записи</summary><form id="student-rename" class="profile-form"><fieldset><label class="wide">ФИО студента<input name="name" required minlength="3" maxlength="150" autocomplete="off" value="${esc(s.name)}"></label><button class="btn primary small">Сохранить ФИО</button></fieldset></form><p><button type="button" class="btn small" id="student-delete">Удалить студента из реестра</button> <span class="muted">Только для ошибочных записей без отметок. Отчисленным меняйте статус обучения.</span></p></details></details>` : ""}
-  <h3>Обязательные требования</h3><p class="muted">Сроки устанавливает сотрудник после проверки применимости. Отправленные документы ожидают проверки и не считаются подтверждённым нарушением.</p>
+  )}</select></label><label>Куратор по миграционному учёту<input name="curator" maxlength="200" value="${esc(s.curator)}"></label><label>Паспорт действителен до<input type="date" name="passportUntil" value="${esc(s.passportUntil)}"></label><label>Миграционная карта до<input type="date" name="migrationCardUntil" value="${esc(s.migrationCardUntil)}"></label><label>ФИО латиницей<input name="nameLatin" maxlength="200" value="${esc(s.nameLatin)}"></label><label>Страна, направившая на обучение<input name="sendingCountry" maxlength="200" value="${esc(s.sendingCountry)}"></label><label class="wide">Версия образовательной программы<input name="programVersion" maxlength="200" value="${esc(s.programVersion)}"></label><button class="btn primary small">Сохранить данные студента</button></fieldset></form></details></section>
+  <section class="card-tab" data-tab="lessons">${data.canEdit ? `<details id="registry-block" class="schedule-block" ${scheduleOpen() ? "open" : ""}><summary><h3>Занятия и преподаватели <span class="pill">${data.links.length}</span></h3></summary><p class="schedule-note">Кто ведёт студента: дисциплина, группа, преподаватель. Правки сразу попадают в журнал преподавателя.</p><datalist id="profile-teachers">${teachers.map((t) => `<option value="${esc(t.name)}"></option>`).join("")}</datalist><datalist id="profile-courses"></datalist><form id="student-link" class="schedule-add"><h4>Добавить занятие</h4><div class="link-row"><label>Преподаватель<input name="teacher" list="profile-teachers" placeholder="Начните вводить фамилию" required autocomplete="off"></label><label>Дисциплина<input name="course" list="profile-courses" placeholder="Название дисциплины" required maxlength="200" autocomplete="off"></label><label>Группа<input name="group" placeholder="Необязательно" maxlength="100" autocomplete="off"></label><button class="btn primary small">+ Добавить занятие</button></div></form><div id="student-links">${data.links.map((l, i) => `<div class="schedule-row"><div><strong>${esc(l.course)}</strong><small>${esc(l.teacher)}${l.group ? ` · <span class="group-code" title="Группа ${esc(l.group)}">${esc(shortGroup(l.group))}</span>` : ""}</small></div><button class="btn small" data-unlink="${i}" aria-label="Убрать занятие: ${esc(l.course)}, ${esc(l.teacher)}">Убрать</button></div>`).join("") || '<p class="notice warn">Студент не привязан ни к одному преподавателю и не виден в журналах. Добавьте занятие ниже.</p>'}</div><details class="schedule-more"><summary>ФИО студента и удаление записи</summary><form id="student-rename" class="profile-form"><fieldset><label class="wide">ФИО студента<input name="name" required minlength="3" maxlength="150" autocomplete="off" value="${esc(s.name)}"></label><button class="btn primary small">Сохранить ФИО</button></fieldset></form><p><button type="button" class="btn small" id="student-delete">Удалить студента из реестра</button> <span class="muted">Только для ошибочных записей без отметок. Отчисленным меняйте статус обучения.</span></p></details></details>` : '<p class="muted">Занятия и преподавателей меняет менеджер программы и курса или полный доступ.</p>'}</section>
+  <section class="card-tab" data-tab="requirements"><h3>Обязательные требования</h3><p class="muted">Сроки устанавливает сотрудник после проверки применимости. Отправленные документы ожидают проверки и не считаются подтверждённым нарушением.</p>
   ${data.procedures
     .map(
       (p) =>
-        `<details class="procedure-item"><summary>${esc(p.title)} <span class="pill ${["overdue", "expired"].includes(p.status) ? "red" : p.status === "confirmed" ? "green" : ""}">${procedureLabels[p.status]}</span></summary><p>${esc(p.hint)} <a href="${esc(p.source)}" target="_blank" rel="noopener">Инструкция ВШЭ ↗</a></p><form data-procedure="${p.id}" class="profile-form"><fieldset ${data.canEdit ? "" : "disabled"}><label>Статус<select name="state">${options(
+        `<details class="procedure-item"><summary><span class="proc-title">${esc(p.title)}</span><span class="pill ${["overdue", "expired"].includes(p.status) ? "red" : p.status === "confirmed" ? "green" : ""}">${procedureLabels[p.status]}</span><span class="proc-date">${esc(procDate(p))}</span><span class="proc-edit">Изменить</span></summary><p>${esc(p.hint)} <a href="${esc(p.source)}" target="_blank" rel="noopener">Инструкция ВШЭ ↗</a></p><form data-procedure="${p.id}" class="profile-form"><fieldset ${data.canEdit ? "" : "disabled"}><label>Статус<select name="state">${options(
           ["unknown", "pending", "submitted", "confirmed", "exempt"].map(
             (v) => [v, procedureLabels[v]],
           ),
           p.state,
         )}</select></label><label>Выполнить до<input type="date" name="dueDate" value="${esc(p.dueDate)}"></label><label>Дата выполнения<input type="date" name="completedAt" value="${esc(p.completedAt)}"></label><label>Действительно до<input type="date" name="validUntil" value="${esc(p.validUntil)}"></label><label class="wide">Комментарий / основание освобождения<textarea name="note" maxlength="1000" rows="2">${esc(p.note)}</textarea></label><button class="btn primary small">Сохранить требование</button></fieldset></form>${p.updatedAt ? `<small>Обновлено ${fmtDate(p.updatedAt)} · ${esc(p.checkedBy)}</small>` : ""}</details>`,
     )
-    .join("")}
-  <h3>Посещаемость</h3><p>${s.attendance === null ? "Пока нет отметок" : "Посещение: " + s.attendance + "%"} · Без явки: ${s.days} учебных дней</p>${data.records.length ? data.records.map((r) => `<div class="record"><div>${esc(r.course || "Без дисциплины")}<small>${fmtDate(r.date)} · ${esc(r.teacher || "Преподаватель")}</small></div><span>${labels[r.status]}</span></div>`).join("") : '<p class="muted">Преподаватели ещё не внесли отметки.</p>'}${data.debts.length ? '<p class="notice">В прежней версии внесены отдельные учебные задолженности. Они сохранены, но не считаются долгами по требованиям.</p>' + data.debts.map((x) => `<p>${esc(x.title)}: ${x.resolved ? "закрыта" : "открыта"}</p>`).join("") : ""}</div>`;
+    .join("")}</section>
+  <section class="card-tab" data-tab="attendance"><h3>Посещаемость</h3><p>${s.attendance === null ? "Пока нет отметок" : "Посещение: " + s.attendance + "%"} · Без явки: ${s.days} учебных дней</p>${data.records.length ? data.records.map((r) => `<div class="record"><div>${esc(r.course || "Без дисциплины")}<small>${fmtDate(r.date)} · ${esc(r.teacher || "Преподаватель")}</small></div><span>${labels[r.status]}</span></div>`).join("") : '<p class="muted">Преподаватели ещё не внесли отметки.</p>'}${data.debts.length ? '<p class="notice">В прежней версии внесены отдельные учебные задолженности. Они сохранены, но не считаются долгами по требованиям.</p>' + data.debts.map((x) => `<p>${esc(x.title)}: ${x.resolved ? "закрыта" : "открыта"}</p>`).join("") : ""}</section></div>`;
   if (!d.open) d.showModal();
   $("#close-profile").onclick = () => d.close();
+  const showTab = (t) => {
+    profileTab = t;
+    d.querySelectorAll(".card-tabs [data-tab]").forEach((b) =>
+      b.setAttribute("aria-selected", String(b.dataset.tab === t)),
+    );
+    d.querySelectorAll(".card-tab").forEach(
+      (x) => (x.hidden = x.dataset.tab !== t),
+    );
+  };
+  d.querySelectorAll(".card-tabs [data-tab]").forEach(
+    (b) => (b.onclick = () => showTab(b.dataset.tab)),
+  );
+  showTab(profileId === id ? profileTab : "data");
+  profileId = id;
   const submit = (form, url, transform = (x) => x) => {
     form.onsubmit = (e) => {
       e.preventDefault();
@@ -602,6 +678,8 @@ async function profile(id) {
             (p) => p.id === form.dataset.procedure,
           );
           const badge = form.closest("details").querySelector("summary .pill");
+          form.closest("details").querySelector(".proc-date").textContent =
+            procDate(record);
           badge.textContent = procedureLabels[record.status];
           badge.className =
             "pill " +
@@ -656,12 +734,15 @@ async function profile(id) {
     };
     $$("[data-unlink]").forEach(
       (b) =>
-        (b.onclick = () => {
+        (b.onclick = async () => {
           const l = data.links[b.dataset.unlink];
           if (
-            confirm(
-              `Убрать занятие: ${l.course} – ${l.teacher}${l.group ? " (группа " + l.group + ")" : ""}?`,
-            )
+            await ask({
+              title: "Убрать занятие?",
+              text: `${l.course} – ${l.teacher}${l.group ? " (группа " + l.group + ")" : ""}. Студент исчезнет из журнала этого преподавателя по этой дисциплине.`,
+              ok: "Убрать",
+              danger: true,
+            })
           )
             registry(
               () =>
@@ -698,8 +779,15 @@ async function profile(id) {
         "Занятие добавлено",
       );
     };
-    $("#student-delete").onclick = () => {
-      if (confirm(`Удалить из реестра: ${s.name}?`))
+    $("#student-delete").onclick = async () => {
+      if (
+        await ask({
+          title: "Удалить студента из реестра?",
+          text: `${s.name}. Запись, занятия и данные карточки будут удалены без возможности восстановления.`,
+          ok: "Удалить",
+          danger: true,
+        })
+      )
         safe(async () => {
           await api("/api/admin/students/" + id, { method: "DELETE" });
           d.close();

@@ -1824,6 +1824,134 @@ dialog::backdrop {
   border: 1px solid var(--line);
   border-radius: 8px;
 }
+/* Карточка студента: липкая шапка с вкладками, разделы по одному. */
+.dialog-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+}
+.dialog-sticky .dialog-head {
+  position: static;
+  border-bottom: 0;
+  padding-bottom: 14px;
+}
+.card-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 24px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.card-tabs::-webkit-scrollbar {
+  display: none;
+}
+.card-tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  padding: 8px 10px 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.card-tabs button[aria-selected="true"] {
+  color: var(--blue);
+  border-bottom-color: var(--blue);
+}
+.card-tabs .count {
+  font-weight: 500;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.card-tabs .count.red {
+  color: var(--red);
+}
+.card-tab > h3:first-child {
+  margin-top: 4px;
+}
+.card-tab > details:first-child {
+  margin-top: 4px;
+}
+/* Требования таблицей: название, статус, срок, действие. */
+.procedure-item summary {
+  display: grid;
+  grid-template-columns: 1fr auto minmax(0, 150px) auto;
+  gap: 12px;
+  align-items: center;
+  list-style: none;
+}
+.procedure-item summary::-webkit-details-marker {
+  display: none;
+}
+.procedure-item .pill {
+  margin-left: 0;
+}
+.proc-date {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+}
+.proc-edit {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--blue);
+}
+.procedure-item[open] .proc-edit {
+  color: var(--muted);
+}
+.group-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+/* Окно подтверждения. */
+.ask {
+  width: min(440px, calc(100% - 30px));
+  padding: 24px;
+}
+.ask h3 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+.ask p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.ask-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+.btn.danger {
+  background: var(--red);
+  border-color: var(--red);
+}
+.btn.danger:hover {
+  background: #952f3b;
+}
+@media (max-width: 650px) {
+  .procedure-item summary {
+    grid-template-columns: 1fr auto;
+  }
+  .proc-date {
+    grid-column: 1;
+    text-align: left;
+  }
+  .proc-edit {
+    grid-column: 2;
+    text-align: right;
+  }
+  .card-tabs {
+    padding: 0 12px;
+  }
+}
 .schedule-block > summary {
   cursor: pointer;
 }
