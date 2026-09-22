@@ -81,7 +81,7 @@ const brand =
 const search = (id, placeholder, value = "") =>
   `<div class="search"><input id="${id}" type="search" placeholder="${placeholder}" aria-label="${placeholder}" value="${esc(value)}"></div>`;
 function loginView() {
-  root.innerHTML = `<div class="login"><section class="login-art">${brand}<div><h2 class="login-title">Журнал<br>посещаемости</h2><p>Факультет права НИУ ВШЭ</p></div><small>Посещаемость · Студенты · Документы</small></section><section class="login-main"><div class="login-box"><div class="eyebrow">Факультет права</div><h1>Вход в журнал</h1><p>Выберите свою роль и найдите фамилию в списке.</p>${session.selection ? `<form id="select-login" class="access-form"><label for="login-role">Роль</label><select id="login-role"><option value="teacher">Преподаватель</option><option value="office">Руководство · менеджер</option><option value="admin">Руководство · полный доступ</option></select><label for="person-search">Поиск сотрудника</label><input id="person-search" type="search" placeholder="Начните вводить фамилию"><label for="login-person">Сотрудник</label><select id="login-person" required></select><label id="password-label" for="management-password" hidden>Пароль руководства</label><input id="management-password" type="password" autocomplete="current-password" maxlength="256" hidden><p id="person-scope" class="muted" aria-live="polite"></p><button class="btn primary">Открыть кабинет →</button></form><div class="login-footer">Преподаватель входит по выбору имени. Руководство – по паролю.${session.demo ? " Локальный просмотр: отметки сохраняются в тестовой базе." : ""}</div>` : '<a class="btn primary" href="/auth/login">Войти</a>'}</div></section></div>`;
+  root.innerHTML = `<div class="login"><section class="login-art">${brand}<div><h2 class="login-title">Журнал<br>посещаемости</h2><p>Факультет права НИУ ВШЭ</p></div><small>Посещаемость · Студенты · Документы</small></section><section class="login-main"><div class="login-box"><div class="eyebrow">Факультет права</div><h1>Вход в журнал</h1>${session.selection ? `<form id="select-login" class="access-form"><label for="login-role">Роль</label><select id="login-role"><option value="teacher">Преподаватель</option><option value="office">Руководство · менеджер</option><option value="admin">Руководство · полный доступ</option></select><label for="person-search">Поиск сотрудника</label><input id="person-search" type="search" placeholder="Начните вводить фамилию"><label for="login-person">Сотрудник</label><select id="login-person" required></select><label id="password-label" for="management-password" hidden>Пароль руководства</label><input id="management-password" type="password" autocomplete="current-password" maxlength="256" hidden><p id="person-scope" class="muted" aria-live="polite"></p><button class="btn primary">Открыть кабинет →</button></form><div class="login-footer">Преподаватель входит по выбору имени. Руководство – по паролю.${session.demo ? " Локальный просмотр: отметки сохраняются в тестовой базе." : ""}</div>` : '<a class="btn primary" href="/auth/login">Войти</a>'}</div></section></div>`;
   if (!session.selection) return;
   const updateSelection = (hint = "Выберите сотрудника из списка.") => {
     const personId = $("#login-person").value;
@@ -132,7 +132,7 @@ function loginView() {
       $("#login-person").value = previous;
     updateSelection(
       people.length
-        ? "Выберите сотрудника из списка ниже поля поиска."
+        ? ""
         : "Сотрудник не найден. Проверьте фамилию или выбранную роль.",
     );
   };
