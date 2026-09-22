@@ -6,7 +6,7 @@
   --green: #207552;
   --amber: #9b6115;
   --red: #b33b48;
-  --muted: #69768b;
+  --muted: #5f6c81; /* 4,9:1 на тонированных панелях, 5,3:1 на белом */
 }
 * {
   box-sizing: border-box;
@@ -175,9 +175,14 @@ small {
 }
 .nav-icon {
   width: 20px;
-  display: inline-grid;
-  place-items: center;
-  font-size: 19px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.logout .nav-icon {
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  vertical-align: -3px;
 }
 .side-bottom {
   margin-top: auto;
@@ -1001,6 +1006,9 @@ small {
 }
 #toast {
   position: fixed;
+  inset: auto;
+  margin: 0;
+  border: 0;
   bottom: 25px;
   left: 50%;
   transform: translateX(-50%);
@@ -1013,11 +1021,76 @@ small {
   max-width: 90vw;
   display: none;
 }
-#toast.show {
+#toast.show,
+#toast:popover-open {
   display: block;
 }
 #toast.error {
   background: #8c2735;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.toast-close {
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+/* Каркас загрузки. */
+.skeleton {
+  display: grid;
+  gap: 12px;
+  padding: 10px 0;
+}
+.skeleton .bar {
+  height: 16px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #e6eaf1 25%, #f3f5f9 50%, #e6eaf1 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+.skeleton .w40 {
+  width: 40%;
+}
+.skeleton .w70 {
+  width: 70%;
+}
+.skeleton .h28 {
+  height: 28px;
+}
+.skeleton .h56 {
+  height: 56px;
+}
+.skeleton .h72 {
+  height: 72px;
+}
+.skeleton-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 8px 0;
+}
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton .bar {
+    animation: none;
+  }
+}
+@media (max-width: 650px) {
+  .skeleton-metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 dialog {
   border: 1px solid var(--line);
@@ -1430,9 +1503,36 @@ dialog::backdrop {
   .sidebar .brand {
     font-size: 17px;
   }
+  /* На телефоне навигация как панель вкладок: иконка над подписью, выход – только иконкой. */
+  .nav {
+    flex-direction: row;
+    gap: 2px;
+  }
   .nav button {
-    font-size: 11px;
-    padding: 7px;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 10px;
+    padding: 6px 8px;
+    text-align: center;
+  }
+  .nav-icon {
+    display: block;
+  }
+  .side-bottom .logout {
+    padding: 8px;
+  }
+  .side-bottom .logout span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .side-bottom .logout .nav-icon {
+    display: block;
+    margin: 0;
+    width: 20px;
+    height: 20px;
   }
   .sidebar .brand-icon {
     display: none;
