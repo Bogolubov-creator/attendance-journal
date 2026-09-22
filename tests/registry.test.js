@@ -175,8 +175,40 @@ test("Реестр в базе: файл нужен только для перв
           teacherId: tid,
           teacher: "Преподаватель Третий",
           course: link.course,
+          group: "",
         },
       ],
+    );
+    // Группа входит в связь: тот же преподаватель и дисциплина с группой – отдельная связь.
+    const grouped = { ...link, group: " Группа-1 " };
+    assert.equal(
+      (await req("/api/admin/enrollments", "POST", grouped)).status,
+      200,
+    );
+    assert.equal(
+      (await req("/api/admin/enrollments", "POST", grouped)).status,
+      409,
+    );
+    assert.deepEqual(
+      (await (await req("/api/admin/students/s_2")).json()).links.map(
+        (l) => l.group,
+      ),
+      ["", "Группа-1"],
+    );
+    assert.equal(
+      (
+        await req("/api/admin/enrollments", "DELETE", {
+          ...link,
+          group: "Группа-1",
+        })
+      ).status,
+      200,
+    );
+    assert.deepEqual(
+      (await (await req("/api/admin/students/s_2")).json()).links.map(
+        (l) => l.group,
+      ),
+      [""],
     );
     assert.equal(
       (await req("/api/admin/teachers/" + tid, "DELETE")).status,

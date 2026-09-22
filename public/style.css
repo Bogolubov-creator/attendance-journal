@@ -1741,7 +1741,7 @@ dialog::backdrop {
 /* Добавление студента: строки «преподаватель – дисциплина» */
 .link-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(0, 0.8fr) auto;
   gap: 8px;
   margin-bottom: 8px;
 }

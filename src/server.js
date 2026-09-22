@@ -497,7 +497,9 @@ app.post("/api/admin/students", (req, res) => {
         !roster.teachers.some((t) => t.id === l.teacherId) ||
         typeof l.course !== "string" ||
         !l.course.trim() ||
-        l.course.length > 200,
+        l.course.length > 200 ||
+        (l.group != null &&
+          (typeof l.group !== "string" || l.group.length > 100)),
     )
   )
     throw fail(400, "Укажите хотя бы одного преподавателя и дисциплину");
@@ -509,7 +511,7 @@ app.post("/api/admin/students", (req, res) => {
   const enrollments = links.map((l) => ({
     studentId: id,
     teacherId: l.teacherId,
-    group: "",
+    group: (l.group || "").trim(),
     course: l.course.trim(),
     kind: "ручной ввод",
   }));
@@ -672,18 +674,30 @@ app.delete("/api/admin/students/:id", (req, res) => {
   roster.enrollments = roster.enrollments.filter((e) => e.studentId !== id);
   res.json({ ok: true });
 });
+// Связь = студент + преподаватель + дисциплина + группа (группа необязательна).
 function enrollmentKey(body) {
-  const { studentId, teacherId, course } = body;
+  const { studentId, teacherId, course, group = "" } = body;
   if (
     !roster.students.some((s) => s.id === studentId) ||
     !roster.teachers.some((t) => t.id === teacherId) ||
     typeof course !== "string" ||
     !course.trim() ||
-    course.length > 200
+    course.length > 200 ||
+    typeof group !== "string" ||
+    group.length > 100
   )
-    throw fail(400, "Укажите студента, преподавателя и дисциплину");
-  return { studentId, teacherId, course: course.trim() };
+    throw fail(400, "Укажите студента, преподавателя, дисциплину и группу");
+  return { studentId, teacherId, course: course.trim(), group: group.trim() };
 }
+const enrollmentEntity = (key) =>
+  [key.studentId, key.teacherId, key.course, key.group]
+    .filter(Boolean)
+    .join(":");
+const sameEnrollment = (e, key) =>
+  e.studentId === key.studentId &&
+  e.teacherId === key.teacherId &&
+  e.course === key.course &&
+  e.group === key.group;
 // Записи до появления колонки label: имена подставляются по ID, если запись ещё в реестре.
 const auditLabel = (entity) =>
   String(entity)
@@ -700,25 +714,19 @@ const enrollmentLabel = (key) =>
   " – " +
   roster.teachers.find((t) => t.id === key.teacherId)?.name +
   " – " +
-  key.course;
+  key.course +
+  (key.group ? " (" + key.group + ")" : "");
 app.post("/api/admin/enrollments", (req, res) => {
   const key = enrollmentKey(req.body);
   registryStudent(req, key.studentId);
-  if (
-    roster.enrollments.some(
-      (e) =>
-        e.studentId === key.studentId &&
-        e.teacherId === key.teacherId &&
-        e.course === key.course,
-    )
-  )
+  if (roster.enrollments.some((e) => sameEnrollment(e, key)))
     throw fail(409, "Такая связь уже есть в реестре");
-  const enrollment = { ...key, group: "", kind: "ручной ввод" };
+  const enrollment = { ...key, kind: "ручной ввод" };
   addEnrollment(enrollment);
   audit(
     req.session.user,
     "enrollment.add",
-    key.studentId + ":" + key.teacherId + ":" + key.course,
+    enrollmentEntity(key),
     enrollmentLabel(key),
   );
   roster.enrollments.push(enrollment);
@@ -728,23 +736,21 @@ app.delete("/api/admin/enrollments", (req, res) => {
   const key = enrollmentKey(req.body);
   registryStudent(req, key.studentId);
   const { changes } = run(
-    "DELETE FROM roster_enrollments WHERE studentId=? AND teacherId=? AND course=?",
+    "DELETE FROM roster_enrollments WHERE studentId=? AND teacherId=? AND course=? AND grp=?",
     key.studentId,
     key.teacherId,
     key.course,
+    key.group,
   );
   if (!changes) throw fail(404, "Связь не найдена");
   audit(
     req.session.user,
     "enrollment.delete",
-    key.studentId + ":" + key.teacherId + ":" + key.course,
+    enrollmentEntity(key),
     enrollmentLabel(key),
   );
   roster.enrollments = roster.enrollments.filter(
-    (e) =>
-      e.studentId !== key.studentId ||
-      e.teacherId !== key.teacherId ||
-      e.course !== key.course,
+    (e) => !sameEnrollment(e, key),
   );
   res.json({ ok: true });
 });
@@ -989,11 +995,12 @@ app.get("/api/admin/students/:id", (req, res) => {
         roster.enrollments
           .filter((e) => e.studentId === student.id)
           .map((e) => [
-            e.teacherId + "\n" + e.course,
+            e.teacherId + "\n" + e.course + "\n" + e.group,
             {
               teacherId: e.teacherId,
               teacher: roster.teachers.find((t) => t.id === e.teacherId)?.name,
               course: e.course,
+              group: e.group,
             },
           ]),
       ).values(),
