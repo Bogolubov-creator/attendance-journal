@@ -117,6 +117,11 @@ test("Дашборд: счётчик тревог, фильтр, поиск и �
       document.querySelector(".absence-notice").textContent,
       /Тревоги на сегодня: 1/,
     );
+    assert.match(
+      document.querySelector(".metrics").textContent,
+      /Присутствовал\(а\) хотя бы раз.*За период с \d{2}\.\d{2}\.\d{4} по \d{2}\.\d{2}\.\d{4}/,
+      "период указан под метрикой",
+    );
     assert.equal(
       document.querySelectorAll(".daily-person.has-alert").length,
       1,
