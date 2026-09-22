@@ -1747,11 +1747,18 @@ dialog::backdrop {
   border: 1px solid var(--line);
   border-radius: 8px;
 }
+.schedule-block > summary {
+  cursor: pointer;
+}
 .dialog-body .schedule-block h3 {
   margin: 0 0 4px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
+  vertical-align: middle;
+}
+.schedule-block:not([open]) > summary h3 {
+  margin-bottom: 0;
 }
 .schedule-note {
   margin: 0 0 14px;
