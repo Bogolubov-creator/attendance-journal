@@ -753,6 +753,31 @@ small {
   font-size: 11px;
   color: var(--blue);
 }
+/* Стрелка раскрытия: кнопка «Занятия: N» открывает строку, а не ведёт по ссылке. */
+.records-toggle::after {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin: 0 0 2px 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 140ms ease-out;
+}
+.records-toggle[aria-expanded="true"]::after {
+  transform: rotate(-135deg);
+  margin-bottom: -2px;
+}
+.filter-tabs .count {
+  margin-left: 4px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.filter-tabs button.active .count {
+  color: inherit;
+  opacity: 0.8;
+}
 .records-row td {
   padding-top: 0;
   padding-bottom: 8px;

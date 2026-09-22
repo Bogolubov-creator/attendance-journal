@@ -179,7 +179,7 @@ function loginView() {
   fill();
 }
 function shell() {
-  root.innerHTML = `<div class="layout"><aside class="sidebar">${brand}<div class="section-label">${roleLabel(user.role)}</div><nav class="nav" aria-label="Основная навигация">${user.role !== "teacher" ? `<button data-page="dashboard" class="${page === "dashboard" ? "active" : ""}"><span class="nav-icon">▦</span>Обзор</button><button data-page="students" class="${page === "students" ? "active" : ""}"><span class="nav-icon">♙</span>Студенты</button><button data-page="registry" class="${page === "registry" ? "active" : ""}"><span class="nav-icon">☰</span>Сотрудники</button>` : `<button data-page="journal" class="active"><span class="nav-icon">▤</span>Мой журнал</button>`}</nav><div class="side-bottom"><div class="side-note">${user.role !== "teacher" ? "Посещаемость и документы студентов." : "Выберите дату, отметьте студентов и нажмите «Сохранить»."}</div><div class="identity"><span class="avatar">${initials(user.name)}</span><div><strong>${esc(user.name.split(" ").slice(0, 2).join(" "))}</strong><small>${roleLabel(user.role)}</small></div></div><button id="logout" class="logout">Выйти ↗</button></div></aside><main class="main"><header class="topbar"><span class="crumb">Учебный процесс <b>/ ${user.role !== "teacher" ? "Студенты" : "Посещаемость"}</b></span>${session.demo ? '<span class="demo-tag">Локальный просмотр · тестовые отметки</span>' : ""}</header><div class="content" id="content"></div></main></div>`;
+  root.innerHTML = `<div class="layout"><aside class="sidebar">${brand}<div class="section-label">${roleLabel(user.role)}</div><nav class="nav" aria-label="Основная навигация">${user.role !== "teacher" ? `<button data-page="dashboard" class="${page === "dashboard" ? "active" : ""}"><span class="nav-icon">▦</span>Обзор</button><button data-page="students" class="${page === "students" ? "active" : ""}"><span class="nav-icon">♙</span>Студенты</button><button data-page="registry" class="${page === "registry" ? "active" : ""}"><span class="nav-icon">☰</span>Сотрудники</button>` : `<button data-page="journal" class="active"><span class="nav-icon">▤</span>Мой журнал</button>`}</nav><div class="side-bottom"><div class="side-note">${user.role !== "teacher" ? "Посещаемость и документы студентов." : "Выберите дату, отметьте студентов и нажмите «Сохранить»."}</div><div class="identity"><span class="avatar">${initials(user.name)}</span><div><strong>${esc(user.name.split(" ").slice(0, 2).join(" "))}</strong><small>${roleLabel(user.role)}</small></div></div><button id="logout" class="logout">Выйти ↗</button></div></aside><main class="main"><header class="topbar"><span class="crumb">Учебный процесс <b>/ ${{ dashboard: "Обзор", students: "Студенты", registry: "Сотрудники" }[page] || "Посещаемость"}</b></span>${session.demo ? '<span class="demo-tag">Локальный просмотр · тестовые отметки</span>' : ""}</header><div class="content" id="content"></div></main></div>`;
   $$("[data-page]").forEach(
     (b) =>
       (b.onclick = () =>
@@ -296,12 +296,12 @@ function adminView() {
   ]
     .map(
       ([id, label]) =>
-        `<button data-filter="${id}" class="${filter === id ? "active" : ""}">${label}</button>`,
+        `<button data-filter="${id}" class="${filter === id ? "active" : ""}">${label} <span class="count"></span></button>`,
     )
     .join("")}</div>
   <details class="filter-legend"><summary>Что означают фильтры</summary><dl><dt>Подтверждённые иностранцы</dt><dd>Студенты с подтверждённым иностранным статусом, которые обучаются сейчас. Только они входят в статистику сверху и в четыре следующих фильтра.</dd><dt>Больше 7 дней без явки</dt><dd>Больше 7 учебных дней с отметкой «Отсутствовал(а)» после последней явки. Считаются только дни, отмеченные преподавателями.</dd><dt>Не выполнены требования</dt><dd>Хотя бы одно из обязательных требований в карточке просрочено: миграционный учёт, виза и срок пребывания, медицинское освидетельствование, дактилоскопия и фотографирование, медицинское страхование. Просрочено требование в работе, у которого прошёл назначенный срок, либо подтверждённое требование, у которого истёк срок действия. Требования без данных, освобождённые и сданные на проверку просроченными не считаются.</dd><dt>Пропуски и требования</dt><dd>Одновременно тревога по посещаемости и хотя бы одно просроченное требование – пересечение двух предыдущих фильтров.</dd><dt>Требования на проверке</dt><dd>Хотя бы одно требование сдано на проверку и ждёт подтверждения.</dd><dt>Нет данных о требованиях</dt><dd>Хотя бы одно требование в карточке не заполнено.</dd><dt>Статус не проверен</dt><dd>Иностранный статус в карточке ещё не подтверждён. В статистику иностранцев такие студенты не входят.</dd><dt>Нет отметок</dt><dd>Преподаватели ещё не ставили этому студенту ни одной отметки.</dd></dl></details>
   <div class="table-scroll"><table class="admin-table"><thead><tr><th>Студент / менеджер</th><th>Посещение</th><th>Без явки</th><th>Требования</th></tr></thead><tbody id="admin-rows"></tbody></table></div><div class="pagination"><small id="result-count"></small><div class="actions"><button class="btn small" id="prev-page" aria-label="Предыдущая страница">←</button><button class="btn small" id="next-page" aria-label="Следующая страница">→</button></div></div></div>
-  <aside class="admin-aside"><section class="panel mini-panel"><h3>Ваши программы и курсы</h3><p>${user.role === "admin" ? "Весь факультет" : esc(user.scopes?.map((s) => s.program + (s.year ? ", " + s.year + " курс" : "")).join(" · ") || "Весь факультет")}</p><a href="https://pravo.hse.ru/centre/contact" target="_blank" rel="noopener">Распределение менеджеров ↗</a><p>Распределение в журнале обновлено 21.09.2026.</p></section>${user.role === "admin" ? `<section class="panel mini-panel"><h3>Последние изменения</h3><p class="muted">Реестр: студенты, преподаватели и связи. Правки менеджеров помечены.</p>${overview.audit.length ? overview.audit.map((a) => `<div class="record"><div>${esc(changeLabels[a.action] || a.action)}<small>${esc(a.label || a.entity)}</small><small>${esc(a.actor)}${a.role === "office" ? " · менеджер" : ""} · ${fmtDate(a.at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small></div></div>`).join("") : '<p class="muted">Изменений пока нет.</p>'}</section>` : ""}<section class="panel mini-panel"><h3>Полнота данных</h3><div class="quality-row"><span>Без менеджера</span><strong>${overview.faculty.unassigned}</strong></div><div class="quality-row"><span>Студентов с отметками</span><strong>${overview.students.filter((s) => s.marked).length} / ${overview.students.length}</strong></div><div class="quality-row"><span>Резервная копия базы</span><strong>${overview.backup ? (JSON.parse(overview.backup.value).ok ? "Создана " : "Ошибка ") + fmtDate(JSON.parse(overview.backup.value).at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Не включена"}</strong></div><p>Нет отметки – не значит отсутствовал. Несколько пропусков за день считаются одним учебным днём.</p></section><section class="panel mini-panel"><h3>Сопровождение иностранцев</h3><p>Применимость требований проверяется индивидуально: гражданство, основание пребывания, дата въезда и действующие подтверждения.</p><a href="https://ivisa.hse.ru/" target="_blank" rel="noopener">Визовая поддержка ↗</a><p><a href="https://istudents.hse.ru/" target="_blank" rel="noopener">Сервисы и инструкции для иностранцев ↗</a></p><p>Поддержка: istudents.support@hse.ru</p><p>Электронный пропуск, связь и адаптация – сервисные вопросы, они не создают долг по обязательному требованию.</p></section></aside></div>`;
+  <aside class="admin-aside">${user.role === "admin" ? `<section class="panel mini-panel"><h3>Последние изменения</h3><p class="muted">Реестр: студенты, преподаватели и связи. Правки менеджеров помечены.</p>${overview.audit.length ? overview.audit.map((a) => `<div class="record"><div>${esc(changeLabels[a.action] || a.action)}<small>${esc(a.label || a.entity)}</small><small>${esc(a.actor)}${a.role === "office" ? " · менеджер" : ""} · ${fmtDate(a.at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small></div></div>`).join("") : '<p class="muted">Изменений пока нет.</p>'}</section>` : ""}<section class="panel mini-panel"><h3>Ваши программы и курсы</h3><p>${user.role === "admin" ? "Весь факультет" : esc(user.scopes?.map((s) => s.program + (s.year ? ", " + s.year + " курс" : "")).join(" · ") || "Весь факультет")}</p><a href="https://pravo.hse.ru/centre/contact" target="_blank" rel="noopener">Распределение менеджеров ↗</a><p>Распределение в журнале обновлено 21.09.2026.</p></section><section class="panel mini-panel"><h3>Полнота данных</h3><div class="quality-row"><span>Без менеджера</span><strong>${overview.faculty.unassigned}</strong></div><div class="quality-row"><span>Студентов с отметками</span><strong>${overview.students.filter((s) => s.marked).length} / ${overview.students.length}</strong></div><div class="quality-row"><span>Резервная копия базы</span><strong>${overview.backup ? (JSON.parse(overview.backup.value).ok ? "Создана " : "Ошибка ") + fmtDate(JSON.parse(overview.backup.value).at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Не включена"}</strong></div><p>Нет отметки – не значит отсутствовал. Несколько пропусков за день считаются одним учебным днём.</p></section><section class="panel mini-panel"><h3>Сопровождение иностранцев</h3><p>Применимость требований проверяется индивидуально: гражданство, основание пребывания, дата въезда и действующие подтверждения.</p><a href="https://ivisa.hse.ru/" target="_blank" rel="noopener">Визовая поддержка ↗</a><p><a href="https://istudents.hse.ru/" target="_blank" rel="noopener">Сервисы и инструкции для иностранцев ↗</a></p><p>Поддержка: istudents.support@hse.ru</p><p>Электронный пропуск, связь и адаптация – сервисные вопросы, они не создают долг по обязательному требованию.</p></section></aside></div>`;
   if ($("#add-student-open"))
     $("#add-student-open").onclick = () => safe(addStudentDialog);
   if ($("#office-scope")) {
@@ -339,36 +339,45 @@ function adminView() {
   );
   renderAdminRows();
 }
+const matchesFilter = (s, id) =>
+  id === "foreign"
+    ? activeForeign(s)
+    : id === "attention"
+      ? activeForeign(s) && s.absenceAlert
+      : id === "debt"
+        ? activeForeign(s) && s.procedureOverdue
+        : id === "combined"
+          ? activeForeign(s) && s.absenceAlert && s.procedureOverdue
+          : id === "review"
+            ? s.procedureReview
+            : id === "unknown"
+              ? s.procedureUnknown
+              : id === "unverified"
+                ? !s.foreignStatus || s.foreignStatus === "unknown"
+                : id === "unmarked"
+                  ? !s.marked
+                  : true;
 function renderAdminRows() {
-  const rows = overview.students
-    .filter(
-      (s) =>
-        s.name.toLowerCase().includes(query.toLowerCase()) &&
-        (!officeProgram || s.program === officeProgram) &&
-        (!officeYear || s.year === Number(officeYear)) &&
-        (officeScope === "mine"
-          ? s.manager?.id === user.id
-          : officeScope === "unassigned"
-            ? !s.manager
-            : true) &&
-        (filter === "foreign"
-          ? activeForeign(s)
-          : filter === "attention"
-            ? activeForeign(s) && s.absenceAlert
-            : filter === "debt"
-              ? activeForeign(s) && s.procedureOverdue
-              : filter === "combined"
-                ? activeForeign(s) && s.absenceAlert && s.procedureOverdue
-                : filter === "review"
-                  ? s.procedureReview
-                  : filter === "unknown"
-                    ? s.procedureUnknown
-                    : filter === "unverified"
-                      ? !s.foreignStatus || s.foreignStatus === "unknown"
-                      : filter === "unmarked"
-                        ? !s.marked
-                        : true),
-    )
+  // Поиск, программа, курс и ответственность сужают базу; вкладки показывают счётчики по этой базе.
+  const base = overview.students.filter(
+    (s) =>
+      s.name.toLowerCase().includes(query.toLowerCase()) &&
+      (!officeProgram || s.program === officeProgram) &&
+      (!officeYear || s.year === Number(officeYear)) &&
+      (officeScope === "mine"
+        ? s.manager?.id === user.id
+        : officeScope === "unassigned"
+          ? !s.manager
+          : true),
+  );
+  $$(".filter-tabs [data-filter]").forEach((b) => {
+    const n = base.filter((s) => matchesFilter(s, b.dataset.filter)).length;
+    b.querySelector(".count").textContent = n;
+    b.hidden =
+      n === 0 && b.dataset.filter !== "all" && b.dataset.filter !== filter;
+  });
+  const rows = base
+    .filter((s) => matchesFilter(s, filter))
     .sort(
       (a, b) =>
         Number(b.absenceAlert) - Number(a.absenceAlert) ||
@@ -514,7 +523,7 @@ async function profile(id) {
       )
       .join("");
   d.innerHTML = `<div class="dialog-head"><div><div class="eyebrow">Карточка студента</div><h2>${esc(s.name)}</h2></div><button class="btn small" id="close-profile" aria-label="Закрыть карточку">×</button></div><div class="dialog-body"><p id="student-assignment">${esc(s.manager?.name || "Менеджер не назначен")} · ${esc(s.program || "Программа не указана")} ${s.year ? "· " + s.year + " курс" : ""}</p>${!data.canEdit ? '<div class="notice">Просмотр. Изменения доступны менеджеру программы и курса или руководству.</div>' : ""}
-  <details ${!s.program ? "open" : ""}><summary>Контингент и распределение</summary><form id="student-profile" class="profile-form"><fieldset ${user.role !== "admin" ? "disabled" : ""}><label>Программа<select name="program">${options([["", "Не указана"], ...data.programs.map((p) => [p, p])], s.program)}</select></label><label>Курс<select name="year">${options([[0, "Не указан"], ...[1, 2, 3, 4, 5, 6].map((y) => [y, y])], s.year || 0)}</select></label><label>Иностранный контингент<select name="foreignStatus">${options(
+  <details ${!s.program || !s.year ? "open" : ""}><summary>Контингент и распределение</summary>${!s.program || !s.year ? '<p class="notice warn">Без программы и курса студент не закреплён за менеджером и не попадает в его список.</p>' : ""}<form id="student-profile" class="profile-form"><fieldset ${user.role !== "admin" ? "disabled" : ""}><label>Программа<select name="program">${options([["", "Не указана"], ...data.programs.map((p) => [p, p])], s.program)}</select></label><label>Курс<select name="year">${options([[0, "Не указан"], ...[1, 2, 3, 4, 5, 6].map((y) => [y, y])], s.year || 0)}</select></label><label>Иностранный контингент<select name="foreignStatus">${options(
     [
       ["unknown", "Не проверено"],
       ["confirmed", "Подтверждён"],
