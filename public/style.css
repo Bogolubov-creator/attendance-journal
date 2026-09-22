@@ -1649,6 +1649,53 @@ dialog::backdrop {
   background: #eef2fb;
   box-shadow: inset 0 -2px 0 var(--blue);
 }
+/* Обновление реестра из Excel. */
+.import-file {
+  display: grid;
+  gap: 6px;
+  margin: 14px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.import-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin: 12px 0;
+}
+.import-summary .metric {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.import-summary .metric strong {
+  font-size: 20px;
+}
+.import-list {
+  margin: 6px 0;
+  font-size: 13px;
+}
+.import-list summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.import-list ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  max-height: 220px;
+  overflow: auto;
+  color: var(--muted);
+}
+#teacher-silent[aria-pressed="true"] {
+  background: var(--blue);
+  color: #fff;
+  border-color: var(--blue);
+}
+@media (max-width: 650px) {
+  .import-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
 .rename-row {
   display: flex;
   gap: 8px;

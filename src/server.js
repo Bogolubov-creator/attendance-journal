@@ -1,6 +1,7 @@
 import { csvCell } from "./csv.js";
 import { registerDaily, attendanceRecords } from "./daily.js";
 import { verifyPassword } from "./management-auth.js";
+import { parseRoster, planImport, applyImport } from "./roster-import.js";
 import express from "express";
 import {
   managers,
@@ -128,6 +129,8 @@ const registryActions = [
   "teacher.delete",
   "enrollment.add",
   "enrollment.delete",
+  "roster.import",
+  "year.rollover",
 ];
 let accounts = [];
 try {
@@ -439,11 +442,72 @@ function editable(req, id) {
 app.get("/api/admin/directory", (req, res) =>
   res.json({ managers, programs, source: directorySource }),
 );
-app.get("/api/admin/teachers", (req, res) =>
+// Обновление реестра из нового Excel: без ?apply=1 – только план, с ним – запись в одной транзакции.
+app.post(
+  "/api/admin/import",
+  express.raw({ type: () => true, limit: "25mb" }),
+  (req, res) => {
+    registryAdmin(req);
+    if (!Buffer.isBuffer(req.body) || !req.body.length)
+      throw fail(400, "Загрузите файл .xlsx");
+    const plan = planImport(roster, parseRoster(req.body));
+    const teacherName = (id) =>
+      (
+        roster.teachers.find((t) => t.id === id) ||
+        plan.teachers.add.find((t) => t.id === id)
+      )?.name;
+    const studentName = (id) =>
+      (
+        roster.students.find((x) => x.id === id) ||
+        plan.students.add.find((x) => x.id === id)
+      )?.name;
+    const describe = (e) =>
+      `${studentName(e.studentId)} – ${teacherName(e.teacherId)} – ${e.course}${e.group ? " (" + e.group + ")" : ""}`;
+    const summary = {
+      students: {
+        added: plan.students.add.map((x) => x.name),
+        missing: plan.students.missing,
+      },
+      teachers: { added: plan.teachers.add.map((t) => t.name) },
+      enrollments: {
+        added: plan.enrollments.add.length,
+        removed: plan.enrollments.remove.length,
+        addedList: plan.enrollments.add.map(describe),
+        removedList: plan.enrollments.remove.map(describe),
+      },
+      quality: plan.quality,
+      studentsInFile: plan.studentsInFile,
+    };
+    if (req.query.apply !== "1") return res.json({ preview: true, ...summary });
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      applyImport({ run, roster, addEnrollment }, plan);
+      audit(
+        req.session.user,
+        "roster.import",
+        "roster",
+        `студентов +${summary.students.added.length}, преподавателей +${summary.teachers.added.length}, связей +${summary.enrollments.added} −${summary.enrollments.removed}`,
+      );
+      db.exec("COMMIT");
+    } catch (e) {
+      db.exec("ROLLBACK");
+      throw e;
+    }
+    res.json({ preview: false, ...summary });
+  },
+);
+app.get("/api/admin/teachers", (req, res) => {
+  // Дата последней отметки у каждого преподавателя: по ней видно, кто не ведёт журнал.
+  const lastMarks = new Map(
+    all(
+      "SELECT teacherId, max(date) AS last FROM daily_marks GROUP BY teacherId",
+    ).map((r) => [r.teacherId, r.last]),
+  );
   res.json(
     roster.teachers
       .map((t) => ({
         ...t,
+        lastMark: lastMarks.get(t.id) || null,
         courses: [
           ...new Set(
             roster.enrollments
@@ -458,8 +522,67 @@ app.get("/api/admin/teachers", (req, res) =>
         ).size,
       }))
       .sort((a, b) => a.name.localeCompare(b.name, "ru")),
-  ),
-);
+  );
+});
+// Преподаватели со студентами, у которых нет ни одной отметки за последние 7 дней.
+function silentTeachers() {
+  const since = new Date(moscowDate() + "T12:00:00Z");
+  since.setUTCDate(since.getUTCDate() - 7);
+  const active = new Set(
+    all(
+      "SELECT DISTINCT teacherId FROM daily_marks WHERE date>=?",
+      since.toISOString().slice(0, 10),
+    ).map((r) => r.teacherId),
+  );
+  const withStudents = new Set(roster.enrollments.map((e) => e.teacherId));
+  return roster.teachers.filter(
+    (t) => withStudents.has(t.id) && !active.has(t.id),
+  ).length;
+}
+// Новый учебный год: все обучающиеся студенты с курсом переходят на следующий; выпуск и отчисление – в карточке.
+app.post("/api/admin/year-rollover", (req, res) => {
+  registryAdmin(req);
+  let count = 0;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const row of all("SELECT studentId, data FROM student_profiles")) {
+      const p = JSON.parse(row.data);
+      if (
+        !(p.year >= 1 && p.year < 6) ||
+        (p.enrollmentStatus && p.enrollmentStatus !== "active")
+      )
+        continue;
+      p.year += 1;
+      p.version = (p.version || 0) + 1;
+      run(
+        "UPDATE student_profiles SET data=? WHERE studentId=?",
+        JSON.stringify(p),
+        row.studentId,
+      );
+      count++;
+    }
+    const state = {
+      at: new Date().toISOString(),
+      count,
+      actor: req.session.user.name,
+    };
+    run(
+      "INSERT OR REPLACE INTO service_state VALUES('yearRollover',?)",
+      JSON.stringify(state),
+    );
+    audit(
+      req.session.user,
+      "year.rollover",
+      "roster",
+      `${count} студентов переведены на следующий курс`,
+    );
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+  res.json({ count });
+});
 app.post("/api/admin/students", (req, res) => {
   registryStaff(req);
   const {
@@ -967,7 +1090,12 @@ app.get("/api/admin/overview", (req, res) => {
         (s) => !s.foreignStatus || s.foreignStatus === "unknown",
       ).length,
       unassigned: students.filter((s) => !s.manager).length,
+      silentTeachers: silentTeachers(),
     },
+    yearRollover: JSON.parse(
+      get("SELECT value FROM service_state WHERE key='yearRollover'")?.value ||
+        "null",
+    ),
     quality: roster.quality,
     teachers: roster.teachers.length,
     backup: get("SELECT value FROM service_state WHERE key='backup'"),

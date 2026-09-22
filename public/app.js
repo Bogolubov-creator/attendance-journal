@@ -203,6 +203,7 @@ function shell() {
           query = "";
           filter = "all";
           officeTeacher = null;
+          registrySilent = false;
           tablePage = 0;
 
           await showApp();
@@ -259,6 +260,8 @@ async function showApp() {
       toast,
       ask,
       plural,
+      fmtDate,
+      silentOnly: registrySilent,
       admin: user.role === "admin",
       openStudents: (t) =>
         safe(async () => {
@@ -295,7 +298,79 @@ const changeLabels = {
   "teacher.delete": "Удалён преподаватель",
   "enrollment.add": "Добавлена связь",
   "enrollment.delete": "Убрана связь",
+  "roster.import": "Реестр обновлён из Excel",
+  "year.rollover": "Перевод на следующий курс",
 };
+// Со страницы «Студенты» можно открыть «Сотрудники» сразу с фильтром «без отметок за 7 дней».
+let registrySilent = false;
+// Обновление реестра из Excel: сначала план, после подтверждения – запись.
+async function importDialog() {
+  let d = $("#import");
+  if (!d) {
+    d = document.createElement("dialog");
+    d.id = "import";
+    document.body.append(d);
+  }
+  d.innerHTML = `<div class="dialog-head"><div><div class="eyebrow">Реестр</div><h2>Обновить реестр из Excel</h2></div><button class="btn small" id="import-close" aria-label="Закрыть">×</button></div><div class="dialog-body"><p class="muted">Файл «студенты – группы – преподаватели» с листом «База». Совпадения ищутся по ФИО; связи из прежнего файла у студентов, которые есть в новом, заменяются; ручные связи и студенты, которых в файле нет, не трогаются. Сначала показывается план, запись – только после подтверждения.</p><label class="import-file">Файл .xlsx<input type="file" id="import-file" accept=".xlsx"></label><div id="import-plan"></div><div class="daily-toolbar"><button class="btn primary" id="import-apply" disabled>Применить изменения</button><span class="muted" id="import-state"></span></div></div>`;
+  const file = d.querySelector("#import-file"),
+    plan = d.querySelector("#import-plan"),
+    apply = d.querySelector("#import-apply"),
+    state = d.querySelector("#import-state");
+  const send = async (applyNow) => {
+    const r = await fetch("/api/admin/import" + (applyNow ? "?apply=1" : ""), {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: file.files[0],
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || "Не удалось обработать файл");
+    return data;
+  };
+  const list = (title, items) =>
+    items.length
+      ? `<details class="import-list"><summary>${title} <span class="count">${items.length}</span></summary><ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></details>`
+      : `<p class="muted">${title}: нет</p>`;
+  const show = (p) => {
+    plan.innerHTML = `<div class="import-summary"><div class="metric"><label>Студентов в файле</label><strong>${p.studentsInFile}</strong></div><div class="metric"><label>Новых студентов</label><strong>${p.students.added.length}</strong></div><div class="metric"><label>Новых преподавателей</label><strong>${p.teachers.added.length}</strong></div><div class="metric"><label>Связи</label><strong>+${p.enrollments.added} −${p.enrollments.removed}</strong></div></div>${list("Новые студенты", p.students.added)}${list("Новые преподаватели", p.teachers.added)}${list("Добавятся связи", p.enrollments.addedList)}${list("Снимутся связи", p.enrollments.removedList)}${list("Студентов нет в файле, их связи сохранятся", p.students.missing)}<p class="muted">Строк на листе «База»: ${p.quality.sourceRows}, не определены: ${p.quality.unresolved}, несовпадения: ${p.quality.mismatches}.</p>`;
+  };
+  file.onchange = () => {
+    apply.disabled = true;
+    plan.innerHTML = "";
+    if (!file.files[0]) return;
+    state.textContent = "Читаем файл…";
+    safe(async () => {
+      const p = await send(false);
+      show(p);
+      const changes =
+        p.students.added.length +
+        p.teachers.added.length +
+        p.enrollments.added +
+        p.enrollments.removed;
+      state.textContent = changes
+        ? "План готов, база не изменена."
+        : "Изменений нет: база совпадает с файлом.";
+      apply.disabled = !changes;
+    }).finally(() => {
+      if (state.textContent === "Читаем файл…") state.textContent = "";
+    });
+  };
+  apply.onclick = () => {
+    apply.disabled = true;
+    state.textContent = "Записываем…";
+    safe(async () => {
+      const p = await send(true);
+      show(p);
+      state.textContent = "Реестр обновлён.";
+      toast("Реестр обновлён из Excel");
+      overview = await api("/api/admin/overview");
+      adminView();
+    }).finally(() => {
+      if (state.textContent === "Записываем…") state.textContent = "";
+    });
+  };
+  d.querySelector("#import-close").onclick = () => d.close();
+  if (!d.open) d.showModal();
+}
 const activeForeign = (s) =>
   s.foreignStatus === "confirmed" &&
   (!s.enrollmentStatus || s.enrollmentStatus === "active");
@@ -326,7 +401,7 @@ function adminView() {
         : '<p class="muted">В подтверждённом контингенте таких записей нет.</p>'
     }${rows.length > 5 ? `<button class="btn small" data-filter="${type === "absence" ? "attention" : "debt"}">Показать весь список</button>` : ""}</section>`;
   $("#content").innerHTML =
-    `<div class="page-heading"><div><div class="eyebrow">Факультет права</div><h1>${page === "dashboard" ? "Иностранные студенты" : "Реестр иностранных студентов"}</h1><p>${user.role === "admin" ? "Общая статистика факультета. Работа со студентами – по программам и курсам." : "Студенты ваших программ и курсов."}</p></div><div class="heading-actions"><button class="btn primary" id="add-student-open">+ Добавить студента</button><a class="btn" href="/api/admin/export">↓ Выгрузить CSV</a></div></div>
+    `<div class="page-heading"><div><div class="eyebrow">Факультет права</div><h1>${page === "dashboard" ? "Иностранные студенты" : "Реестр иностранных студентов"}</h1><p>${user.role === "admin" ? "Общая статистика факультета. Работа со студентами – по программам и курсам." : "Студенты ваших программ и курсов."}</p></div><div class="heading-actions"><button class="btn primary" id="add-student-open">+ Добавить студента</button>${user.role === "admin" ? '<button class="btn" id="import-open">Обновить реестр из Excel</button><button class="btn" id="rollover-open">Новый учебный год</button>' : ""}<a class="btn" href="/api/admin/export">↓ Выгрузить CSV</a></div></div>
   <div class="metrics"><div class="metric"><label>Иностранные студенты</label><strong>${faculty.length}</strong><small>Подтверждённые, обучаются сейчас</small></div><div class="metric alert"><label>Больше 7 дней без явки</label><strong>${attention.length}</strong><small>По отметкам преподавателей</small></div><div class="metric alert"><label>Не выполнены требования</label><strong>${overdue.length}</strong><small>Студентов с просроченными требованиями</small></div><div class="metric"><label>Нет данных о требованиях</label><strong>${faculty.filter((s) => s.procedureUnknown).length}</strong></div></div>
   ${overview.faculty.unverified ? `<div class="notice">Полнота реестра ещё не подтверждена. Загружено ${students.length} студентов; иностранный статус не проверен у ${overview.faculty.unverified}. Они видны в реестре, но не включены в статистику иностранцев. Программы и курсы заполняет руководство.</div>` : ""}
   ${page === "dashboard" ? `<div class="attention-grid">${list("Не посещают занятия", attention, "absence")}${list("Не выполнены требования", overdue, "procedure")}</div>` : ""}
@@ -350,9 +425,34 @@ function adminView() {
     .join("")}</div>
   <details class="filter-legend"><summary>Что означают фильтры</summary><dl><dt>Подтверждённые иностранцы</dt><dd>Студенты с подтверждённым иностранным статусом, которые обучаются сейчас. Только они входят в статистику сверху и в четыре следующих фильтра.</dd><dt>Больше 7 дней без явки</dt><dd>Больше 7 учебных дней с отметкой «Отсутствовал(а)» после последней явки. Считаются только дни, отмеченные преподавателями.</dd><dt>Не выполнены требования</dt><dd>Хотя бы одно из обязательных требований в карточке просрочено: миграционный учёт, виза и срок пребывания, медицинское освидетельствование, дактилоскопия и фотографирование, медицинское страхование. Просрочено требование в работе, у которого прошёл назначенный срок, либо подтверждённое требование, у которого истёк срок действия. Требования без данных, освобождённые и сданные на проверку просроченными не считаются.</dd><dt>Пропуски и требования</dt><dd>Одновременно тревога по посещаемости и хотя бы одно просроченное требование – пересечение двух предыдущих фильтров.</dd><dt>Требования на проверке</dt><dd>Хотя бы одно требование сдано на проверку и ждёт подтверждения.</dd><dt>Нет данных о требованиях</dt><dd>Хотя бы одно требование в карточке не заполнено.</dd><dt>Статус не проверен</dt><dd>Иностранный статус в карточке ещё не подтверждён. В статистику иностранцев такие студенты не входят.</dd><dt>Нет отметок</dt><dd>Преподаватели ещё не ставили этому студенту ни одной отметки.</dd></dl></details>
   <div class="table-scroll"><table class="admin-table"><thead><tr><th><button type="button" class="sort" data-sort="name">Студент / менеджер</button></th><th><button type="button" class="sort" data-sort="attendance">Посещение</button></th><th><button type="button" class="sort" data-sort="days">Без явки</button></th><th><button type="button" class="sort" data-sort="overdue">Требования</button></th></tr></thead><tbody id="admin-rows"></tbody></table></div><div class="pagination"><small id="result-count"></small><div class="actions"><button class="btn small" id="prev-page" aria-label="Предыдущая страница">←</button><button class="btn small" id="next-page" aria-label="Следующая страница">→</button></div></div></div>
-  <aside class="admin-aside">${user.role === "admin" ? `<section class="panel mini-panel"><h3>Последние изменения</h3><p class="muted">Реестр: студенты, преподаватели и связи. Правки менеджеров помечены.</p>${overview.audit.length ? overview.audit.map((a) => `<div class="record"><div>${esc(changeLabels[a.action] || a.action)}<small>${esc(a.label || a.entity)}</small><small>${esc(a.actor)}${a.role === "office" ? " · менеджер" : ""} · ${fmtDate(a.at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small></div></div>`).join("") : '<p class="muted">Изменений пока нет.</p>'}</section>` : ""}<section class="panel mini-panel"><h3>Ваши программы и курсы</h3><p>${user.role === "admin" ? "Весь факультет" : esc(user.scopes?.map((s) => s.program + (s.year ? ", " + s.year + " курс" : "")).join(" · ") || "Весь факультет")}</p><a href="https://pravo.hse.ru/centre/contact" target="_blank" rel="noopener">Распределение менеджеров ↗</a><p>Распределение в журнале обновлено 21.09.2026.</p></section><section class="panel mini-panel"><h3>Полнота данных</h3><div class="quality-row"><span>Без менеджера</span><strong>${overview.faculty.unassigned}</strong></div><div class="quality-row"><span>Студентов с отметками</span><strong>${overview.students.filter((s) => s.marked).length} / ${overview.students.length}</strong></div><div class="quality-row"><span>Резервная копия базы</span><strong>${overview.backup ? (JSON.parse(overview.backup.value).ok ? "Создана " : "Ошибка ") + fmtDate(JSON.parse(overview.backup.value).at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Не включена"}</strong></div><p>Нет отметки – не значит отсутствовал. Несколько пропусков за день считаются одним учебным днём.</p></section><section class="panel mini-panel"><h3>Сопровождение иностранцев</h3><p>Применимость требований проверяется индивидуально: гражданство, основание пребывания, дата въезда и действующие подтверждения.</p><a href="https://ivisa.hse.ru/" target="_blank" rel="noopener">Визовая поддержка ↗</a><p><a href="https://istudents.hse.ru/" target="_blank" rel="noopener">Сервисы и инструкции для иностранцев ↗</a></p><p>Поддержка: istudents.support@hse.ru</p><p>Электронный пропуск, связь и адаптация – сервисные вопросы, они не создают долг по обязательному требованию.</p></section></aside></div>`;
+  <aside class="admin-aside">${user.role === "admin" ? `<section class="panel mini-panel"><h3>Последние изменения</h3><p class="muted">Реестр: студенты, преподаватели и связи. Правки менеджеров помечены.</p>${overview.audit.length ? overview.audit.map((a) => `<div class="record"><div>${esc(changeLabels[a.action] || a.action)}<small>${esc(a.label || a.entity)}</small><small>${esc(a.actor)}${a.role === "office" ? " · менеджер" : ""} · ${fmtDate(a.at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small></div></div>`).join("") : '<p class="muted">Изменений пока нет.</p>'}</section>` : ""}<section class="panel mini-panel"><h3>Ваши программы и курсы</h3><p>${user.role === "admin" ? "Весь факультет" : esc(user.scopes?.map((s) => s.program + (s.year ? ", " + s.year + " курс" : "")).join(" · ") || "Весь факультет")}</p><a href="https://pravo.hse.ru/centre/contact" target="_blank" rel="noopener">Распределение менеджеров ↗</a><p>Распределение в журнале обновлено 21.09.2026.</p></section><section class="panel mini-panel"><h3>Полнота данных</h3><div class="quality-row"><span>Без менеджера</span><strong>${overview.faculty.unassigned}</strong></div><div class="quality-row"><span>Преподавателей без отметок за 7 дней</span><strong>${overview.faculty.silentTeachers ? `<button type="button" class="button-link" id="open-silent">${overview.faculty.silentTeachers} →</button>` : "0"}</strong></div>${user.role === "admin" ? `<div class="quality-row"><span>Реестр обновлён</span><strong>${overview.quality?.importedAt ? fmtDate(overview.quality.importedAt, { day: "numeric", month: "short", year: "numeric" }) : "—"}</strong></div><div class="quality-row"><span>Перевод на курс</span><strong>${overview.yearRollover ? fmtDate(overview.yearRollover.at, { day: "numeric", month: "short", year: "numeric" }) : "не выполнялся"}</strong></div>` : ""}<div class="quality-row"><span>Студентов с отметками</span><strong>${overview.students.filter((s) => s.marked).length} / ${overview.students.length}</strong></div><div class="quality-row"><span>Резервная копия базы</span><strong>${overview.backup ? (JSON.parse(overview.backup.value).ok ? "Создана " : "Ошибка ") + fmtDate(JSON.parse(overview.backup.value).at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Не включена"}</strong></div><p>Нет отметки – не значит отсутствовал. Несколько пропусков за день считаются одним учебным днём.</p></section><section class="panel mini-panel"><h3>Сопровождение иностранцев</h3><p>Применимость требований проверяется индивидуально: гражданство, основание пребывания, дата въезда и действующие подтверждения.</p><a href="https://ivisa.hse.ru/" target="_blank" rel="noopener">Визовая поддержка ↗</a><p><a href="https://istudents.hse.ru/" target="_blank" rel="noopener">Сервисы и инструкции для иностранцев ↗</a></p><p>Поддержка: istudents.support@hse.ru</p><p>Электронный пропуск, связь и адаптация – сервисные вопросы, они не создают долг по обязательному требованию.</p></section></aside></div>`;
   if ($("#add-student-open"))
     $("#add-student-open").onclick = () => safe(addStudentDialog);
+  if ($("#import-open")) $("#import-open").onclick = () => safe(importDialog);
+  if ($("#rollover-open"))
+    $("#rollover-open").onclick = async () => {
+      const last = overview.yearRollover;
+      if (
+        await ask({
+          title: "Перевести студентов на следующий курс?",
+          text: `Все обучающиеся студенты с указанным курсом получат курс на единицу больше. Выпускников и отчисленных отметьте в карточках до или после перевода. ${last ? "Последний перевод: " + fmtDate(last.at, { day: "numeric", month: "long", year: "numeric" }) + ", " + last.count + " студентов." : "Перевод ещё не выполнялся."}`,
+          ok: "Перевести",
+        })
+      )
+        safe(async () => {
+          const r = await api("/api/admin/year-rollover", { method: "POST" });
+          toast(`Переведены на следующий курс: ${r.count}`);
+          overview = await api("/api/admin/overview");
+          adminView();
+        });
+    };
+  if ($("#open-silent"))
+    $("#open-silent").onclick = () =>
+      safe(async () => {
+        registrySilent = true;
+        page = "registry";
+        await showApp();
+      });
   if ($("#office-scope")) {
     $("#office-scope").value = officeScope;
     $("#office-scope").onchange = (e) => {
