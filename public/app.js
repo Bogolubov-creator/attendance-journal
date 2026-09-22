@@ -71,13 +71,39 @@ async function api(path, options = {}) {
   }
   return data;
 }
+// Ошибка остаётся на экране, пока её не закроют; обычное уведомление исчезает само.
 function toast(message, error = false) {
   const el = $("#toast");
-  el.textContent = message;
+  el.innerHTML =
+    `<span>${esc(message)}</span>` +
+    (error
+      ? '<button type="button" class="toast-close" aria-label="Закрыть уведомление">×</button>'
+      : "");
   el.className = "show" + (error ? " error" : "");
+  el.setAttribute("role", error ? "alert" : "status");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (el.className = ""), 5500);
+  if (error)
+    el.querySelector(".toast-close").onclick = () => (el.className = "");
+  else toastTimer = setTimeout(() => (el.className = ""), 5500);
 }
+// Иконки навигации: один набор, штрих 1,5, 20 px.
+const iconPaths = {
+  overview:
+    '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  students:
+    '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  staff:
+    '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>',
+  journal:
+    '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>',
+  logout:
+    '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
+};
+const icon = (name) =>
+  `<svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${iconPaths[name]}</svg>`;
+// Каркас страницы на время загрузки: заголовок, показатели, строки таблицы.
+const skeleton = () =>
+  `<div class="skeleton" aria-busy="true" aria-label="Загружаем данные"><div class="bar w40 h28"></div><div class="bar w70"></div><div class="skeleton-metrics">${'<div class="bar h72"></div>'.repeat(4)}</div>${'<div class="bar h56"></div>'.repeat(5)}</div>`;
 async function safe(fn) {
   try {
     await fn();
@@ -194,7 +220,7 @@ function loginView() {
   fill();
 }
 function shell() {
-  root.innerHTML = `<div class="layout"><aside class="sidebar">${brand}<div class="section-label">${roleLabel(user.role)}</div><nav class="nav" aria-label="Основная навигация">${user.role !== "teacher" ? `<button data-page="dashboard" class="${page === "dashboard" ? "active" : ""}"><span class="nav-icon">▦</span>Обзор</button><button data-page="students" class="${page === "students" ? "active" : ""}"><span class="nav-icon">♙</span>Студенты</button><button data-page="registry" class="${page === "registry" ? "active" : ""}"><span class="nav-icon">☰</span>Сотрудники</button>` : `<button data-page="journal" class="active"><span class="nav-icon">▤</span>Мой журнал</button>`}</nav><div class="side-bottom"><div class="side-note">${user.role !== "teacher" ? "Посещаемость и документы студентов." : "Выберите дату, отметьте студентов и нажмите «Сохранить»."}</div><div class="identity"><span class="avatar">${initials(user.name)}</span><div><strong>${esc(user.name.split(" ").slice(0, 2).join(" "))}</strong><small>${roleLabel(user.role)}</small></div></div><button id="logout" class="logout">Выйти ↗</button></div></aside><main class="main"><header class="topbar"><span class="crumb">Учебный процесс <b>/ ${{ dashboard: "Обзор", students: "Студенты", registry: "Сотрудники" }[page] || "Посещаемость"}</b></span>${session.demo ? '<span class="demo-tag">Локальный просмотр · тестовые отметки</span>' : ""}</header><div class="content" id="content"></div></main></div>`;
+  root.innerHTML = `<div class="layout"><aside class="sidebar">${brand}<div class="section-label">${roleLabel(user.role)}</div><nav class="nav" aria-label="Основная навигация">${user.role !== "teacher" ? `<button data-page="dashboard" class="${page === "dashboard" ? "active" : ""}">${icon("overview")}Обзор</button><button data-page="students" class="${page === "students" ? "active" : ""}">${icon("students")}Студенты</button><button data-page="registry" class="${page === "registry" ? "active" : ""}">${icon("staff")}Сотрудники</button>` : `<button data-page="journal" class="active">${icon("journal")}Мой журнал</button>`}</nav><div class="side-bottom"><div class="side-note">${user.role !== "teacher" ? "Посещаемость и документы студентов." : "Выберите дату, отметьте студентов и нажмите «Сохранить»."}</div><div class="identity"><span class="avatar">${initials(user.name)}</span><div><strong>${esc(user.name.split(" ").slice(0, 2).join(" "))}</strong><small>${roleLabel(user.role)}</small></div></div><button id="logout" class="logout" aria-label="Выйти"><span>Выйти</span>${icon("logout")}</button></div></aside><main class="main"><header class="topbar"><span class="crumb">Учебный процесс <b>/ ${{ dashboard: "Обзор", students: "Студенты", registry: "Сотрудники" }[page] || "Посещаемость"}</b></span>${session.demo ? '<span class="demo-tag">Локальный просмотр · тестовые отметки</span>' : ""}</header><div class="content" id="content"></div></main></div>`;
   $$("[data-page]").forEach(
     (b) =>
       (b.onclick = () =>
@@ -250,7 +276,7 @@ async function showApp() {
     return;
   discardDailyChanges();
   shell();
-  $("#content").innerHTML = '<div class="loading">Загружаем данные…</div>';
+  $("#content").innerHTML = skeleton();
   if (user.role === "teacher") return dailyJournal({ api, esc, toast });
   if (page === "registry")
     return registryView({
