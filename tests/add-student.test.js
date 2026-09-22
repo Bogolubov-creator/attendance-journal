@@ -63,12 +63,81 @@ test("Добавление иностранного студента: тольк
   };
   try {
     await start();
+    // Менеджер (Смирнова – Юриспруденция, 2 курс) заводит студентов только своих программ и курсов.
     await login("office", "smirnova");
     assert.equal(
       (await req("/api/admin/students", "POST", student)).status,
       403,
     );
+    const own = { ...student, name: "Тестовый Студент Менеджера", year: 2 };
+    const ownCreated = await req("/api/admin/students", "POST", own);
+    assert.equal(ownCreated.status, 200);
+    const ownId = (await ownCreated.json()).id;
+    assert.equal(
+      (
+        await req("/api/admin/students/" + ownId, "PUT", {
+          name: "Тестовый Студент Переименованный",
+        })
+      ).status,
+      200,
+    );
+    const ownLink = {
+      studentId: ownId,
+      teacherId: teacher.id,
+      course: "Вторая дисциплина",
+    };
+    assert.equal(
+      (await req("/api/admin/enrollments", "POST", ownLink)).status,
+      200,
+    );
+    assert.equal(
+      (
+        await req("/api/admin/teachers", "POST", {
+          name: "Преподаватель От Менеджера",
+        })
+      ).status,
+      200,
+    );
+    // Чужой курс (Моторов – 3 курс) менять нельзя.
+    await login("office", "motorov");
+    assert.equal(
+      (
+        await req("/api/admin/students/" + ownId, "PUT", {
+          name: "Чужая Правка",
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      (await req("/api/admin/enrollments", "DELETE", ownLink)).status,
+      403,
+    );
+    assert.equal(
+      (await req("/api/admin/students/" + ownId, "DELETE")).status,
+      403,
+    );
+    await login("office", "smirnova");
+    assert.equal(
+      (await req("/api/admin/students/" + ownId, "DELETE")).status,
+      200,
+    );
+    // Полный доступ видит правки менеджеров в «Последних изменениях».
     await login("admin", "gadzhieva");
+    const changes = (await (await req("/api/admin/overview")).json()).audit;
+    assert.deepEqual(
+      changes.slice(0, 5).map((c) => c.action),
+      [
+        "student.delete",
+        "teacher.add",
+        "enrollment.add",
+        "student.rename",
+        "student.add",
+      ],
+    );
+    assert.equal(changes[0].role, "office");
+    assert.equal(changes[0].actor, "Смирнова Екатерина Дмитриевна");
+    assert.equal(changes[0].label, "Тестовый Студент Переименованный");
+    assert.equal(changes[1].label, "Преподаватель От Менеджера");
     for (const bad of [
       { ...student, name: "" },
       { ...student, links: [] },

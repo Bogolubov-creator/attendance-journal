@@ -85,13 +85,23 @@ test("Реестр в базе: файл нужен только для перв
     // После первого запуска файл реестра больше не нужен.
     rmSync(rosterPath);
     await start();
+    // Менеджер добавляет преподавателей, но не переименовывает и не удаляет их.
     await login("office", "smirnova");
+    const added = await req("/api/admin/teachers", "POST", {
+      name: "Преподаватель Менеджера",
+    });
+    assert.equal(added.status, 200);
+    const addedId = (await added.json()).id;
     assert.equal(
       (
-        await req("/api/admin/teachers", "POST", {
-          name: "Новый Преподаватель",
+        await req("/api/admin/teachers/" + addedId, "PUT", {
+          name: "Переименованный Преподаватель",
         })
       ).status,
+      403,
+    );
+    assert.equal(
+      (await req("/api/admin/teachers/" + addedId, "DELETE")).status,
       403,
     );
     await login("admin", "gadzhieva");
@@ -298,7 +308,11 @@ test("Реестр в базе: файл нужен только для перв
     assert.equal(card.records.length, 9);
     assert.deepEqual(
       (await (await req("/api/admin/teachers")).json()).map((t) => t.name),
-      ["Преподаватель Второй", "Преподаватель Первый"],
+      [
+        "Преподаватель Второй",
+        "Преподаватель Менеджера",
+        "Преподаватель Первый",
+      ],
     );
   } finally {
     await stop();
