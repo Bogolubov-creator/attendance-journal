@@ -1673,10 +1673,47 @@ dialog::backdrop {
   padding: 20px 0;
   border-bottom: 1px solid var(--line);
 }
+/* Переключатель отметки: три сегмента в одну строку, на телефоне – во всю ширину. */
 .daily-options {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.daily-options .btn {
+  border: 0;
+  border-radius: 0;
+  white-space: nowrap;
+}
+.daily-options .btn + .btn {
+  border-left: 1px solid var(--line);
+}
+.daily-options .btn:focus-visible {
+  outline-offset: -2px;
+}
+.daily-toolbar .push-right {
+  margin-left: auto;
+}
+.daily-nav {
+  display: flex;
+  gap: 6px;
+  align-items: end;
+}
+.daily-save-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+  margin: -12px 0 20px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 -6px 18px -12px rgba(24, 40, 63, 0.45);
 }
 .daily-options [aria-pressed="true"] {
   background: var(--blue);
@@ -1735,10 +1772,25 @@ dialog::backdrop {
   .daily-row {
     align-items: start;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
+    padding: 14px 0;
+  }
+  .daily-options {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    width: 100%;
+  }
+  .daily-options .btn {
+    font-size: 11px;
+    padding: 9px 4px;
+    text-align: center;
   }
   .daily-panel {
     padding: 16px;
+  }
+  .daily-save-bar {
+    padding: 10px 16px;
+    border-radius: 8px 8px 0 0;
   }
 }
 /* Шапка дневного журнала: дата и дисциплина сверху */

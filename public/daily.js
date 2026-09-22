@@ -39,7 +39,7 @@ export async function dailyJournal({ api, esc, toast }) {
   course = data.course;
   const marks = new Map(data.marks.map((m) => [m.studentId, m.status]));
   const root = document.querySelector("#content");
-  root.innerHTML = `<div class="page-heading"><div><div class="eyebrow">Преподаватель</div><h1>Журнал посещаемости</h1><p>Выберите дату и дисциплину, затем отметьте студентов.</p></div><form class="daily-head" id="daily-head"><label>Дата занятия<input id="daily-date" type="date" value="${date}" max="${today()}" required></label><label>Дисциплина<select id="daily-course" ${data.courses.length ? "" : "disabled"}>${data.courses.length ? data.courses.map((c) => `<option value="${esc(c)}" ${c === course ? "selected" : ""}>${esc(c)}</option>`).join("") : "<option>Нет дисциплин</option>"}</select></label></form></div><section class="panel daily-panel"><div class="daily-toolbar"><strong>${esc(course || "")}</strong><span class="muted">${data.students.length} в списке по дисциплине</span></div><p class="muted">«Присутствовал(а)» – видели на занятии по этой дисциплине в этот день. Пустая отметка означает «Нет данных».</p><div id="daily-list">${
+  root.innerHTML = `<div class="page-heading"><div><div class="eyebrow">Преподаватель</div><h1>Журнал посещаемости</h1><p>Выберите дату и дисциплину, затем отметьте студентов.</p></div><form class="daily-head" id="daily-head"><label>Дата занятия<input id="daily-date" type="date" value="${date}" max="${today()}" required></label><div class="daily-nav" role="group" aria-label="Переход по дням"><button type="button" class="btn small" id="daily-prev">← День назад</button><button type="button" class="btn small" id="daily-today" ${date === today() ? "hidden" : ""}>Сегодня</button><button type="button" class="btn small" id="daily-next" ${date >= today() ? "disabled" : ""}>День вперёд →</button></div><label>Дисциплина<select id="daily-course" ${data.courses.length ? "" : "disabled"}>${data.courses.length ? data.courses.map((c) => `<option value="${esc(c)}" ${c === course ? "selected" : ""}>${esc(c)}</option>`).join("") : "<option>Нет дисциплин</option>"}</select></label></form></div><section class="panel daily-panel"><div class="daily-toolbar"><strong>${esc(course || "")}</strong><span class="muted">${data.students.length} в списке по дисциплине</span><button type="button" class="btn small push-right" id="daily-all-present" ${data.students.length ? "" : "disabled"}>Все присутствовали</button></div><p class="muted">«Присутствовал(а)» – видели на занятии по этой дисциплине в этот день. Пустая отметка означает «Нет данных».</p><div id="daily-list">${
     data.students.length
       ? data.students
           .map(
@@ -56,8 +56,8 @@ export async function dailyJournal({ api, esc, toast }) {
                 .join("")}</div></div>`,
           )
           .join("")
-      : "<p>В вашем списке пока нет студентов. Обратитесь к руководству для проверки привязки.</p>"
-  }</div><div class="daily-toolbar"><button class="btn primary" id="daily-save" disabled>Сохранить</button><span id="daily-state" role="status">${data.marks.length ? "Сохранённые отметки загружены" : "Отметки за эту дату ещё не заполнены"}</span></div></section>`;
+      : `<div class="empty"><h3>${data.courses.length ? "В журнале пока нет студентов" : "У вас пока нет дисциплин в журнале"}</h3><p>Студентов привязывает менеджер учебного офиса в карточке студента: дисциплина, группа, преподаватель. Если студенты должны быть в этом списке, напишите менеджеру своей программы.</p></div>`
+  }</div></section><div class="daily-save-bar"><button class="btn primary" id="daily-save" disabled>Сохранить</button><span id="daily-state" role="status">${data.marks.length ? "Сохранённые отметки загружены" : "Отметки за эту дату ещё не заполнены"}</span></div>`;
   const reload = document.createElement("button");
   reload.type = "button";
   reload.className = "btn";
@@ -83,23 +83,50 @@ export async function dailyJournal({ api, esc, toast }) {
     select = root.querySelector("#daily-course"),
     save = root.querySelector("#daily-save"),
     state = root.querySelector("#daily-state");
+  // Число изменённых отметок считается относительно сохранённых на сервере.
+  let original = new Map(marks);
+  const refresh = () => {
+    const changed = data.students.filter(
+      (s) => (marks.get(s.id) || "") !== (original.get(s.id) || ""),
+    ).length;
+    unsaved = changed > 0;
+    save.disabled = !unsaved;
+    state.textContent = unsaved
+      ? `Изменено: ${changed} · не сохранено`
+      : original.size
+        ? "Сохранённые отметки загружены"
+        : "Отметки за эту дату ещё не заполнены";
+    root
+      .querySelectorAll("[data-student]")
+      .forEach((x) =>
+        x.setAttribute(
+          "aria-pressed",
+          String((marks.get(x.dataset.student) || "") === x.dataset.status),
+        ),
+      );
+  };
   root.querySelectorAll("[data-student]").forEach(
     (b) =>
       (b.onclick = () => {
         marks.set(b.dataset.student, b.dataset.status || null);
-        unsaved = true;
-        save.disabled = false;
-        state.textContent = "Есть несохранённые изменения";
-        root
-          .querySelectorAll("[data-student]")
-          .forEach((x) =>
-            x.setAttribute(
-              "aria-pressed",
-              String((marks.get(x.dataset.student) || "") === x.dataset.status),
-            ),
-          );
+        refresh();
       }),
   );
+  root.querySelector("#daily-all-present").onclick = () => {
+    data.students.forEach((s) => marks.set(s.id, "present"));
+    refresh();
+  };
+  const shiftDay = (n) => {
+    const d = new Date(date + "T12:00:00Z");
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  };
+  root.querySelector("#daily-prev").onclick = () =>
+    switchTo([shiftDay(-1), course]);
+  root.querySelector("#daily-next").onclick = () =>
+    switchTo([shiftDay(1), course]);
+  root.querySelector("#daily-today").onclick = () =>
+    switchTo([today(), course]);
   const switchTo = async (next) => {
     if (unsaved && !confirm("Перейти без сохранения отметок?")) {
       input.value = date;
@@ -150,6 +177,7 @@ export async function dailyJournal({ api, esc, toast }) {
         }),
       });
       data.version = result.version;
+      original = new Map(marks);
       unsaved = false;
       state.textContent = "Отметки сохранены.";
       toast("Отметки сохранены");
