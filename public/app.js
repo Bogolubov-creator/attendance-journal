@@ -589,7 +589,7 @@ async function addStudentDialog() {
 }
 // Вкладка карточки запоминается, пока открыт тот же студент: после правок карточка перечитывается.
 let profileId = null,
-  profileTab = "data";
+  profileTab = "lessons";
 // Код группы РУЗ длиннее названия дисциплины: прячем длинный числовой идентификатор, различающие части
 // (программа, Г/П, номер группы) остаются; полный код – по наведению.
 const shortGroup = (g) => (g.length > 20 ? g.replace(/_(\d{5,})_/, "_…_") : g);
@@ -645,7 +645,7 @@ async function profile(id) {
         : p.status === "exempt"
           ? "не требуется"
           : "";
-  d.innerHTML = `<div class="dialog-sticky"><div class="dialog-head"><div><div class="eyebrow">Карточка студента</div><h2>${esc(s.name)}</h2></div><button class="btn small" id="close-profile" aria-label="Закрыть карточку">×</button></div><nav class="card-tabs" role="tablist" aria-label="Разделы карточки"><button role="tab" data-tab="data">Данные</button><button role="tab" data-tab="lessons">Занятия <span class="count">${data.links.length}</span></button><button role="tab" data-tab="requirements">Требования${overdueCount ? ` <span class="count red">${overdueCount}</span>` : ""}</button><button role="tab" data-tab="attendance">Посещаемость</button></nav></div><div class="dialog-body"><p id="student-assignment">${esc(s.manager?.name || "Менеджер не назначен")} · ${esc(s.program || "Программа не указана")} ${s.year ? "· " + s.year + " курс" : ""}</p>${!data.canEdit ? '<div class="notice">Просмотр. Изменения доступны менеджеру программы и курса или руководству.</div>' : ""}
+  d.innerHTML = `<div class="dialog-sticky"><div class="dialog-head"><div><div class="eyebrow">Карточка студента</div><h2>${esc(s.name)}</h2></div><button class="btn small" id="close-profile" aria-label="Закрыть карточку">×</button></div><nav class="card-tabs" role="tablist" aria-label="Разделы карточки"><button role="tab" data-tab="lessons">Занятия <span class="count">${data.links.length}</span></button><button role="tab" data-tab="data">Данные</button><button role="tab" data-tab="requirements">Требования${overdueCount ? ` <span class="count red">${overdueCount}</span>` : ""}</button><button role="tab" data-tab="attendance">Посещаемость</button></nav></div><div class="dialog-body"><p id="student-assignment">${esc(s.manager?.name || "Менеджер не назначен")} · ${esc(s.program || "Программа не указана")} ${s.year ? "· " + s.year + " курс" : ""}</p>${!data.canEdit ? '<div class="notice">Просмотр. Изменения доступны менеджеру программы и курса или руководству.</div>' : ""}
   <section class="card-tab" data-tab="data"><details ${!s.program || !s.year ? "open" : ""}><summary>Контингент и распределение</summary>${!s.program || !s.year ? '<p class="notice warn">Без программы и курса студент не закреплён за менеджером и не попадает в его список.</p>' : ""}<form id="student-profile" class="profile-form"><fieldset ${user.role !== "admin" ? "disabled" : ""}><label>Программа<select name="program">${options([["", "Не указана"], ...data.programs.map((p) => [p, p])], s.program)}</select></label><label>Курс<select name="year">${options([[0, "Не указан"], ...[1, 2, 3, 4, 5, 6].map((y) => [y, y])], s.year || 0)}</select></label><label>Иностранный контингент<select name="foreignStatus">${options(
     [
       ["unknown", "Не проверено"],
@@ -715,7 +715,7 @@ async function profile(id) {
   d.querySelectorAll(".card-tabs [data-tab]").forEach(
     (b) => (b.onclick = () => showTab(b.dataset.tab)),
   );
-  showTab(profileId === id ? profileTab : "data");
+  showTab(profileId === id ? profileTab : "lessons");
   profileId = id;
   const submit = (form, url, transform = (x) => x) => {
     form.onsubmit = (e) => {
