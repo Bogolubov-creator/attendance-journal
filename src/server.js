@@ -782,7 +782,7 @@ app.put("/api/admin/students/:id/profile", (req, res) => {
 app.put("/api/admin/students/:id/procedures/:kind", (req, res) => {
   editable(req, req.params.id);
   if (!procedureCatalog.some((c) => c.id === req.params.kind))
-    throw fail(404, "Процедура не найдена");
+    throw fail(404, "Требование не найдено");
   const {
     state,
     dueDate = "",
@@ -809,7 +809,7 @@ app.put("/api/admin/students/:id/procedures/:kind", (req, res) => {
   if (req.body.version !== (previous.version || 0))
     throw fail(
       409,
-      "Процедура изменена другим сотрудником. Сохраните свои правки и откройте карточку заново",
+      "Требование изменено другим сотрудником. Сохраните свои правки и откройте карточку заново",
     );
   const data = {
     version: (previous.version || 0) + 1,
@@ -1020,9 +1020,9 @@ app.get("/api/admin/export", (req, res) => {
           "Иностранный статус",
           "Обучение",
           "Менеджер",
-          "Просроченные процедуры",
-          "Процедуры на проверке",
-          "Нет данных о процедурах",
+          "Не выполнены требования",
+          "Требования на проверке",
+          "Нет данных о требованиях",
         ],
         ...rows,
       ]
