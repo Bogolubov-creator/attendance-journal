@@ -1569,6 +1569,99 @@ dialog::backdrop {
   width: 100%;
   min-width: 0;
 }
+.office-filters .filter-search {
+  flex: 2 1 220px;
+}
+.office-filters .filter-search .search {
+  margin: 0;
+}
+.filter-chip {
+  align-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--blue);
+  background: #eef2fb;
+  border-radius: 6px;
+}
+.filter-chip button {
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+/* Сортировка по заголовку столбца. */
+.admin-table th .sort {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+.admin-table th[aria-sort] .sort {
+  color: var(--blue);
+}
+.admin-table th[aria-sort] .sort::after {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin: 0 0 2px 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+.admin-table th[aria-sort="ascending"] .sort::after {
+  transform: rotate(-135deg);
+  margin-bottom: -2px;
+}
+.period-presets {
+  display: flex;
+  gap: 6px;
+  align-items: end;
+}
+.period-presets [aria-pressed="true"] {
+  background: var(--blue);
+  color: #fff;
+  border-color: var(--blue);
+}
+.metric-filter {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  background: #fff;
+  border: 0;
+  border-right: 1px solid var(--line);
+  transition: background 140ms ease-out;
+}
+.metric-filter:hover {
+  background: #f8fafc;
+}
+.metric-filter[aria-pressed="true"] {
+  background: #eef2fb;
+  box-shadow: inset 0 -2px 0 var(--blue);
+}
+.rename-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+.rename-row input {
+  flex: 1 1 240px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font: inherit;
+}
 .profile-form fieldset {
   border: 0;
   padding: 16px 0;

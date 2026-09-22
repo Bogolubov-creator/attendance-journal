@@ -195,6 +195,20 @@ export async function dailyJournal({ api, esc, toast }) {
     }
   };
 }
+// Готовые периоды: текущая неделя с понедельника, текущий месяц, семестр (с 1 сентября или с 1 февраля).
+function presetRange(kind) {
+  const end = today(),
+    d = new Date(end + "T12:00:00Z");
+  if (kind === "week") d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  else if (kind === "month") d.setUTCDate(1);
+  else {
+    const m = d.getUTCMonth();
+    if (m >= 8) d.setUTCMonth(8, 1);
+    else if (m >= 1) d.setUTCMonth(1, 1);
+    else d.setUTCFullYear(d.getUTCFullYear() - 1, 8, 1);
+  }
+  return [d.toISOString().slice(0, 10), end];
+}
 export async function dailyDashboard({ api, esc, toast }) {
   const data = await api(
     "/api/daily/overview?" + new URLSearchParams({ from, to }),
@@ -213,7 +227,18 @@ export async function dailyDashboard({ api, esc, toast }) {
     absent: `За период ${period}; дни без явки – на сегодня`,
     unknown: `Нет отметок за период ${period}`,
   };
-  root.innerHTML = `<div class="page-heading"><div><div class="eyebrow">Факультет права</div><h1>Посещаемость за период</h1><p>Сводка по отметкам преподавателей за период ${period}.</p></div></div><form class="daily-toolbar panel daily-panel" id="period"><label>С даты<input type="date" name="from" value="${from}" max="${today()}" required></label><label>По дату<input type="date" name="to" value="${to}" max="${today()}" required></label><button class="btn primary">Показать</button><a class="btn" href="/api/daily/export?${new URLSearchParams({ from, to })}">Выгрузить для Excel · CSV</a></form><section class="panel absence-notice ${alerts.length ? "has-alerts" : ""}" aria-label="Тревоги посещаемости"><div><h2>Тревоги на сегодня: ${alerts.length}</h2><p>Больше 7 учебных дней без посещения. Считаются только даты с отметкой «Отсутствовал(а)» после последней явки, независимо от выбранного периода.</p></div><button class="btn ${alerts.length ? "primary" : ""}" id="show-absence-alerts" ${alerts.length ? "" : "disabled"}>Показать тревоги</button></section><div class="metrics">${["present", "absent", "unknown"].map((status) => `<div class="metric"><label>${labels[status]}</label><strong>${data.students.filter((s) => s.status === status).length}</strong><small>${notes[status]}</small></div>`).join("")}</div><p class="footer-note">«Отсутствуют» – за выбранный период есть только отметки «Отсутствовал(а)»; рядом указано, сколько учебных дней подряд без явки на сегодня. Это не подтверждает отсутствие на всех занятиях. «Нет данных» – за период нет ни одной отметки.</p><section class="panel daily-panel"><div class="daily-toolbar"><input type="search" id="daily-search" placeholder="Найти студента" aria-label="Найти студента"><select id="daily-filter" aria-label="Результат"><option value="all">Все студенты</option><option value="alert">Тревога: больше 7 учебных дней</option><option value="absent4">Не были более 4 дней</option>${Object.entries(
+  root.innerHTML = `<div class="page-heading"><div><div class="eyebrow">Факультет права</div><h1>Посещаемость за период</h1><p>Сводка по отметкам преподавателей за период ${period}.</p></div></div><form class="daily-toolbar panel daily-panel" id="period"><label>С даты<input type="date" name="from" value="${from}" max="${today()}" required></label><label>По дату<input type="date" name="to" value="${to}" max="${today()}" required></label><div class="period-presets" role="group" aria-label="Готовые периоды">${[
+    ["week", "Неделя"],
+    ["month", "Месяц"],
+    ["semester", "Семестр"],
+  ]
+    .map(
+      ([k, l]) =>
+        `<button type="button" class="btn small" data-preset="${k}" aria-pressed="${presetRange(k)[0] === from && presetRange(k)[1] === to}">${l}</button>`,
+    )
+    .join(
+      "",
+    )}</div><a class="btn" href="/api/daily/export?${new URLSearchParams({ from, to })}">Выгрузить для Excel · CSV</a></form><section class="panel absence-notice ${alerts.length ? "has-alerts" : ""}" aria-label="Тревоги посещаемости"><div><h2>Тревоги на сегодня: ${alerts.length}</h2><p>Больше 7 учебных дней без посещения. Считаются только даты с отметкой «Отсутствовал(а)» после последней явки, независимо от выбранного периода.</p></div><button class="btn ${alerts.length ? "primary" : ""}" id="show-absence-alerts" ${alerts.length ? "" : "disabled"}>Показать тревоги</button></section><div class="metrics">${["present", "absent", "unknown"].map((status) => `<button type="button" class="metric metric-filter" data-status="${status}" aria-pressed="false"><label>${labels[status]}</label><strong>${data.students.filter((s) => s.status === status).length}</strong><small>${notes[status]}</small></button>`).join("")}</div><p class="footer-note">«Отсутствуют» – за выбранный период есть только отметки «Отсутствовал(а)»; рядом указано, сколько учебных дней подряд без явки на сегодня. Это не подтверждает отсутствие на всех занятиях. «Нет данных» – за период нет ни одной отметки.</p><section class="panel daily-panel"><div class="daily-toolbar"><input type="search" id="daily-search" placeholder="Найти студента" aria-label="Найти студента"><select id="daily-filter" aria-label="Результат"><option value="all">Все студенты</option><option value="alert">Тревога: больше 7 учебных дней</option><option value="absent4">Не были более 4 дней</option>${Object.entries(
     labels,
   )
     .map(([v, l]) => `<option value="${v}">${l}</option>`)
@@ -227,6 +252,11 @@ export async function dailyDashboard({ api, esc, toast }) {
         .toLocaleLowerCase("ru")
         .replaceAll("ё", "е"),
       filter = root.querySelector("#daily-filter").value;
+    root
+      .querySelectorAll(".metric-filter")
+      .forEach((m) =>
+        m.setAttribute("aria-pressed", String(m.dataset.status === filter)),
+      );
     const rows = data.students.filter(
       (s) =>
         s.name.toLocaleLowerCase("ru").replaceAll("ё", "е").includes(q) &&
@@ -247,6 +277,16 @@ export async function dailyDashboard({ api, esc, toast }) {
   };
   root.querySelector("#daily-search").oninput = render;
   root.querySelector("#daily-filter").onchange = render;
+  // Метрика – тоже фильтр: щелчок показывает студентов с этим статусом, повторный снимает.
+  root.querySelectorAll(".metric-filter").forEach(
+    (m) =>
+      (m.onclick = () => {
+        const select = root.querySelector("#daily-filter");
+        select.value =
+          select.value === m.dataset.status ? "all" : m.dataset.status;
+        render();
+      }),
+  );
   render();
   root.querySelector("#show-absence-alerts").onclick = () => {
     root.querySelector("#daily-search").value = "";
@@ -254,11 +294,9 @@ export async function dailyDashboard({ api, esc, toast }) {
     render();
     root.querySelector("#daily-results").scrollIntoView({ block: "nearest" });
   };
-  root.querySelector("#period").onsubmit = async (e) => {
-    e.preventDefault();
-    const f = new FormData(e.currentTarget),
-      a = f.get("from"),
-      b = f.get("to");
+  const periodForm = root.querySelector("#period");
+  const applyPeriod = async (a, b) => {
+    if (!a || !b) return;
     if (a > b) {
       toast("Проверьте порядок дат", true);
       return;
@@ -273,6 +311,20 @@ export async function dailyDashboard({ api, esc, toast }) {
       toast(e.message, true);
     }
   };
+  // Период применяется сразу: по смене даты или по готовому периоду, без отдельной кнопки.
+  periodForm.onsubmit = (e) => {
+    e.preventDefault();
+    const f = new FormData(periodForm);
+    applyPeriod(f.get("from"), f.get("to"));
+  };
+  periodForm
+    .querySelectorAll("input")
+    .forEach((i) => (i.onchange = () => periodForm.requestSubmit()));
+  periodForm
+    .querySelectorAll("[data-preset]")
+    .forEach(
+      (b) => (b.onclick = () => applyPeriod(...presetRange(b.dataset.preset))),
+    );
   root.querySelector("#daily-refresh").onclick = () =>
     dailyDashboard({ api, esc, toast }).catch((e) => toast(e.message, true));
 }
