@@ -92,6 +92,10 @@ export function managerFor(student) {
     ) || null
   );
 }
+// Менеджер видит только студентов своих программ и курсов; полный доступ – всех.
+export function canSeeStudent(user, student) {
+  return user.role === "admin" || managerFor(student)?.id === user.id;
+}
 export function canEditStudent(user, student) {
   return (
     user.role === "admin" ||

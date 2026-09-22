@@ -8,6 +8,7 @@ import {
   directorySource,
   managerFor,
   canEditStudent,
+  canSeeStudent,
   procedureCatalog,
   procedureStates,
   procedureStatus,
@@ -874,7 +875,9 @@ function studentRows() {
   });
 }
 app.get("/api/admin/overview", (req, res) => {
-  const students = studentRows();
+  const students = studentRows().filter((s) =>
+    canSeeStudent(req.session.user, s),
+  );
   res.json({
     students: students.map((s) => ({
       ...s,
@@ -901,6 +904,8 @@ app.get("/api/admin/overview", (req, res) => {
 app.get("/api/admin/students/:id", (req, res) => {
   const student = studentRows().find((s) => s.id === req.params.id);
   if (!student) throw fail(404, "Студент не найден");
+  if (!canSeeStudent(req.session.user, student))
+    throw fail(403, "Студент не относится к вашим программам и курсам");
   res.json({
     student,
     canEdit: canEditStudent(req.session.user, student),
@@ -974,24 +979,26 @@ app.patch("/api/admin/debts/:id", (req, res) => {
 });
 app.get("/api/admin/export", (req, res) => {
   const esc = csvCell;
-  const rows = studentRows().map((s) => [
-    s.name,
-    s.attendance ?? "",
-    s.absences,
-    s.lastVisit || "",
-    s.debtCount,
-    s.days,
-    s.absenceAlert ? "Да" : "Нет",
-    s.attention ? "Да" : "Нет",
-    s.program || "",
-    s.year || "",
-    s.foreignStatus || "unknown",
-    s.enrollmentStatus || "active",
-    s.manager?.name || "",
-    s.procedureOverdue,
-    s.procedureReview,
-    s.procedureUnknown,
-  ]);
+  const rows = studentRows()
+    .filter((s) => canSeeStudent(req.session.user, s))
+    .map((s) => [
+      s.name,
+      s.attendance ?? "",
+      s.absences,
+      s.lastVisit || "",
+      s.debtCount,
+      s.days,
+      s.absenceAlert ? "Да" : "Нет",
+      s.attention ? "Да" : "Нет",
+      s.program || "",
+      s.year || "",
+      s.foreignStatus || "unknown",
+      s.enrollmentStatus || "active",
+      s.manager?.name || "",
+      s.procedureOverdue,
+      s.procedureReview,
+      s.procedureUnknown,
+    ]);
   res.set({
     "Content-Type": "text/csv; charset=utf-8",
     "Content-Disposition": 'attachment; filename="attendance.csv"',

@@ -1,6 +1,6 @@
 import { csvCell } from "./csv.js";
 import { moscowDate, studentMetrics } from "./domain.js";
-import { validDate } from "./office.js";
+import { canSeeStudent, validDate } from "./office.js";
 
 export function summarizeAttendance(
   students,
@@ -206,7 +206,10 @@ export function registerDaily(
       to,
       alertAsOf: moscowDate(),
       students: summarizeAttendance(
-        roster.students.map((s) => studentProfile(s.id)).filter(active),
+        roster.students
+          .map((s) => studentProfile(s.id))
+          .filter(active)
+          .filter((s) => canSeeStudent(req.session.user, s)),
         records.map((r) => ({
           ...r,
           teacher: names.get(r.teacherId) || "Преподаватель",
