@@ -33,6 +33,23 @@ test("Форма журнала: смена пользователя, блоки
     await daily.dailyJournal(ctx);
     document.querySelector('[data-status="present"]').click();
     assert.equal(daily.hasDailyChanges(), true);
+    assert.equal(
+      document.querySelector("#daily-state").textContent,
+      "Изменено: 1 · не сохранено",
+    );
+    // Возврат к исходной отметке снимает счётчик и блокирует сохранение.
+    document.querySelector('[data-status=""]').click();
+    assert.equal(daily.hasDailyChanges(), false);
+    assert.equal(document.querySelector("#daily-save").disabled, true);
+    document.querySelector("#daily-all-present").click();
+    assert.equal(
+      document
+        .querySelector('[data-status="present"]')
+        .getAttribute("aria-pressed"),
+      "true",
+    );
+    assert.equal(daily.hasDailyChanges(), true);
+    assert.equal(document.querySelector("#daily-next").disabled, true);
     const saving = document.querySelector("#daily-save").onclick();
     assert.equal(daily.isDailySaving(), true);
     assert.equal(document.querySelector("#daily-course").disabled, true);
