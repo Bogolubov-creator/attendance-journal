@@ -258,6 +258,12 @@ function adminView() {
   const programs = [
     ...new Set(students.map((s) => s.program).filter(Boolean)),
   ].sort();
+  // Менеджер фильтрует только по своим курсам; полный доступ – по курсам, которые есть у студентов.
+  const years =
+    user.role === "office" && user.scopes?.every((s) => s.year)
+      ? [...new Set(user.scopes.map((s) => s.year))]
+      : [...new Set(students.map((s) => s.year).filter(Boolean))];
+  years.sort((a, b) => a - b);
   const list = (title, rows, type) =>
     `<section class="panel mini-panel"><h2>${title} <span class="muted">${rows.length}</span></h2>${
       rows.length
@@ -276,7 +282,7 @@ function adminView() {
   ${overview.faculty.unverified ? `<div class="notice">Полнота реестра ещё не подтверждена. Загружено ${students.length} студентов; иностранный статус не проверен у ${overview.faculty.unverified}. Они видны в реестре, но не включены в статистику иностранцев. Программы и курсы заполняет руководство.</div>` : ""}
   ${page === "dashboard" ? `<div class="attention-grid">${list("Не посещают занятия", attention, "absence")}${list("Не выполнены требования", overdue, "procedure")}</div>` : ""}
   <div class="admin-columns"><div class="panel"><div class="panel-heading"><div><h2>Список студентов</h2><small>${user.role === "admin" ? "Статистика сверху всегда по факультету, фильтры действуют на таблицу" : "Статистика сверху по вашим программам и курсам, фильтры действуют на таблицу"}</small></div>${search("admin-search", "Поиск по ФИО", query)}</div>
-  <div class="office-filters">${user.role === "admin" ? '<label>Ответственность<select id="office-scope"><option value="all">Весь факультет</option><option value="mine">Мои программы и курсы</option><option value="unassigned">Не распределены</option></select></label>' : ""}<label>Программа<select id="office-program"><option value="">Все программы</option>${programs.map((p) => `<option>${esc(p)}</option>`).join("")}</select></label><label>Курс<select id="office-year"><option value="">Все курсы</option>${[1, 2, 3, 4, 5, 6].map((y) => `<option>${y}</option>`).join("")}</select></label></div>
+  <div class="office-filters">${user.role === "admin" ? '<label>Ответственность<select id="office-scope"><option value="all">Весь факультет</option><option value="mine">Мои программы и курсы</option><option value="unassigned">Не распределены</option></select></label>' : ""}<label>Программа<select id="office-program"><option value="">Все программы</option>${programs.map((p) => `<option>${esc(p)}</option>`).join("")}</select></label><label>Курс<select id="office-year"><option value="">Все курсы</option>${years.map((y) => `<option>${y}</option>`).join("")}</select></label></div>
   <div class="filter-tabs">${[
     ["all", "Весь реестр"],
     ["foreign", "Подтверждённые иностранцы"],
