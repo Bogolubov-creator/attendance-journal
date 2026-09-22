@@ -226,7 +226,7 @@ export function registerDaily(
     const data = overview(req),
       labels = {
         present: "Присутствовал(а) хотя бы раз",
-        absent: "Присутствие не отмечено",
+        absent: "Отсутствуют",
         unknown: "Нет данных",
       };
     const cell = csvCell;
