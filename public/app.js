@@ -542,7 +542,7 @@ async function profile(id) {
     ],
     s.housing,
   )}</select></label><label>Куратор по миграционному учёту<input name="curator" maxlength="200" value="${esc(s.curator)}"></label><label>Паспорт действителен до<input type="date" name="passportUntil" value="${esc(s.passportUntil)}"></label><label>Миграционная карта до<input type="date" name="migrationCardUntil" value="${esc(s.migrationCardUntil)}"></label><label>ФИО латиницей<input name="nameLatin" maxlength="200" value="${esc(s.nameLatin)}"></label><label>Страна, направившая на обучение<input name="sendingCountry" maxlength="200" value="${esc(s.sendingCountry)}"></label><label class="wide">Версия образовательной программы<input name="programVersion" maxlength="200" value="${esc(s.programVersion)}"></label><button class="btn primary small">Сохранить данные студента</button></fieldset></form></details>
-  ${data.canEdit ? `<details id="registry-block"><summary>Реестр: ФИО, преподаватели и дисциплины</summary><form id="student-rename" class="profile-form"><fieldset><label class="wide">ФИО студента<input name="name" required minlength="3" maxlength="150" autocomplete="off" value="${esc(s.name)}"></label><button class="btn primary small">Сохранить ФИО</button></fieldset></form><div id="student-links">${data.links.map((l, i) => `<div class="record"><div>${esc(l.course)}${l.group ? ` · <span class="muted">${esc(l.group)}</span>` : ""}<small>${esc(l.teacher)}</small></div><button class="btn small" data-unlink="${i}" aria-label="Убрать связь">×</button></div>`).join("") || '<p class="muted">Студент не привязан ни к одному преподавателю и не виден в журналах.</p>'}</div><datalist id="profile-teachers">${teachers.map((t) => `<option value="${esc(t.name)}"></option>`).join("")}</datalist><datalist id="profile-courses"></datalist><form id="student-link" class="link-row"><input name="teacher" list="profile-teachers" placeholder="Преподаватель: начните вводить фамилию" required autocomplete="off"><input name="course" list="profile-courses" placeholder="Дисциплина" required maxlength="200" autocomplete="off"><input name="group" placeholder="Группа (необязательно)" maxlength="100" autocomplete="off"><button class="btn small">+ Связь</button></form><p><button type="button" class="btn small" id="student-delete">Удалить студента из реестра</button> <span class="muted">Только для ошибочных записей без отметок. Отчисленным меняйте статус обучения.</span></p></details>` : ""}
+  ${data.canEdit ? `<section id="registry-block" class="schedule-block" aria-labelledby="schedule-title"><h3 id="schedule-title">Занятия и преподаватели <span class="pill">${data.links.length}</span></h3><p class="schedule-note">Кто ведёт студента: дисциплина, группа, преподаватель. Правки сразу попадают в журнал преподавателя.</p><datalist id="profile-teachers">${teachers.map((t) => `<option value="${esc(t.name)}"></option>`).join("")}</datalist><datalist id="profile-courses"></datalist><form id="student-link" class="schedule-add"><h4>Добавить занятие</h4><div class="link-row"><label>Преподаватель<input name="teacher" list="profile-teachers" placeholder="Начните вводить фамилию" required autocomplete="off"></label><label>Дисциплина<input name="course" list="profile-courses" placeholder="Название дисциплины" required maxlength="200" autocomplete="off"></label><label>Группа<input name="group" placeholder="Необязательно" maxlength="100" autocomplete="off"></label><button class="btn primary small">+ Добавить занятие</button></div></form><div id="student-links">${data.links.map((l, i) => `<div class="schedule-row"><div><strong>${esc(l.course)}</strong><small>${esc(l.teacher)}${l.group ? " · группа " + esc(l.group) : ""}</small></div><button class="btn small" data-unlink="${i}" aria-label="Убрать занятие: ${esc(l.course)}, ${esc(l.teacher)}">Убрать</button></div>`).join("") || '<p class="notice warn">Студент не привязан ни к одному преподавателю и не виден в журналах. Добавьте занятие ниже.</p>'}</div><details class="schedule-more"><summary>ФИО студента и удаление записи</summary><form id="student-rename" class="profile-form"><fieldset><label class="wide">ФИО студента<input name="name" required minlength="3" maxlength="150" autocomplete="off" value="${esc(s.name)}"></label><button class="btn primary small">Сохранить ФИО</button></fieldset></form><p><button type="button" class="btn small" id="student-delete">Удалить студента из реестра</button> <span class="muted">Только для ошибочных записей без отметок. Отчисленным меняйте статус обучения.</span></p></details></section>` : ""}
   <h3>Обязательные требования</h3><p class="muted">Сроки устанавливает сотрудник после проверки применимости. Отправленные документы ожидают проверки и не считаются подтверждённым нарушением.</p>
   ${data.procedures
     .map(
@@ -611,7 +611,6 @@ async function profile(id) {
         await action();
         toast(done);
         await profile(id);
-        $("#registry-block").open = true;
       });
     const link = (method, body) =>
       api("/api/admin/enrollments", { method, body: JSON.stringify(body) });
@@ -633,7 +632,7 @@ async function profile(id) {
           const l = data.links[b.dataset.unlink];
           if (
             confirm(
-              `Убрать связь: ${l.teacher} – ${l.course}${l.group ? " (" + l.group + ")" : ""}?`,
+              `Убрать занятие: ${l.course} – ${l.teacher}${l.group ? " (группа " + l.group + ")" : ""}?`,
             )
           )
             registry(
@@ -644,7 +643,7 @@ async function profile(id) {
                   course: l.course,
                   group: l.group,
                 }),
-              "Связь убрана",
+              "Занятие убрано",
             );
         }),
     );
@@ -668,7 +667,7 @@ async function profile(id) {
             course: f.get("course"),
             group: f.get("group"),
           }),
-        "Связь добавлена",
+        "Занятие добавлено",
       );
     };
     $("#student-delete").onclick = () => {
