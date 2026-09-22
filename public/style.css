@@ -1515,6 +1515,12 @@ dialog::backdrop {
     padding: 6px 8px;
     text-align: center;
   }
+  .nav-icon {
+    display: block;
+  }
+  .side-bottom .logout {
+    padding: 8px;
+  }
   .side-bottom .logout span {
     position: absolute;
     width: 1px;
@@ -1523,6 +1529,7 @@ dialog::backdrop {
     clip: rect(0 0 0 0);
   }
   .side-bottom .logout .nav-icon {
+    display: block;
     margin: 0;
     width: 20px;
     height: 20px;
