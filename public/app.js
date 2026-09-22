@@ -23,7 +23,7 @@ const esc = (s) =>
         c
       ],
   );
-const labels = { present: "Присутствовал", absent: "Отсутствовал" };
+const labels = { present: "Присутствовал(а)", absent: "Отсутствовал(а)" };
 let session,
   user,
   page = "journal",

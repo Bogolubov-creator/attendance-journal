@@ -222,7 +222,7 @@ export function registerDaily(
   app.get("/api/daily/export", auth, admin, (req, res) => {
     const data = overview(req),
       labels = {
-        present: "Был хотя бы раз",
+        present: "Присутствовал(а) хотя бы раз",
         absent: "Присутствие не отмечено",
         unknown: "Нет данных",
       };
@@ -249,7 +249,7 @@ export function registerDaily(
         s.history
           .map(
             (r) =>
-              `${r.date}: ${r.teacher}${r.course ? ": " + r.course : ""}: ${r.status === "present" ? "Был" : "Не был"}`,
+              `${r.date}: ${r.teacher}${r.course ? ": " + r.course : ""}: ${r.status === "present" ? "Присутствовал(а)" : "Отсутствовал(а)"}`,
           )
           .join(" | "),
         s.absenceDays,
