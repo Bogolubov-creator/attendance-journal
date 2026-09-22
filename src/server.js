@@ -104,14 +104,31 @@ roster.quality = JSON.parse(
   get("SELECT value FROM service_state WHERE key='rosterQuality'")?.value ||
     "{}",
 );
-const audit = (u, action, entity) =>
+// Журнал изменений: кто, что и над чем; label – человекочитаемое описание для «Последних изменений».
+if (!all("PRAGMA table_info(audit)").some((c) => c.name === "label"))
+  db.exec(
+    "ALTER TABLE audit ADD COLUMN role TEXT; ALTER TABLE audit ADD COLUMN label TEXT;",
+  );
+const audit = (u, action, entity, label = "") =>
   run(
-    "INSERT INTO audit(actor,action,entity,at) VALUES(?,?,?,?)",
+    "INSERT INTO audit(actor,role,action,entity,label,at) VALUES(?,?,?,?,?,?)",
     u.email || u.name,
+    u.role,
     action,
     entity,
+    label,
     new Date().toISOString(),
   );
+const registryActions = [
+  "student.add",
+  "student.rename",
+  "student.delete",
+  "teacher.add",
+  "teacher.rename",
+  "teacher.delete",
+  "enrollment.add",
+  "enrollment.delete",
+];
 let accounts = [];
 try {
   accounts = JSON.parse(readFileSync("data/accounts.json", "utf8"));
@@ -439,8 +456,7 @@ app.get("/api/admin/teachers", (req, res) =>
   ),
 );
 app.post("/api/admin/students", (req, res) => {
-  if (req.session.user.role !== "admin")
-    throw fail(403, "Добавляет студентов руководство учебного офиса");
+  registryStaff(req);
   const {
     name,
     program = "",
@@ -463,6 +479,14 @@ app.post("/api/admin/students", (req, res) => {
     citizenship.length > 100
   )
     throw fail(400, "Проверьте ФИО, программу, курс и гражданство");
+  if (
+    req.session.user.role === "office" &&
+    managerFor({ program, year })?.id !== req.session.user.id
+  )
+    throw fail(
+      403,
+      "Менеджер добавляет студентов только своих программ и курсов",
+    );
   if (
     !Array.isArray(links) ||
     !links.length ||
@@ -508,7 +532,7 @@ app.post("/api/admin/students", (req, res) => {
       id,
       JSON.stringify(profile),
     );
-    audit(req.session.user, "student.add", id);
+    audit(req.session.user, "student.add", id, clean);
     db.exec("COMMIT");
   } catch (e) {
     db.exec("ROLLBACK");
@@ -521,7 +545,19 @@ app.post("/api/admin/students", (req, res) => {
 // Правка реестра через сайт: преподаватели, ФИО студентов, связи «студент – преподаватель – дисциплина».
 function registryAdmin(req) {
   if (req.session.user.role !== "admin")
-    throw fail(403, "Реестр меняет руководство учебного офиса");
+    throw fail(403, "Это изменение доступно только полному доступу");
+}
+// Менеджер и полный доступ добавляют студентов и преподавателей.
+function registryStaff(req) {
+  if (!["admin", "office"].includes(req.session.user.role))
+    throw fail(403, "Реестр меняют менеджеры и полный доступ");
+}
+// Менеджер меняет ФИО, связи и удаляет только студентов своих программ и курсов.
+function registryStudent(req, id) {
+  const student = registryEntry(roster.students, id, "Студент не найден");
+  if (!canEditStudent(req.session.user, studentProfile(id)))
+    throw fail(403, "Менеджер меняет только студентов своих программ и курсов");
+  return student;
 }
 function registryName(name, list, exceptId) {
   const clean =
@@ -543,11 +579,11 @@ function registryEntry(list, id, message) {
   return entry;
 }
 app.post("/api/admin/teachers", (req, res) => {
-  registryAdmin(req);
+  registryStaff(req);
   const name = registryName(req.body.name, roster.teachers),
     id = "t_" + randomBytes(8).toString("hex");
   run("INSERT INTO roster_teachers VALUES(?,?)", id, name);
-  audit(req.session.user, "teacher.add", id);
+  audit(req.session.user, "teacher.add", id, name);
   roster.teachers.push({ id, name });
   res.json({ id, name });
 });
@@ -560,13 +596,18 @@ app.put("/api/admin/teachers/:id", (req, res) => {
   );
   const name = registryName(req.body.name, roster.teachers, teacher.id);
   run("UPDATE roster_teachers SET name=? WHERE id=?", name, teacher.id);
-  audit(req.session.user, "teacher.rename", teacher.id);
+  audit(
+    req.session.user,
+    "teacher.rename",
+    teacher.id,
+    teacher.name + " → " + name,
+  );
   teacher.name = name;
   res.json({ ok: true, name });
 });
 app.delete("/api/admin/teachers/:id", (req, res) => {
   registryAdmin(req);
-  const { id } = registryEntry(
+  const { id, name } = registryEntry(
     roster.teachers,
     req.params.id,
     "Преподаватель не найден",
@@ -584,30 +625,25 @@ app.delete("/api/admin/teachers/:id", (req, res) => {
       "У преподавателя есть студенты или отметки. Удалить можно только запись без связей и истории",
     );
   run("DELETE FROM roster_teachers WHERE id=?", id);
-  audit(req.session.user, "teacher.delete", id);
+  audit(req.session.user, "teacher.delete", id, name);
   roster.teachers = roster.teachers.filter((t) => t.id !== id);
   res.json({ ok: true });
 });
 app.put("/api/admin/students/:id", (req, res) => {
-  registryAdmin(req);
-  const student = registryEntry(
-    roster.students,
-    req.params.id,
-    "Студент не найден",
-  );
+  const student = registryStudent(req, req.params.id);
   const name = registryName(req.body.name, roster.students, student.id);
   run("UPDATE roster_students SET name=? WHERE id=?", name, student.id);
-  audit(req.session.user, "student.rename", student.id);
+  audit(
+    req.session.user,
+    "student.rename",
+    student.id,
+    student.name + " → " + name,
+  );
   student.name = name;
   res.json({ ok: true, name });
 });
 app.delete("/api/admin/students/:id", (req, res) => {
-  registryAdmin(req);
-  const { id } = registryEntry(
-    roster.students,
-    req.params.id,
-    "Студент не найден",
-  );
+  const { id, name } = registryStudent(req, req.params.id);
   if (
     get("SELECT 1 FROM daily_marks WHERE studentId=?", id) ||
     get("SELECT 1 FROM marks WHERE studentId=?", id)
@@ -626,7 +662,7 @@ app.delete("/api/admin/students/:id", (req, res) => {
     ])
       run(`DELETE FROM ${table} WHERE studentId=?`, id);
     run("DELETE FROM roster_students WHERE id=?", id);
-    audit(req.session.user, "student.delete", id);
+    audit(req.session.user, "student.delete", id, name);
     db.exec("COMMIT");
   } catch (e) {
     db.exec("ROLLBACK");
@@ -648,9 +684,26 @@ function enrollmentKey(body) {
     throw fail(400, "Укажите студента, преподавателя и дисциплину");
   return { studentId, teacherId, course: course.trim() };
 }
+// Записи до появления колонки label: имена подставляются по ID, если запись ещё в реестре.
+const auditLabel = (entity) =>
+  String(entity)
+    .split(":")
+    .map(
+      (part) =>
+        roster.students.find((s) => s.id === part)?.name ||
+        roster.teachers.find((t) => t.id === part)?.name ||
+        part,
+    )
+    .join(" – ");
+const enrollmentLabel = (key) =>
+  roster.students.find((s) => s.id === key.studentId)?.name +
+  " – " +
+  roster.teachers.find((t) => t.id === key.teacherId)?.name +
+  " – " +
+  key.course;
 app.post("/api/admin/enrollments", (req, res) => {
-  registryAdmin(req);
   const key = enrollmentKey(req.body);
+  registryStudent(req, key.studentId);
   if (
     roster.enrollments.some(
       (e) =>
@@ -666,13 +719,14 @@ app.post("/api/admin/enrollments", (req, res) => {
     req.session.user,
     "enrollment.add",
     key.studentId + ":" + key.teacherId + ":" + key.course,
+    enrollmentLabel(key),
   );
   roster.enrollments.push(enrollment);
   res.json({ ok: true });
 });
 app.delete("/api/admin/enrollments", (req, res) => {
-  registryAdmin(req);
   const key = enrollmentKey(req.body);
+  registryStudent(req, key.studentId);
   const { changes } = run(
     "DELETE FROM roster_enrollments WHERE studentId=? AND teacherId=? AND course=?",
     key.studentId,
@@ -684,6 +738,7 @@ app.delete("/api/admin/enrollments", (req, res) => {
     req.session.user,
     "enrollment.delete",
     key.studentId + ":" + key.teacherId + ":" + key.course,
+    enrollmentLabel(key),
   );
   roster.enrollments = roster.enrollments.filter(
     (e) =>
@@ -898,7 +953,13 @@ app.get("/api/admin/overview", (req, res) => {
     quality: roster.quality,
     teachers: roster.teachers.length,
     backup: get("SELECT value FROM service_state WHERE key='backup'"),
-    audit: all("SELECT * FROM audit ORDER BY id DESC LIMIT 12"),
+    audit:
+      req.session.user.role === "admin"
+        ? all(
+            `SELECT actor,role,action,entity,label,at FROM audit WHERE action IN (${registryActions.map(() => "?").join(",")}) ORDER BY id DESC LIMIT 30`,
+            ...registryActions,
+          ).map((a) => ({ ...a, label: a.label || auditLabel(a.entity) }))
+        : [],
   });
 });
 app.get("/api/admin/students/:id", (req, res) => {

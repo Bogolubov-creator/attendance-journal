@@ -1,10 +1,12 @@
 // Страница «Реестр»: руководство ведёт список преподавателей прямо на сайте.
-export async function registryView({ api, esc, toast }) {
+export async function registryView({ api, esc, toast, admin }) {
   const teachers = await api("/api/admin/teachers");
   const root = document.querySelector("#content");
   const again = () =>
-    registryView({ api, esc, toast }).catch((e) => toast(e.message, true));
-  root.innerHTML = `<div class="page-heading"><div><div class="eyebrow">Факультет права</div><h1>Сотрудники</h1><p>Добавляйте преподавателей и меняйте их ФИО. Дисциплины назначаются в карточке студента.</p></div></div><form class="daily-toolbar panel daily-panel" id="teacher-add"><label>ФИО нового преподавателя<input name="name" required minlength="3" maxlength="150" autocomplete="off"></label><button class="btn primary">+ Добавить преподавателя</button></form><section class="panel daily-panel"><div class="daily-toolbar"><input type="search" id="teacher-search" placeholder="Найти преподавателя" aria-label="Найти преподавателя"><span class="muted">Всего: ${teachers.length}</span></div><div id="teacher-rows"></div></section>`;
+    registryView({ api, esc, toast, admin }).catch((e) =>
+      toast(e.message, true),
+    );
+  root.innerHTML = `<div class="page-heading"><div><div class="eyebrow">Факультет права</div><h1>Сотрудники</h1><p>${admin ? "Добавляйте преподавателей и меняйте их ФИО." : "Добавляйте преподавателей, которых нет в списке."} Дисциплины назначаются в карточке студента.</p></div></div><form class="daily-toolbar panel daily-panel" id="teacher-add"><label>ФИО нового преподавателя<input name="name" required minlength="3" maxlength="150" autocomplete="off"></label><button class="btn primary">+ Добавить преподавателя</button></form><section class="panel daily-panel"><div class="daily-toolbar"><input type="search" id="teacher-search" placeholder="Найти преподавателя" aria-label="Найти преподавателя"><span class="muted">Всего: ${teachers.length}</span></div><div id="teacher-rows"></div></section>`;
   const render = () => {
     const q = root
       .querySelector("#teacher-search")
@@ -18,7 +20,7 @@ export async function registryView({ api, esc, toast }) {
         )
         .map(
           (t) =>
-            `<div class="daily-row" data-teacher="${esc(t.id)}"><span><strong>${esc(t.name)}</strong><br><span class="muted">${t.courses.length ? t.courses.map(esc).join(" · ") : "Нет дисциплин и студентов"}</span></span><span class="daily-options"><button class="btn small" data-action="rename">Изменить ФИО</button><button class="btn small" data-action="delete" ${t.courses.length ? 'disabled title="Сначала снимите связи со студентами"' : ""}>Удалить</button></span></div>`,
+            `<div class="daily-row" data-teacher="${esc(t.id)}"><span><strong>${esc(t.name)}</strong><br><span class="muted">${t.courses.length ? t.courses.map(esc).join(" · ") : "Нет дисциплин и студентов"}</span></span>${admin ? `<span class="daily-options"><button class="btn small" data-action="rename">Изменить ФИО</button><button class="btn small" data-action="delete" ${t.courses.length ? 'disabled title="Сначала снимите связи со студентами"' : ""}>Удалить</button></span>` : ""}</div>`,
         )
         .join("") || "<p>Преподаватели не найдены</p>";
   };
