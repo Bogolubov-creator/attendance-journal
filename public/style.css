@@ -1006,6 +1006,9 @@ small {
 }
 #toast {
   position: fixed;
+  inset: auto;
+  margin: 0;
+  border: 0;
   bottom: 25px;
   left: 50%;
   transform: translateX(-50%);
@@ -1018,7 +1021,8 @@ small {
   max-width: 90vw;
   display: none;
 }
-#toast.show {
+#toast.show,
+#toast:popover-open {
   display: block;
 }
 #toast.error {

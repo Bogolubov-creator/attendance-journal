@@ -81,10 +81,15 @@ function toast(message, error = false) {
       : "");
   el.className = "show" + (error ? " error" : "");
   el.setAttribute("role", error ? "alert" : "status");
+  // Popover живёт в верхнем слое, поэтому уведомление видно и поверх модальных окон.
+  const hide = () => {
+    el.className = "";
+    if (el.matches(":popover-open")) el.hidePopover();
+  };
+  if (el.showPopover && !el.matches(":popover-open")) el.showPopover();
   clearTimeout(toastTimer);
-  if (error)
-    el.querySelector(".toast-close").onclick = () => (el.className = "");
-  else toastTimer = setTimeout(() => (el.className = ""), 5500);
+  if (error) el.querySelector(".toast-close").onclick = hide;
+  else toastTimer = setTimeout(hide, 5500);
 }
 // Иконки навигации: один набор, штрих 1,5, 20 px.
 const iconPaths = {
