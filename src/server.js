@@ -239,9 +239,11 @@ app.use((req, res, next) => {
     );
   req.session = row ? JSON.parse(row.data) : null;
   req.sessionKey = row?.id;
+  // Любая сессия, кроме университетского входа, выдана по общему паролю
+  // и закрывается при его смене.
   if (
-    ["admin", "office"].includes(req.session?.user?.role) &&
-    (selection || demo) &&
+    req.session?.user &&
+    !["oidc", "explicit"].includes(req.session.user.source) &&
     (!managementHash || req.session.managementVersion !== managementVersion)
   ) {
     run("DELETE FROM sessions WHERE id=?", req.sessionKey);
