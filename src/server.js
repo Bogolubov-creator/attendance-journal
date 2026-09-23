@@ -257,7 +257,7 @@ app.use((req, res, next) => {
     const valid =
       cabinetOpen(u.studentId) &&
       (u.source === "demo"
-        ? demo
+        ? demoStudentLogin
         : studentByExternalId(u.subject) === u.studentId);
     if (!valid) {
       run("DELETE FROM sessions WHERE id=?", req.sessionKey);
