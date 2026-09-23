@@ -132,6 +132,7 @@ def main():
                 fuzzy.append((data["name"], found))
             if not found:
                 found = key
+                # Та же формула, что studentId в src/domain.js – менять только вместе.
                 registry[key] = "s_" + hashlib.sha256(data["name"].encode()).hexdigest()[:16]
                 added.append(data["name"])
                 db.execute("INSERT OR IGNORE INTO roster_students VALUES(?,?)", (registry[key], data["name"]))

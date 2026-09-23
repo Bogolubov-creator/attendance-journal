@@ -16,6 +16,10 @@ import {
   procedureStates,
   procedureStatus,
   validDate,
+  enrollmentStatuses,
+  closedEnrollmentStatuses,
+  studentFieldsError,
+  studentFieldsValid,
 } from "./office.js";
 import { DatabaseSync } from "node:sqlite";
 import {
@@ -29,7 +33,7 @@ import { randomBytes, createHash } from "node:crypto";
 import * as oidc from "openid-client";
 import { backup } from "node:sqlite";
 import path from "node:path";
-import { moscowDate, studentMetrics } from "./domain.js";
+import { moscowDate, studentMetrics, studentId } from "./domain.js";
 const app = express(),
   port = Number(process.env.PORT || 3100),
   demo = process.env.DEMO_MODE === "true";
@@ -507,7 +511,7 @@ function cabinetOpen(studentId) {
     get("SELECT data FROM student_profiles WHERE studentId=?", studentId)
       ?.data || "{}",
   ).enrollmentStatus;
-  return !["graduated", "withdrawn"].includes(status);
+  return !closedEnrollmentStatuses.includes(status);
 }
 function proceduresFor(id) {
   const rows = all("SELECT kind,data FROM procedures WHERE studentId=?", id),
@@ -689,18 +693,14 @@ app.post("/api/admin/students", (req, res) => {
     citizenship = "",
     links,
   } = req.body;
-  const clean =
-    typeof name === "string" ? name.trim().replace(/\s+/g, " ") : "";
+  const clean = registryName(name, roster.students);
   if (
-    clean.length < 3 ||
-    clean.length > 150 ||
     (program !== "" && !programs.includes(program)) ||
     !Number.isInteger(year) ||
     year < 0 ||
     year > 6 ||
     !["unknown", "confirmed", "excluded"].includes(foreignStatus) ||
-    typeof citizenship !== "string" ||
-    citizenship.length > 100
+    !studentFieldsValid({ citizenship })
   )
     throw fail(400, "Проверьте ФИО, программу, курс и гражданство");
   if (
@@ -727,10 +727,8 @@ app.post("/api/admin/students", (req, res) => {
     )
   )
     throw fail(400, "Укажите хотя бы одного преподавателя и дисциплину");
-  const id = "s_" + hash(clean).slice(0, 16);
-  const same = (a, b) =>
-    a.toLocaleLowerCase("ru") === b.toLocaleLowerCase("ru");
-  if (roster.students.some((s) => s.id === id || same(s.name, clean)))
+  const id = studentId(clean);
+  if (roster.students.some((s) => s.id === id))
     throw fail(409, "Студент с таким ФИО уже есть в реестре");
   const enrollments = links.map((l) => ({
     studentId: id,
@@ -1018,34 +1016,28 @@ app.put("/api/admin/students/:id/profile", (req, res) => {
     migrationCardUntil = "",
   } = req.body;
   if (
-    [nameLatin, sendingCountry, programVersion, curator].some(
-      (v) => typeof v !== "string" || v.length > 200,
-    ) ||
-    !["", "dormitory", "private"].includes(housing) ||
-    !["", "yes", "no"].includes(inRussia) ||
-    !validDate(passportUntil) ||
-    !validDate(migrationCardUntil)
+    !studentFieldsValid({
+      citizenship,
+      arrivalDate,
+      residence,
+      nameLatin,
+      sendingCountry,
+      programVersion,
+      curator,
+      housing,
+      inRussia,
+      passportUntil,
+      migrationCardUntil,
+    })
   )
-    throw fail(400, "Проверьте сведения о проживании и сроки документов");
+    throw fail(400, studentFieldsError);
   if (
     (program !== "" && !programs.includes(program)) ||
     !Number.isInteger(year) ||
     year < 0 ||
     year > 6 ||
     !["unknown", "confirmed", "excluded"].includes(foreignStatus) ||
-    typeof citizenship !== "string" ||
-    citizenship.length > 100 ||
-    !validDate(arrivalDate) ||
-    ![
-      "",
-      "visa",
-      "visa_free",
-      "rvp",
-      "rvpo",
-      "residence_permit",
-      "other",
-    ].includes(residence) ||
-    !["active", "leave", "graduated", "withdrawn"].includes(enrollmentStatus)
+    !enrollmentStatuses.includes(enrollmentStatus)
   )
     throw fail(400, "Проверьте программу, курс и данные студента");
   if (req.body.version !== (previous.version || 0))

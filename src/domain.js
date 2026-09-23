@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 const statuses = ["present", "absent"];
 export const moscowDate = (date = new Date()) =>
   new Intl.DateTimeFormat("en-CA", {
@@ -6,6 +7,12 @@ export const moscowDate = (date = new Date()) =>
     month: "2-digit",
     day: "2-digit",
   }).format(date);
+// Идентификатор записи реестра по ФИО: префикс + первые 16 знаков sha256.
+// Та же формула в scripts/import_roster.py и scripts/import_profiles.py –
+// менять её нельзя, иначе у существующих студентов сменятся id.
+export const rosterId = (prefix, name) =>
+  prefix + createHash("sha256").update(name).digest("hex").slice(0, 16);
+export const studentId = (name) => rosterId("s_", name);
 // Считаем только явно отмеченные пропуски. Пустой журнал не означает отсутствие.
 export function studentMetrics(records, debts, today = moscowDate()) {
   const completed = records.filter(

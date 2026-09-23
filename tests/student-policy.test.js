@@ -4,6 +4,7 @@ import {
   procedureCatalog,
   studentEditableFields,
   pickStudentFields,
+  studentFieldsValid,
 } from "../src/office.js";
 
 test("Каждое требование говорит, кто ставит итог", () => {
@@ -49,4 +50,17 @@ test("Чужие поля из запроса студента отбрасыв�
   assert.equal(result.year, 3);
   assert.equal(result.citizenship, "Китай");
   assert.equal(result.housing, "");
+});
+
+test("Валидатор полей студента проверяет только присланные поля", () => {
+  assert.equal(studentFieldsValid({}), true);
+  assert.equal(studentFieldsValid({ housing: "dormitory" }), true);
+  assert.equal(studentFieldsValid({ housing: "Общежитие" }), false);
+  assert.equal(studentFieldsValid({ residence: "visa_free" }), true);
+  assert.equal(studentFieldsValid({ inRussia: "maybe" }), false);
+  assert.equal(studentFieldsValid({ citizenship: "Я".repeat(100) }), true);
+  assert.equal(studentFieldsValid({ citizenship: "Я".repeat(101) }), false);
+  assert.equal(studentFieldsValid({ curator: "Я".repeat(201) }), false);
+  assert.equal(studentFieldsValid({ nameLatin: null }), false);
+  assert.equal(studentFieldsValid({ passportUntil: "31.12.2026" }), false);
 });

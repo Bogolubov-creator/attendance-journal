@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 test("Добавление иностранного студента: только руководство, привязка к преподавателю, сохранность после перезапуска", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "attendance-add-student-")),
     origin = "http://127.0.0.1:3105",
@@ -152,6 +153,26 @@ test("Добавление иностранного студента: тольк
       (await req("/api/admin/students", "POST", student)).status,
       409,
     );
+    // Идентификатор по прежней формуле: существующие id не меняются.
+    assert.equal(
+      id,
+      "s_" +
+        createHash("sha256").update(student.name).digest("hex").slice(0, 16),
+    );
+    // ФИО при добавлении проверяется тем же путём, что при правке реестра.
+    for (const name of [
+      "Аб",
+      "Я".repeat(151),
+      roster.students[0].name.toLocaleUpperCase("ru"),
+    ]) {
+      const added = await req("/api/admin/students", "POST", {
+        ...student,
+        name,
+      });
+      const renamed = await req("/api/admin/students/" + id, "PUT", { name });
+      assert.equal(added.status, renamed.status, name.slice(0, 20));
+      assert.deepEqual(await added.json(), await renamed.json());
+    }
     const card = await (await req("/api/admin/students/" + id)).json();
     assert.equal(card.student.program, "Юриспруденция");
     assert.equal(card.student.citizenship, "Казахстан");
