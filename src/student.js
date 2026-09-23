@@ -57,7 +57,7 @@ export function registerStudent(app, { db, studentProfile, audit }) {
   // Идентификатор берётся из сессии: обработчик чужой id получить не может,
   // даже если он придёт в теле запроса.
   const onlyStudent = (req, res, next) => {
-    if (req.session?.user?.role !== "student")
+    if (req.session.user.role !== "student")
       return res.status(403).json({ error: "Раздел личного кабинета" });
     req.studentId = req.session.user.studentId;
     next();

@@ -184,6 +184,41 @@ test("Кабинет студента", async (t) => {
         assert.equal(other.student.citizenship, "");
       },
     );
+
+    await t.test(
+      "Одновременная правка: сотрудник сохраняет первым, устаревшая версия студента не перезаписывает его правку",
+      async () => {
+        const before = await (
+          await call("/api/student/profile", { cookie })
+        ).json();
+        const staffEdit = await call(
+          "/api/admin/students/" + studentId + "/profile",
+          {
+            method: "PUT",
+            cookie: admin,
+            body: {
+              program: "",
+              year: 0,
+              foreignStatus: "unknown",
+              enrollmentStatus: "active",
+              citizenship: "Бразилия",
+              version: before.student.version,
+            },
+          },
+        );
+        assert.equal(staffEdit.status, 200, await staffEdit.clone().text());
+        const stale = await call("/api/student/profile", {
+          method: "PUT",
+          cookie,
+          body: { citizenship: "Индия", version: before.student.version },
+        });
+        assert.equal(stale.status, 409);
+        const card = await (
+          await call("/api/admin/students/" + studentId, { cookie: admin })
+        ).json();
+        assert.equal(card.student.citizenship, "Бразилия");
+      },
+    );
   } finally {
     child.kill("SIGTERM");
     await new Promise((r) => child.once("exit", r));
