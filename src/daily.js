@@ -9,22 +9,21 @@ export function summarizeAttendance(
   to,
   today = moscowDate(),
 ) {
+  // Отметки делятся по студентам один раз, а не фильтром всего массива на каждого.
+  const byStudent = Map.groupBy(records, (r) => r.studentId);
   return students.map((s) => {
-    const history = records
-      .filter((r) => r.studentId === s.id && r.date >= from && r.date <= to)
+    const own = byStudent.get(s.id) || [];
+    const history = own
+      .filter((r) => r.date >= from && r.date <= to)
       .sort((a, b) => b.date.localeCompare(a.date));
-    const current = studentMetrics(
-      records.filter((r) => r.studentId === s.id),
-      [],
-      today,
-    );
+    const current = studentMetrics(own, [], today);
     const visits = history.filter((r) => r.status === "present");
     return {
       ...s,
       status: visits.length ? "present" : history.length ? "absent" : "unknown",
       lastVisit:
-        records
-          .filter((r) => r.studentId === s.id && r.status === "present")
+        own
+          .filter((r) => r.status === "present")
           .map((r) => r.date)
           .sort()
           .at(-1) || null,
@@ -74,6 +73,10 @@ export function registerDaily(
     db.exec(
       "INSERT OR IGNORE INTO daily_marks SELECT teacherId,date,'',studentId,status,updatedAt FROM daily_marks_v1; INSERT OR IGNORE INTO daily_revisions SELECT teacherId,date,'',version FROM daily_revisions_v1;",
     );
+  // Отметки одного студента («Моя посещаемость», карточка) – без чтения всей таблицы.
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS daily_marks_student ON daily_marks(studentId,date)",
+  );
   const fail = (status, message) =>
     Object.assign(new Error(message), { status });
   const active = (s) =>
@@ -209,24 +212,27 @@ export function registerDaily(
     checkDate(to);
     if (from > to)
       throw fail(400, "Начало периода должно быть не позже окончания");
-    const records = attendanceRecords(db);
     const names = new Map(roster.teachers.map((t) => [t.id, t.name]));
     return {
       from,
       to,
       alertAsOf: moscowDate(),
+      // Имя преподавателя нужно только строкам истории за период.
       students: summarizeAttendance(
         roster.students
           .map((s) => studentProfile(s.id))
           .filter(active)
           .filter((s) => canSeeStudent(req.session.user, s)),
-        records.map((r) => ({
+        attendanceRecords(db),
+        from,
+        to,
+      ).map((s) => ({
+        ...s,
+        history: s.history.map((r) => ({
           ...r,
           teacher: names.get(r.teacherId) || "Преподаватель",
         })),
-        from,
-        to,
-      ),
+      })),
     };
   }
   app.get("/api/daily/overview", auth, admin, (req, res) =>
