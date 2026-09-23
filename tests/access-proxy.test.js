@@ -15,6 +15,7 @@ function startGateway(configPath) {
     env: {
       ...process.env,
       ACCESS_CONFIG: configPath,
+      APP_HOST: "127.0.0.1",
       GATEWAY_PORT: String(GATEWAY_PORT),
       APP_PORT: String(APP_PORT),
     },
@@ -79,21 +80,22 @@ test("gateway counts wrong passwords by socket address, not X-Forwarded-For", as
       });
       assert.equal(res.status, 401);
     }
-    // Правильный пароль снимает счётчик.
-    const reset = await request({
+    // Правильный пароль не снимает счётчик: за туннелем адрес у всех один,
+    // и сброс дал бы подбирающему новые попытки после каждого входа сотрудника.
+    const between = await request({
       authorization: basic("faculty", "right-password"),
     });
-    assert.equal(reset.status, 200);
+    assert.equal(between.status, 200);
 
     const statuses = [];
-    for (let i = 1; i <= 11; i++) {
+    for (let i = 10; i <= 11; i++) {
       const res = await request({
         authorization: basic("faculty", "wrong"),
         "x-forwarded-for": `192.168.1.${i}`,
       });
       statuses.push(res.status);
     }
-    assert.deepEqual(statuses, [...Array(10).fill(401), 429]);
+    assert.deepEqual(statuses, [401, 429]);
   } finally {
     gateway?.kill("SIGTERM");
     await new Promise((resolve) => app.close(resolve));

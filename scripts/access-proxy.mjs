@@ -20,7 +20,7 @@ const server=http.createServer((req,res)=>{
   valid=split>=0&&decoded.slice(0,split)===config.username&&timingSafeEqual(actual,Buffer.from(config.passwordHash,'hex'));
  }
  if(!valid){if(authorization){attempt.count++;failures.set(key,attempt)}return deny(res,401,'Для доступа к журналу введите выданные логин и пароль.');}
- failures.delete(key);
+ // Верный пароль счётчик не снимает: за туннелем адрес у всех один (127.0.0.1), попытки сгорают по окну.
  if(!['GET','HEAD'].includes(req.method)&&req.headers.origin!==`https://${req.headers.host}`)return deny(res,403,'Запрос с другого сайта отклонён');
  const headers={...req.headers,host:appAddress};
  delete headers.authorization;delete headers['x-forwarded-for'];delete headers['x-forwarded-host'];delete headers['x-forwarded-proto'];
