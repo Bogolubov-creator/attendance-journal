@@ -14,9 +14,11 @@ services:
       BACKUP_DIR: /app/backups
       BACKUP_KEEP: "14"
       TRUST_PROXY: "1"
+      UPLOAD_DIR: /app/uploads
     volumes:
       - ./data:/app/data
       - ./backups:/app/backups
+      - ./uploads:/app/uploads
     read_only: true
     tmpfs:
       - /tmp
