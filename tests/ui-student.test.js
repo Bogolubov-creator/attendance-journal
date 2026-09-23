@@ -120,6 +120,62 @@ test("Мои данные: нередактируемое поле заблок�
   );
 });
 
+test("Кнопка «Удалить» скана следует правилу сервера, а не блокировке формы", async () => {
+  // Сервер (DELETE /api/student/attachments/:id, src/student.js) отказывает
+  // только когда state==="confirmed" – независимо от closedBy. У требования
+  // с closedBy:"student" форма редактирования остаётся открытой и при
+  // state:"confirmed" (студент может исправить и подтвердить заново), но
+  // приложенный скан удалить уже нельзя – кнопки быть не должно.
+  const dom = new JSDOM('<main id="content"></main>', {
+    url: "http://localhost",
+  });
+  globalThis.window = dom.window;
+  globalThis.document = dom.window.document;
+  const student = await import("../public/student.js");
+  const esc = (s) => String(s);
+  const base = {
+    id: "insurance",
+    title: "Требование",
+    hint: "Подсказка",
+    source: "https://example.test/",
+    closedBy: "student",
+    version: 0,
+    attachments: [
+      {
+        id: "a1",
+        fileName: "скан.pdf",
+        size: 1024,
+        uploadedAt: "2026-09-20T10:00:00.000Z",
+      },
+    ],
+  };
+  const confirmed = await student.renderRequirements({
+    api: async () => ({
+      requirements: [{ ...base, state: "confirmed", status: "confirmed" }],
+    }),
+    esc,
+  });
+  document.querySelector("#content").innerHTML = confirmed;
+  assert.equal(
+    document.querySelectorAll("[data-delete-attachment]").length,
+    0,
+    "подтверждённый скан студент удалить не может – кнопки быть не должно",
+  );
+
+  const submitted = await student.renderRequirements({
+    api: async () => ({
+      requirements: [{ ...base, state: "submitted", status: "submitted" }],
+    }),
+    esc,
+  });
+  document.querySelector("#content").innerHTML = submitted;
+  assert.equal(
+    document.querySelectorAll("[data-delete-attachment]").length,
+    1,
+    "требование на проверке ещё не подтверждено – кнопка должна быть видна",
+  );
+});
+
 test("Моя посещаемость: сводка и дни без имён преподавателей", async () => {
   const dom = new JSDOM('<main id="content"></main>', {
     url: "http://localhost",
