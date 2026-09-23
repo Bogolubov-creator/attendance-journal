@@ -1,5 +1,6 @@
 import { csvCell } from "./csv.js";
 import { registerDaily, attendanceRecords } from "./daily.js";
+import { registerStudent } from "./student.js";
 import { verifyPassword } from "./management-auth.js";
 import { parseRoster, planImport, applyImport } from "./roster-import.js";
 import express from "express";
@@ -461,6 +462,7 @@ app.get("/auth/callback", async (req, res) => {
 });
 app.use("/api", auth);
 registerDaily(app, { db, roster, auth, admin, studentProfile, audit });
+registerStudent(app, { db, studentProfile, audit });
 app.use("/api/admin", admin);
 function studentProfile(id) {
   const base = roster.students.find((s) => s.id === id);
