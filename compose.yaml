@@ -12,6 +12,8 @@ services:
       PORT: "3100"
       AUTO_BACKUP: "true"
       BACKUP_DIR: /app/backups
+      BACKUP_KEEP: "14"
+      TRUST_PROXY: "1"
     volumes:
       - ./data:/app/data
       - ./backups:/app/backups

@@ -51,6 +51,8 @@ test("API: изоляция, сохранение, редактирование 
   try {
     const e = roster.enrollments[0],
       db = new DatabaseSync(path);
+    // Сервер при запуске делает первую резервную копию и держит блокировку; ждём её, как ждёт сам сервер.
+    db.exec("PRAGMA busy_timeout=5000");
     const lesson = {
       id: "test_past",
       teacherId: e.teacherId,
