@@ -202,20 +202,24 @@ app.use(express.json({ limit: "256kb" }));
 const managementHash = process.env.MANAGEMENT_PASSWORD_HASH || "";
 const managementVersion = hash(managementHash);
 const loginAttempts = new Map();
+// Время неверных попыток со всех адресов за последние 15 минут (не больше 30).
+let passwordFailures = [];
 function checkManagementPassword(req) {
   if (!managementHash) throw fail(503, "Пароль ещё не настроен");
   const now = Date.now();
   for (const [key, value] of loginAttempts)
     if (value.until <= now) loginAttempts.delete(key);
+  passwordFailures = passwordFailures.filter((t) => t > now - 15 * 60000);
   const key = req.ip;
   const attempt = loginAttempts.get(key) || {
     count: 0,
     until: now + 15 * 60000,
   };
-  if (attempt.count >= 5)
+  if (attempt.count >= 5 || passwordFailures.length >= 30)
     throw fail(429, "Слишком много попыток. Повторите через 15 минут.");
   if (!verifyPassword(req.body.password, managementHash)) {
     attempt.count++;
+    passwordFailures.push(now);
     loginAttempts.set(key, attempt);
     throw fail(403, "Неверный пароль");
   }

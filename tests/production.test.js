@@ -209,3 +209,72 @@ test("Чистая установка без данных: сервер рабо
     rmSync(temp, { recursive: true, force: true });
   }
 });
+
+test("Вход по паролю ограничен и по адресу, и суммарно по всем адресам", async () => {
+  const temp = mkdtempSync(join(tmpdir(), "attendance-global-limit-"));
+  const origin = "https://attendance.example.edu";
+  const child = spawn(process.execPath, ["src/server.js"], {
+    env: {
+      ...process.env,
+      MANAGEMENT_PASSWORD_HASH: passwordHash("test-management-password"),
+      AUTH_MODE: "selection",
+      DEMO_MODE: "false",
+      REQUIRE_AUTH_CONFIG: "true",
+      TRUST_PROXY: "1",
+      AUTO_BACKUP: "false",
+      APP_ORIGIN: origin,
+      OIDC_ISSUER: "",
+      OIDC_CLIENT_ID: "",
+      OIDC_CLIENT_SECRET: "",
+      DB_PATH: join(temp, "db.sqlite"),
+      HOST: "127.0.0.1",
+      PORT: "3143",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const login = (address, password) =>
+    proxyFetch("http://127.0.0.1:3143/api/select-login", {
+      method: "POST",
+      headers: {
+        host: "attendance.example.edu",
+        origin,
+        "content-type": "application/json",
+        "x-forwarded-for": address,
+      },
+      body: JSON.stringify({ role: "office", personId: "smirnova", password }),
+    });
+  const tooMany = /Слишком много попыток. Повторите через 15 минут./;
+  try {
+    await new Promise((resolve, reject) => {
+      child.stdout.once("data", resolve);
+      child.once("error", reject);
+      child.once("exit", (c) => reject(Error("server exit " + c)));
+    });
+    // По адресу: 5 неверных, шестая попытка с того же адреса – 429.
+    for (let i = 0; i < 5; i++)
+      assert.equal((await login("10.0.0.1", "wrong")).status, 403);
+    const blocked = await login("10.0.0.1", "test-management-password");
+    assert.equal(blocked.status, 429);
+    assert.match(await blocked.text(), tooMany);
+    // Удачный вход обнуляет счётчик своего адреса, но не общий.
+    assert.equal((await login("10.0.0.2", "wrong")).status, 403);
+    assert.equal(
+      (await login("10.0.0.2", "test-management-password")).status,
+      200,
+    );
+    // Всего неверных уже 6; ещё 24 с разных адресов – ровно 30.
+    for (let i = 0; i < 24; i++)
+      assert.equal((await login(`10.0.1.${i}`, "wrong")).status, 403);
+    const next = await login("10.0.2.1", "wrong");
+    assert.equal(next.status, 429);
+    assert.match(await next.text(), tooMany);
+    assert.equal(
+      (await login("10.0.2.2", "test-management-password")).status,
+      429,
+    );
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise((r) => child.once("exit", r));
+    rmSync(temp, { recursive: true, force: true });
+  }
+});
