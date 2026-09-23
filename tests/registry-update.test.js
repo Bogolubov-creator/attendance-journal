@@ -88,10 +88,25 @@ test("Обновление реестра из Excel, преподаватели
     assert.equal(preview.quality.unresolved, 1);
     // План ничего не записал.
     assert.equal((await (await req("/api/admin/teachers")).json()).length, 2);
+    const groupsOf = async (id) =>
+      (await (await req("/api/admin/overview")).json()).students.find(
+        (s) => s.id === id,
+      ).groups;
+    assert.deepEqual(await groupsOf("s_test_1"), ["Г-1", ""]);
     const applied = await (await upload("?apply=1")).json();
     assert.equal(applied.preview, false);
     assert.equal(applied.enrollments.added, 4);
     const teachers = await (await req("/api/admin/teachers")).json();
+    // Связи из импорта сразу видны в списке преподавателей и в обзоре.
+    assert.deepEqual(
+      teachers.map(({ name, courses, students }) => [name, courses, students]),
+      [
+        ["Преподаватель Второй", ["История", "Ручная дисциплина"], 3],
+        ["Преподаватель Новый", ["Философия"], 1],
+        ["Преподаватель Первый", ["Право", "Экономика"], 2],
+      ],
+    );
+    assert.deepEqual(await groupsOf("s_test_1"), ["Г-1", "", "Г-3"]);
     assert.ok(teachers.some((t) => t.name === "Преподаватель Новый"));
     assert.ok(!teachers.some((t) => t.name.startsWith("Вак_")));
     assert.equal(teachers.length, 3); // «Вак_Преподаватель» сопоставлен с Преподавателем Вторым по дисциплине

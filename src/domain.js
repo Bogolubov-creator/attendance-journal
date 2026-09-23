@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
 const statuses = ["present", "absent"];
-export const moscowDate = (date = new Date()) =>
-  new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Moscow",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
+// Форматтер и сортировщик создаются один раз: на каждый вызов это заметно дорого.
+const moscowFormat = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/Moscow",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+export const moscowDate = (date = new Date()) => moscowFormat.format(date);
+// То же, что a.localeCompare(b, "ru").
+export const ruCompare = new Intl.Collator("ru").compare;
 // Идентификатор записи реестра по ФИО: префикс + первые 16 знаков sha256.
 // Та же формула в scripts/import_roster.py и scripts/import_profiles.py –
 // менять её нельзя, иначе у существующих студентов сменятся id.

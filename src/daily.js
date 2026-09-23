@@ -1,5 +1,5 @@
 import { csvCell } from "./csv.js";
-import { moscowDate, studentMetrics } from "./domain.js";
+import { moscowDate, ruCompare, studentMetrics } from "./domain.js";
 import { canSeeStudent, validDate } from "./office.js";
 
 export function summarizeAttendance(
@@ -37,13 +37,19 @@ export function summarizeAttendance(
 }
 
 // Все ответы преподавателей: дневные отметки и исторические отметки по занятиям.
-export function attendanceRecords(db) {
-  const records = db.prepare("SELECT * FROM daily_marks").all();
+// С studentId – только этого студента: чтение всей таблицы отметок дорого.
+export function attendanceRecords(db, studentId) {
+  const one = studentId !== undefined,
+    args = one ? [studentId] : [];
+  const records = db
+    .prepare("SELECT * FROM daily_marks" + (one ? " WHERE studentId=?" : ""))
+    .all(...args);
   for (const r of db
     .prepare(
-      "SELECT m.studentId,m.status,l.teacherId,json_extract(l.data,'$.date') date,json_extract(l.data,'$.course') course FROM marks m JOIN lessons l ON l.id=m.lessonId WHERE m.status IN ('present','absent')",
+      "SELECT m.studentId,m.status,l.teacherId,json_extract(l.data,'$.date') date,json_extract(l.data,'$.course') course FROM marks m JOIN lessons l ON l.id=m.lessonId WHERE m.status IN ('present','absent')" +
+        (one ? " AND m.studentId=?" : ""),
     )
-    .all())
+    .all(...args))
     records.push({ ...r, source: "lesson" });
   return records;
 }
@@ -76,7 +82,7 @@ export function registerDaily(
           .filter((e) => e.teacherId === id)
           .map((e) => e.course),
       ),
-    ].sort((a, b) => a.localeCompare(b, "ru"));
+    ].sort(ruCompare);
   const studentsFor = (id, course) => {
     const ids = new Set(
       roster.enrollments
@@ -87,7 +93,7 @@ export function registerDaily(
       .map((s) => studentProfile(s.id))
       .filter((s) => ids.has(s.id) && active(s))
       .map(({ id, name }) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+      .sort((a, b) => ruCompare(a.name, b.name));
   };
   const checkDate = (date) => {
     if (!date || !validDate(date) || date > moscowDate())

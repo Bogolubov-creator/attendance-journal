@@ -33,7 +33,7 @@ import { randomBytes, createHash } from "node:crypto";
 import * as oidc from "openid-client";
 import { backup } from "node:sqlite";
 import path from "node:path";
-import { moscowDate, studentMetrics, studentId } from "./domain.js";
+import { moscowDate, ruCompare, studentMetrics, studentId } from "./domain.js";
 const app = express(),
   port = Number(process.env.PORT || 3100),
   demo = process.env.DEMO_MODE === "true";
@@ -609,19 +609,13 @@ app.get("/api/admin/teachers", (req, res) => {
         ...t,
         lastMark: lastMarks.get(t.id) || null,
         courses: [
-          ...new Set(
-            roster.enrollments
-              .filter((e) => e.teacherId === t.id)
-              .map((e) => e.course),
-          ),
-        ].sort((a, b) => a.localeCompare(b, "ru")),
+          ...new Set(enrollmentsOf("teacherId", t.id).map((e) => e.course)),
+        ].sort(ruCompare),
         students: new Set(
-          roster.enrollments
-            .filter((e) => e.teacherId === t.id)
-            .map((e) => e.studentId),
+          enrollmentsOf("teacherId", t.id).map((e) => e.studentId),
         ).size,
       }))
-      .sort((a, b) => a.name.localeCompare(b.name, "ru")),
+      .sort((a, b) => ruCompare(a.name, b.name)),
   );
 });
 // Преподаватели со студентами, у которых нет ни одной отметки за последние 7 дней.
@@ -1190,13 +1184,41 @@ app.put("/api/admin/students/:id/procedures/:kind", (req, res) => {
   );
   res.json({ ok: true, version: data.version });
 });
-function studentRows() {
-  const records = attendanceRecords(db),
-    debts = all("SELECT * FROM debts"),
+// Отметки, задолженности и связи раскладываются по ключу за один проход; порядок внутри ключа прежний.
+const groupBy = (rows, field, only) => {
+  const map = new Map();
+  for (const r of rows)
+    if (only === undefined || r[field] === only)
+      (map.get(r[field]) || map.set(r[field], []).get(r[field])).push(r);
+  return map;
+};
+// Реестр меняет связи только заменой массива roster.enrollments или дописыванием
+// в его конец – по этим признакам словари связей пересобираются.
+let enrollmentIndex = null;
+function enrollmentsOf(field, id) {
+  const list = roster.enrollments;
+  if (enrollmentIndex?.list !== list || enrollmentIndex.length !== list.length)
+    enrollmentIndex = {
+      list,
+      length: list.length,
+      studentId: groupBy(list, "studentId"),
+      teacherId: groupBy(list, "teacherId"),
+    };
+  return enrollmentIndex[field].get(id) || [];
+}
+// Без аргумента – все студенты реестра, с id – только этот (для карточки).
+function studentRows(only) {
+  const records = groupBy(attendanceRecords(db, only), "studentId"),
+    debts = groupBy(all("SELECT * FROM debts"), "studentId", only),
     teacherNames = new Map(roster.teachers.map((t) => [t.id, t.name]));
-  return roster.students.map((s) => {
+  const students =
+    only === undefined
+      ? roster.students
+      : roster.students.filter((s) => s.id === only);
+  return students.map((s) => {
     const profile = studentProfile(s.id),
-      procedures = proceduresFor(s.id);
+      procedures = proceduresFor(s.id),
+      own = records.get(s.id) || [];
     return {
       ...profile,
       manager: managerFor(profile),
@@ -1207,26 +1229,14 @@ function studentRows() {
       procedureReview: procedures.filter((p) => p.status === "submitted")
         .length,
       groups: [
-        ...new Set(
-          roster.enrollments
-            .filter((e) => e.studentId === s.id)
-            .map((e) => e.group),
-        ),
+        ...new Set(enrollmentsOf("studentId", s.id).map((e) => e.group)),
       ],
       teacherIds: [
-        ...new Set(
-          roster.enrollments
-            .filter((e) => e.studentId === s.id)
-            .map((e) => e.teacherId),
-        ),
+        ...new Set(enrollmentsOf("studentId", s.id).map((e) => e.teacherId)),
       ],
-      ...studentMetrics(
-        records.filter((r) => r.studentId === s.id),
-        debts.filter((d) => d.studentId === s.id),
-      ),
+      ...studentMetrics(own, debts.get(s.id) || []),
       // Где и на каких занятиях был студент: новые отметки сверху.
-      records: records
-        .filter((r) => r.studentId === s.id)
+      records: own
         .sort((a, b) => b.date.localeCompare(a.date))
         .map((r) => ({
           date: r.date,
@@ -1276,7 +1286,7 @@ app.get("/api/admin/overview", (req, res) => {
   });
 });
 app.get("/api/admin/students/:id", (req, res) => {
-  const student = studentRows().find((s) => s.id === req.params.id);
+  const [student] = studentRows(req.params.id);
   if (!student) throw fail(404, "Студент не найден");
   if (!canSeeStudent(req.session.user, student))
     throw fail(403, "Студент не относится к вашим программам и курсам");
@@ -1300,25 +1310,19 @@ app.get("/api/admin/students/:id", (req, res) => {
       student.id,
     ),
     courses: [
-      ...new Set(
-        roster.enrollments
-          .filter((e) => e.studentId === student.id)
-          .map((e) => e.course),
-      ),
+      ...new Set(enrollmentsOf("studentId", student.id).map((e) => e.course)),
     ],
     links: [
       ...new Map(
-        roster.enrollments
-          .filter((e) => e.studentId === student.id)
-          .map((e) => [
-            e.teacherId + "\n" + e.course + "\n" + e.group,
-            {
-              teacherId: e.teacherId,
-              teacher: roster.teachers.find((t) => t.id === e.teacherId)?.name,
-              course: e.course,
-              group: e.group,
-            },
-          ]),
+        enrollmentsOf("studentId", student.id).map((e) => [
+          e.teacherId + "\n" + e.course + "\n" + e.group,
+          {
+            teacherId: e.teacherId,
+            teacher: roster.teachers.find((t) => t.id === e.teacherId)?.name,
+            course: e.course,
+            group: e.group,
+          },
+        ]),
       ).values(),
     ],
   });

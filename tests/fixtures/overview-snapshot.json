@@ -1,0 +1,2012 @@
+{
+  "admin": {
+    "overview": {
+      "students": [
+        {
+          "id": "s_a",
+          "name": "Яковлев Иван",
+          "version": 1,
+          "program": "Юриспруденция",
+          "year": 2,
+          "foreignStatus": "confirmed",
+          "manager": {
+            "id": "smirnova",
+            "name": "Смирнова Екатерина Дмитриевна",
+            "role": "office",
+            "scopes": [
+              {
+                "program": "Юриспруденция",
+                "year": 2
+              }
+            ]
+          },
+          "procedureOverdue": 0,
+          "procedureUnknown": 5,
+          "procedureReview": 0,
+          "groups": ["Г-1", "Г-2", "Г-3"],
+          "teacherIds": ["t_1", "t_2"],
+          "lastVisit": "2026-09-06",
+          "days": 0,
+          "absences": 3,
+          "marked": 6,
+          "attendance": 50,
+          "debtCount": 0,
+          "absenceAlert": false,
+          "attention": false,
+          "records": [
+            {
+              "date": "2026-09-06",
+              "course": "Экономика",
+              "teacher": "Ёжиков Лев",
+              "status": "present"
+            },
+            {
+              "date": "2026-09-05",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "present"
+            },
+            {
+              "date": "2026-09-03",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-02",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "present"
+            },
+            {
+              "date": "2026-09-02",
+              "course": "Экономика",
+              "teacher": "Ёжиков Лев",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-02",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            }
+          ],
+          "canEdit": true
+        },
+        {
+          "id": "s_b",
+          "name": "Ёлкина Мария",
+          "version": 1,
+          "program": "Юриспруденция",
+          "year": 2,
+          "foreignStatus": "confirmed",
+          "manager": {
+            "id": "smirnova",
+            "name": "Смирнова Екатерина Дмитриевна",
+            "role": "office",
+            "scopes": [
+              {
+                "program": "Юриспруденция",
+                "year": 2
+              }
+            ]
+          },
+          "procedureOverdue": 0,
+          "procedureUnknown": 5,
+          "procedureReview": 0,
+          "groups": ["Г-1"],
+          "teacherIds": ["t_1"],
+          "lastVisit": "2026-09-02",
+          "days": 11,
+          "absences": 12,
+          "marked": 13,
+          "attendance": 8,
+          "debtCount": 1,
+          "absenceAlert": true,
+          "attention": true,
+          "records": [
+            {
+              "date": "2026-09-16",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-15",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-14",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-13",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-12",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-11",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-10",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-09",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-08",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-07",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-03",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-02",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-02",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "present"
+            }
+          ],
+          "canEdit": true
+        },
+        {
+          "id": "s_c",
+          "name": "Елисеев Пётр",
+          "version": 1,
+          "program": "Право",
+          "year": 4,
+          "foreignStatus": "confirmed",
+          "manager": {
+            "id": "gadzhieva",
+            "name": "Гаджиева Альбина Омаровна",
+            "role": "admin",
+            "title": "Администратор журнала",
+            "scopes": [
+              {
+                "program": "Право",
+                "year": 4
+              }
+            ]
+          },
+          "procedureOverdue": 0,
+          "procedureUnknown": 5,
+          "procedureReview": 0,
+          "groups": ["Г-2"],
+          "teacherIds": ["t_2"],
+          "lastVisit": "2026-09-04",
+          "days": 0,
+          "absences": 1,
+          "marked": 2,
+          "attendance": 50,
+          "debtCount": 0,
+          "absenceAlert": false,
+          "attention": false,
+          "records": [
+            {
+              "date": "2026-09-04",
+              "course": "Ёмкость",
+              "teacher": "Ёжиков Лев",
+              "status": "present"
+            },
+            {
+              "date": "2026-09-04",
+              "course": "Арбитраж",
+              "teacher": "Ёжиков Лев",
+              "status": "absent"
+            }
+          ],
+          "canEdit": true
+        },
+        {
+          "id": "s_d",
+          "name": "абрамова Анна",
+          "manager": null,
+          "procedureOverdue": 0,
+          "procedureUnknown": 5,
+          "procedureReview": 0,
+          "groups": ["Г-4", ""],
+          "teacherIds": ["t_3", "t_1"],
+          "lastVisit": "2026-08-30",
+          "days": 0,
+          "absences": 0,
+          "marked": 1,
+          "attendance": 100,
+          "debtCount": 0,
+          "absenceAlert": false,
+          "attention": false,
+          "records": [
+            {
+              "date": "2026-08-30",
+              "course": "История",
+              "teacher": "Ежов Глеб",
+              "status": "present"
+            }
+          ],
+          "canEdit": true
+        },
+        {
+          "id": "s_e",
+          "name": "Жуков Олег",
+          "version": 1,
+          "program": "Юриспруденция",
+          "year": 2,
+          "foreignStatus": "confirmed",
+          "manager": {
+            "id": "smirnova",
+            "name": "Смирнова Екатерина Дмитриевна",
+            "role": "office",
+            "scopes": [
+              {
+                "program": "Юриспруденция",
+                "year": 2
+              }
+            ]
+          },
+          "procedureOverdue": 0,
+          "procedureUnknown": 5,
+          "procedureReview": 0,
+          "groups": ["Г-4"],
+          "teacherIds": ["t_3"],
+          "lastVisit": null,
+          "days": 3,
+          "absences": 3,
+          "marked": 3,
+          "attendance": 0,
+          "debtCount": 1,
+          "absenceAlert": false,
+          "attention": false,
+          "records": [
+            {
+              "date": "2026-09-06",
+              "course": "Логика",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-05",
+              "course": "История",
+              "teacher": "Ежов Глеб",
+              "status": "absent"
+            },
+            {
+              "date": "2026-08-30",
+              "course": "История",
+              "teacher": "Ежов Глеб",
+              "status": "absent"
+            }
+          ],
+          "canEdit": true
+        },
+        {
+          "id": "s_f",
+          "name": "Zhang Wei",
+          "manager": null,
+          "procedureOverdue": 0,
+          "procedureUnknown": 5,
+          "procedureReview": 0,
+          "groups": ["Г-1", "Г-9"],
+          "teacherIds": ["t_1", "t_3"],
+          "lastVisit": null,
+          "days": 0,
+          "absences": 0,
+          "marked": 0,
+          "attendance": null,
+          "debtCount": 0,
+          "absenceAlert": false,
+          "attention": false,
+          "records": [],
+          "canEdit": true
+        }
+      ],
+      "faculty": {
+        "loaded": 6,
+        "confirmed": 4,
+        "unverified": 2,
+        "unassigned": 2,
+        "silentTeachers": 3
+      },
+      "yearRollover": null,
+      "quality": {},
+      "teachers": 4,
+      "audit": [
+        {
+          "actor": "Гаджиева Альбина Омаровна",
+          "role": "admin",
+          "action": "enrollment.delete",
+          "entity": "s_e:t_1:Логика:Г-1",
+          "label": "Жуков Олег – Щукин Борис – Логика (Г-1)"
+        },
+        {
+          "actor": "Гаджиева Альбина Омаровна",
+          "role": "admin",
+          "action": "enrollment.add",
+          "entity": "s_f:t_3:Ёмкость:Г-9",
+          "label": "Zhang Wei – Ежов Глеб – Ёмкость (Г-9)"
+        },
+        {
+          "actor": "Гаджиева Альбина Омаровна",
+          "role": "admin",
+          "action": "enrollment.add",
+          "entity": "s_d:t_1:Право",
+          "label": "абрамова Анна – Щукин Борис – Право"
+        }
+      ]
+    },
+    "teachers": [
+      {
+        "id": "t_4",
+        "name": "Вак_Без Связей",
+        "lastMark": null,
+        "courses": [],
+        "students": 0
+      },
+      {
+        "id": "t_2",
+        "name": "Ёжиков Лев",
+        "lastMark": "2026-09-06",
+        "courses": ["Арбитраж", "Ёмкость", "Экономика"],
+        "students": 2
+      },
+      {
+        "id": "t_3",
+        "name": "Ежов Глеб",
+        "lastMark": "2026-09-05",
+        "courses": ["Ёмкость", "История"],
+        "students": 3
+      },
+      {
+        "id": "t_1",
+        "name": "Щукин Борис",
+        "lastMark": "2026-09-16",
+        "courses": ["право", "Право"],
+        "students": 4
+      }
+    ],
+    "cards": {
+      "s_a": {
+        "student": {
+          "id": "s_a",
+          "name": "Яковлев Иван",
+          "version": 1,
+          "program": "Юриспруденция",
+          "year": 2,
+          "foreignStatus": "confirmed",
+          "manager": {
+            "id": "smirnova",
+            "name": "Смирнова Екатерина Дмитриевна",
+            "role": "office",
+            "scopes": [
+              {
+                "program": "Юриспруденция",
+                "year": 2
+              }
+            ]
+          },
+          "procedureOverdue": 0,
+          "procedureUnknown": 5,
+          "procedureReview": 0,
+          "groups": ["Г-1", "Г-2", "Г-3"],
+          "teacherIds": ["t_1", "t_2"],
+          "lastVisit": "2026-09-06",
+          "days": 0,
+          "absences": 3,
+          "marked": 6,
+          "attendance": 50,
+          "debtCount": 0,
+          "absenceAlert": false,
+          "attention": false,
+          "records": [
+            {
+              "date": "2026-09-06",
+              "course": "Экономика",
+              "teacher": "Ёжиков Лев",
+              "status": "present"
+            },
+            {
+              "date": "2026-09-05",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "present"
+            },
+            {
+              "date": "2026-09-03",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-02",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "present"
+            },
+            {
+              "date": "2026-09-02",
+              "course": "Экономика",
+              "teacher": "Ёжиков Лев",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-02",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            }
+          ]
+        },
+        "canEdit": true,
+        "programs": [
+          "Право",
+          "Публичное право",
+          "Юрист в бизнесе",
+          "Юриспруденция",
+          "Юриспруденция: цифровой юрист",
+          "Цифровой юрист",
+          "Комплаенс и профилактика правовых рисков",
+          "Комплаенс и профилактика правовых рисков (совместная с ЧГУ)",
+          "Сравнительное правоведение и фундаментальный правовой анализ",
+          "Цифровое право",
+          "Современное частное право",
+          "Фармправо и здравоохранение",
+          "Юрист в правосудии",
+          "Право международной торговли и разрешение споров",
+          "ЛигалТех"
+        ],
+        "procedures": [
+          {
+            "id": "registration",
+            "title": "Миграционный учёт",
+            "source": "https://ivisa.hse.ru/",
+            "hint": "Проверить основание пребывания, дату въезда и место проживания. При изменениях нужна повторная проверка.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "visa",
+            "title": "Виза и срок пребывания",
+            "source": "https://ivisa.hse.ru/",
+            "hint": "Применимость зависит от гражданства и основания пребывания. Безвизовый въезд не означает отсутствие ограничений по срокам.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "medical",
+            "title": "Медицинское освидетельствование",
+            "source": "https://ivisa.hse.ru/medst",
+            "hint": "Проверить исключения и срок действия подтверждения. В журнале хранится статус, без диагнозов и результатов анализов.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "fingerprints",
+            "title": "Дактилоскопия и фотографирование",
+            "source": "https://ivisa.hse.ru/medst",
+            "hint": "Проверить применимость и ранее пройденную процедуру. Не назначать повтор автоматически.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "insurance",
+            "title": "Медицинское страхование",
+            "source": "https://istudents.hse.ru/",
+            "hint": "Проверить подходящее основание медицинского обеспечения и срок действия полиса.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          }
+        ],
+        "records": [
+          {
+            "date": "2026-09-06",
+            "course": "Экономика",
+            "teacher": "Ёжиков Лев",
+            "status": "present"
+          },
+          {
+            "date": "2026-09-05",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "present"
+          },
+          {
+            "date": "2026-09-03",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "absent"
+          },
+          {
+            "date": "2026-09-02",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "present"
+          },
+          {
+            "date": "2026-09-02",
+            "course": "Экономика",
+            "teacher": "Ёжиков Лев",
+            "status": "absent"
+          },
+          {
+            "date": "2026-09-02",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "absent"
+          }
+        ],
+        "account": null,
+        "attachments": [],
+        "debts": [],
+        "courses": ["Право", "Экономика"],
+        "links": [
+          {
+            "teacherId": "t_1",
+            "teacher": "Щукин Борис",
+            "course": "Право",
+            "group": "Г-1"
+          },
+          {
+            "teacherId": "t_2",
+            "teacher": "Ёжиков Лев",
+            "course": "Экономика",
+            "group": "Г-2"
+          },
+          {
+            "teacherId": "t_2",
+            "teacher": "Ёжиков Лев",
+            "course": "Экономика",
+            "group": "Г-3"
+          }
+        ]
+      },
+      "s_b": {
+        "student": {
+          "id": "s_b",
+          "name": "Ёлкина Мария",
+          "version": 1,
+          "program": "Юриспруденция",
+          "year": 2,
+          "foreignStatus": "confirmed",
+          "manager": {
+            "id": "smirnova",
+            "name": "Смирнова Екатерина Дмитриевна",
+            "role": "office",
+            "scopes": [
+              {
+                "program": "Юриспруденция",
+                "year": 2
+              }
+            ]
+          },
+          "procedureOverdue": 0,
+          "procedureUnknown": 5,
+          "procedureReview": 0,
+          "groups": ["Г-1"],
+          "teacherIds": ["t_1"],
+          "lastVisit": "2026-09-02",
+          "days": 11,
+          "absences": 12,
+          "marked": 13,
+          "attendance": 8,
+          "debtCount": 1,
+          "absenceAlert": true,
+          "attention": true,
+          "records": [
+            {
+              "date": "2026-09-16",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-15",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-14",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-13",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-12",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-11",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-10",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-09",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-08",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-07",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-03",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-02",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-02",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "present"
+            }
+          ]
+        },
+        "canEdit": true,
+        "programs": [
+          "Право",
+          "Публичное право",
+          "Юрист в бизнесе",
+          "Юриспруденция",
+          "Юриспруденция: цифровой юрист",
+          "Цифровой юрист",
+          "Комплаенс и профилактика правовых рисков",
+          "Комплаенс и профилактика правовых рисков (совместная с ЧГУ)",
+          "Сравнительное правоведение и фундаментальный правовой анализ",
+          "Цифровое право",
+          "Современное частное право",
+          "Фармправо и здравоохранение",
+          "Юрист в правосудии",
+          "Право международной торговли и разрешение споров",
+          "ЛигалТех"
+        ],
+        "procedures": [
+          {
+            "id": "registration",
+            "title": "Миграционный учёт",
+            "source": "https://ivisa.hse.ru/",
+            "hint": "Проверить основание пребывания, дату въезда и место проживания. При изменениях нужна повторная проверка.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "visa",
+            "title": "Виза и срок пребывания",
+            "source": "https://ivisa.hse.ru/",
+            "hint": "Применимость зависит от гражданства и основания пребывания. Безвизовый въезд не означает отсутствие ограничений по срокам.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "medical",
+            "title": "Медицинское освидетельствование",
+            "source": "https://ivisa.hse.ru/medst",
+            "hint": "Проверить исключения и срок действия подтверждения. В журнале хранится статус, без диагнозов и результатов анализов.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "fingerprints",
+            "title": "Дактилоскопия и фотографирование",
+            "source": "https://ivisa.hse.ru/medst",
+            "hint": "Проверить применимость и ранее пройденную процедуру. Не назначать повтор автоматически.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "insurance",
+            "title": "Медицинское страхование",
+            "source": "https://istudents.hse.ru/",
+            "hint": "Проверить подходящее основание медицинского обеспечения и срок действия полиса.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          }
+        ],
+        "records": [
+          {
+            "date": "2026-09-16",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "absent"
+          },
+          {
+            "date": "2026-09-15",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "absent"
+          },
+          {
+            "date": "2026-09-14",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "absent"
+          },
+          {
+            "date": "2026-09-13",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "absent"
+          },
+          {
+            "date": "2026-09-12",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "absent"
+          },
+          {
+            "date": "2026-09-11",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "absent"
+          },
+          {
+            "date": "2026-09-10",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "absent"
+          },
+          {
+            "date": "2026-09-09",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "absent"
+          },
+          {
+            "date": "2026-09-08",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "absent"
+          },
+          {
+            "date": "2026-09-07",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "absent"
+          },
+          {
+            "date": "2026-09-03",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "absent"
+          },
+          {
+            "date": "2026-09-02",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "absent"
+          },
+          {
+            "date": "2026-09-02",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "present"
+          }
+        ],
+        "account": null,
+        "attachments": [],
+        "debts": [
+          {
+            "id": "d_2",
+            "studentId": "s_b",
+            "title": "Тест",
+            "resolved": 1,
+            "createdAt": "2026-09-04T10:00:00.000Z"
+          },
+          {
+            "id": "d_1",
+            "studentId": "s_b",
+            "title": "Эссе",
+            "resolved": 0,
+            "createdAt": "2026-09-03T10:00:00.000Z"
+          }
+        ],
+        "courses": ["Право"],
+        "links": [
+          {
+            "teacherId": "t_1",
+            "teacher": "Щукин Борис",
+            "course": "Право",
+            "group": "Г-1"
+          }
+        ]
+      },
+      "s_c": {
+        "student": {
+          "id": "s_c",
+          "name": "Елисеев Пётр",
+          "version": 1,
+          "program": "Право",
+          "year": 4,
+          "foreignStatus": "confirmed",
+          "manager": {
+            "id": "gadzhieva",
+            "name": "Гаджиева Альбина Омаровна",
+            "role": "admin",
+            "title": "Администратор журнала",
+            "scopes": [
+              {
+                "program": "Право",
+                "year": 4
+              }
+            ]
+          },
+          "procedureOverdue": 0,
+          "procedureUnknown": 5,
+          "procedureReview": 0,
+          "groups": ["Г-2"],
+          "teacherIds": ["t_2"],
+          "lastVisit": "2026-09-04",
+          "days": 0,
+          "absences": 1,
+          "marked": 2,
+          "attendance": 50,
+          "debtCount": 0,
+          "absenceAlert": false,
+          "attention": false,
+          "records": [
+            {
+              "date": "2026-09-04",
+              "course": "Ёмкость",
+              "teacher": "Ёжиков Лев",
+              "status": "present"
+            },
+            {
+              "date": "2026-09-04",
+              "course": "Арбитраж",
+              "teacher": "Ёжиков Лев",
+              "status": "absent"
+            }
+          ]
+        },
+        "canEdit": true,
+        "programs": [
+          "Право",
+          "Публичное право",
+          "Юрист в бизнесе",
+          "Юриспруденция",
+          "Юриспруденция: цифровой юрист",
+          "Цифровой юрист",
+          "Комплаенс и профилактика правовых рисков",
+          "Комплаенс и профилактика правовых рисков (совместная с ЧГУ)",
+          "Сравнительное правоведение и фундаментальный правовой анализ",
+          "Цифровое право",
+          "Современное частное право",
+          "Фармправо и здравоохранение",
+          "Юрист в правосудии",
+          "Право международной торговли и разрешение споров",
+          "ЛигалТех"
+        ],
+        "procedures": [
+          {
+            "id": "registration",
+            "title": "Миграционный учёт",
+            "source": "https://ivisa.hse.ru/",
+            "hint": "Проверить основание пребывания, дату въезда и место проживания. При изменениях нужна повторная проверка.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "visa",
+            "title": "Виза и срок пребывания",
+            "source": "https://ivisa.hse.ru/",
+            "hint": "Применимость зависит от гражданства и основания пребывания. Безвизовый въезд не означает отсутствие ограничений по срокам.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "medical",
+            "title": "Медицинское освидетельствование",
+            "source": "https://ivisa.hse.ru/medst",
+            "hint": "Проверить исключения и срок действия подтверждения. В журнале хранится статус, без диагнозов и результатов анализов.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "fingerprints",
+            "title": "Дактилоскопия и фотографирование",
+            "source": "https://ivisa.hse.ru/medst",
+            "hint": "Проверить применимость и ранее пройденную процедуру. Не назначать повтор автоматически.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "insurance",
+            "title": "Медицинское страхование",
+            "source": "https://istudents.hse.ru/",
+            "hint": "Проверить подходящее основание медицинского обеспечения и срок действия полиса.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          }
+        ],
+        "records": [
+          {
+            "date": "2026-09-04",
+            "course": "Ёмкость",
+            "teacher": "Ёжиков Лев",
+            "status": "present"
+          },
+          {
+            "date": "2026-09-04",
+            "course": "Арбитраж",
+            "teacher": "Ёжиков Лев",
+            "status": "absent"
+          }
+        ],
+        "account": null,
+        "attachments": [],
+        "debts": [],
+        "courses": ["Ёмкость", "Арбитраж"],
+        "links": [
+          {
+            "teacherId": "t_2",
+            "teacher": "Ёжиков Лев",
+            "course": "Ёмкость",
+            "group": "Г-2"
+          },
+          {
+            "teacherId": "t_2",
+            "teacher": "Ёжиков Лев",
+            "course": "Арбитраж",
+            "group": "Г-2"
+          }
+        ]
+      },
+      "s_d": {
+        "student": {
+          "id": "s_d",
+          "name": "абрамова Анна",
+          "manager": null,
+          "procedureOverdue": 0,
+          "procedureUnknown": 5,
+          "procedureReview": 0,
+          "groups": ["Г-4", ""],
+          "teacherIds": ["t_3", "t_1"],
+          "lastVisit": "2026-08-30",
+          "days": 0,
+          "absences": 0,
+          "marked": 1,
+          "attendance": 100,
+          "debtCount": 0,
+          "absenceAlert": false,
+          "attention": false,
+          "records": [
+            {
+              "date": "2026-08-30",
+              "course": "История",
+              "teacher": "Ежов Глеб",
+              "status": "present"
+            }
+          ]
+        },
+        "canEdit": true,
+        "programs": [
+          "Право",
+          "Публичное право",
+          "Юрист в бизнесе",
+          "Юриспруденция",
+          "Юриспруденция: цифровой юрист",
+          "Цифровой юрист",
+          "Комплаенс и профилактика правовых рисков",
+          "Комплаенс и профилактика правовых рисков (совместная с ЧГУ)",
+          "Сравнительное правоведение и фундаментальный правовой анализ",
+          "Цифровое право",
+          "Современное частное право",
+          "Фармправо и здравоохранение",
+          "Юрист в правосудии",
+          "Право международной торговли и разрешение споров",
+          "ЛигалТех"
+        ],
+        "procedures": [
+          {
+            "id": "registration",
+            "title": "Миграционный учёт",
+            "source": "https://ivisa.hse.ru/",
+            "hint": "Проверить основание пребывания, дату въезда и место проживания. При изменениях нужна повторная проверка.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "visa",
+            "title": "Виза и срок пребывания",
+            "source": "https://ivisa.hse.ru/",
+            "hint": "Применимость зависит от гражданства и основания пребывания. Безвизовый въезд не означает отсутствие ограничений по срокам.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "medical",
+            "title": "Медицинское освидетельствование",
+            "source": "https://ivisa.hse.ru/medst",
+            "hint": "Проверить исключения и срок действия подтверждения. В журнале хранится статус, без диагнозов и результатов анализов.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "fingerprints",
+            "title": "Дактилоскопия и фотографирование",
+            "source": "https://ivisa.hse.ru/medst",
+            "hint": "Проверить применимость и ранее пройденную процедуру. Не назначать повтор автоматически.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "insurance",
+            "title": "Медицинское страхование",
+            "source": "https://istudents.hse.ru/",
+            "hint": "Проверить подходящее основание медицинского обеспечения и срок действия полиса.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          }
+        ],
+        "records": [
+          {
+            "date": "2026-08-30",
+            "course": "История",
+            "teacher": "Ежов Глеб",
+            "status": "present"
+          }
+        ],
+        "account": null,
+        "attachments": [],
+        "debts": [],
+        "courses": ["История", "Право"],
+        "links": [
+          {
+            "teacherId": "t_3",
+            "teacher": "Ежов Глеб",
+            "course": "История",
+            "group": "Г-4"
+          },
+          {
+            "teacherId": "t_1",
+            "teacher": "Щукин Борис",
+            "course": "Право",
+            "group": ""
+          }
+        ]
+      },
+      "s_e": {
+        "student": {
+          "id": "s_e",
+          "name": "Жуков Олег",
+          "version": 1,
+          "program": "Юриспруденция",
+          "year": 2,
+          "foreignStatus": "confirmed",
+          "manager": {
+            "id": "smirnova",
+            "name": "Смирнова Екатерина Дмитриевна",
+            "role": "office",
+            "scopes": [
+              {
+                "program": "Юриспруденция",
+                "year": 2
+              }
+            ]
+          },
+          "procedureOverdue": 0,
+          "procedureUnknown": 5,
+          "procedureReview": 0,
+          "groups": ["Г-4"],
+          "teacherIds": ["t_3"],
+          "lastVisit": null,
+          "days": 3,
+          "absences": 3,
+          "marked": 3,
+          "attendance": 0,
+          "debtCount": 1,
+          "absenceAlert": false,
+          "attention": false,
+          "records": [
+            {
+              "date": "2026-09-06",
+              "course": "Логика",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-05",
+              "course": "История",
+              "teacher": "Ежов Глеб",
+              "status": "absent"
+            },
+            {
+              "date": "2026-08-30",
+              "course": "История",
+              "teacher": "Ежов Глеб",
+              "status": "absent"
+            }
+          ]
+        },
+        "canEdit": true,
+        "programs": [
+          "Право",
+          "Публичное право",
+          "Юрист в бизнесе",
+          "Юриспруденция",
+          "Юриспруденция: цифровой юрист",
+          "Цифровой юрист",
+          "Комплаенс и профилактика правовых рисков",
+          "Комплаенс и профилактика правовых рисков (совместная с ЧГУ)",
+          "Сравнительное правоведение и фундаментальный правовой анализ",
+          "Цифровое право",
+          "Современное частное право",
+          "Фармправо и здравоохранение",
+          "Юрист в правосудии",
+          "Право международной торговли и разрешение споров",
+          "ЛигалТех"
+        ],
+        "procedures": [
+          {
+            "id": "registration",
+            "title": "Миграционный учёт",
+            "source": "https://ivisa.hse.ru/",
+            "hint": "Проверить основание пребывания, дату въезда и место проживания. При изменениях нужна повторная проверка.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "visa",
+            "title": "Виза и срок пребывания",
+            "source": "https://ivisa.hse.ru/",
+            "hint": "Применимость зависит от гражданства и основания пребывания. Безвизовый въезд не означает отсутствие ограничений по срокам.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "medical",
+            "title": "Медицинское освидетельствование",
+            "source": "https://ivisa.hse.ru/medst",
+            "hint": "Проверить исключения и срок действия подтверждения. В журнале хранится статус, без диагнозов и результатов анализов.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "fingerprints",
+            "title": "Дактилоскопия и фотографирование",
+            "source": "https://ivisa.hse.ru/medst",
+            "hint": "Проверить применимость и ранее пройденную процедуру. Не назначать повтор автоматически.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "insurance",
+            "title": "Медицинское страхование",
+            "source": "https://istudents.hse.ru/",
+            "hint": "Проверить подходящее основание медицинского обеспечения и срок действия полиса.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          }
+        ],
+        "records": [
+          {
+            "date": "2026-09-06",
+            "course": "Логика",
+            "teacher": "Щукин Борис",
+            "status": "absent"
+          },
+          {
+            "date": "2026-09-05",
+            "course": "История",
+            "teacher": "Ежов Глеб",
+            "status": "absent"
+          },
+          {
+            "date": "2026-08-30",
+            "course": "История",
+            "teacher": "Ежов Глеб",
+            "status": "absent"
+          }
+        ],
+        "account": null,
+        "attachments": [],
+        "debts": [
+          {
+            "id": "d_3",
+            "studentId": "s_e",
+            "title": "Реферат",
+            "resolved": 0,
+            "createdAt": "2026-09-05T10:00:00.000Z"
+          }
+        ],
+        "courses": ["История"],
+        "links": [
+          {
+            "teacherId": "t_3",
+            "teacher": "Ежов Глеб",
+            "course": "История",
+            "group": "Г-4"
+          }
+        ]
+      },
+      "s_f": {
+        "student": {
+          "id": "s_f",
+          "name": "Zhang Wei",
+          "manager": null,
+          "procedureOverdue": 0,
+          "procedureUnknown": 5,
+          "procedureReview": 0,
+          "groups": ["Г-1", "Г-9"],
+          "teacherIds": ["t_1", "t_3"],
+          "lastVisit": null,
+          "days": 0,
+          "absences": 0,
+          "marked": 0,
+          "attendance": null,
+          "debtCount": 0,
+          "absenceAlert": false,
+          "attention": false,
+          "records": []
+        },
+        "canEdit": true,
+        "programs": [
+          "Право",
+          "Публичное право",
+          "Юрист в бизнесе",
+          "Юриспруденция",
+          "Юриспруденция: цифровой юрист",
+          "Цифровой юрист",
+          "Комплаенс и профилактика правовых рисков",
+          "Комплаенс и профилактика правовых рисков (совместная с ЧГУ)",
+          "Сравнительное правоведение и фундаментальный правовой анализ",
+          "Цифровое право",
+          "Современное частное право",
+          "Фармправо и здравоохранение",
+          "Юрист в правосудии",
+          "Право международной торговли и разрешение споров",
+          "ЛигалТех"
+        ],
+        "procedures": [
+          {
+            "id": "registration",
+            "title": "Миграционный учёт",
+            "source": "https://ivisa.hse.ru/",
+            "hint": "Проверить основание пребывания, дату въезда и место проживания. При изменениях нужна повторная проверка.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "visa",
+            "title": "Виза и срок пребывания",
+            "source": "https://ivisa.hse.ru/",
+            "hint": "Применимость зависит от гражданства и основания пребывания. Безвизовый въезд не означает отсутствие ограничений по срокам.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "medical",
+            "title": "Медицинское освидетельствование",
+            "source": "https://ivisa.hse.ru/medst",
+            "hint": "Проверить исключения и срок действия подтверждения. В журнале хранится статус, без диагнозов и результатов анализов.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "fingerprints",
+            "title": "Дактилоскопия и фотографирование",
+            "source": "https://ivisa.hse.ru/medst",
+            "hint": "Проверить применимость и ранее пройденную процедуру. Не назначать повтор автоматически.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          },
+          {
+            "id": "insurance",
+            "title": "Медицинское страхование",
+            "source": "https://istudents.hse.ru/",
+            "hint": "Проверить подходящее основание медицинского обеспечения и срок действия полиса.",
+            "closedBy": "staff",
+            "state": "unknown",
+            "dueDate": "",
+            "validUntil": "",
+            "completedAt": "",
+            "note": "",
+            "status": "unknown"
+          }
+        ],
+        "records": [],
+        "account": null,
+        "attachments": [],
+        "debts": [],
+        "courses": ["право", "Ёмкость"],
+        "links": [
+          {
+            "teacherId": "t_1",
+            "teacher": "Щукин Борис",
+            "course": "право",
+            "group": "Г-1"
+          },
+          {
+            "teacherId": "t_3",
+            "teacher": "Ежов Глеб",
+            "course": "Ёмкость",
+            "group": "Г-9"
+          }
+        ]
+      }
+    }
+  },
+  "office": {
+    "overview": {
+      "students": [
+        {
+          "id": "s_a",
+          "name": "Яковлев Иван",
+          "version": 1,
+          "program": "Юриспруденция",
+          "year": 2,
+          "foreignStatus": "confirmed",
+          "manager": {
+            "id": "smirnova",
+            "name": "Смирнова Екатерина Дмитриевна",
+            "role": "office",
+            "scopes": [
+              {
+                "program": "Юриспруденция",
+                "year": 2
+              }
+            ]
+          },
+          "procedureOverdue": 0,
+          "procedureUnknown": 5,
+          "procedureReview": 0,
+          "groups": ["Г-1", "Г-2", "Г-3"],
+          "teacherIds": ["t_1", "t_2"],
+          "lastVisit": "2026-09-06",
+          "days": 0,
+          "absences": 3,
+          "marked": 6,
+          "attendance": 50,
+          "debtCount": 0,
+          "absenceAlert": false,
+          "attention": false,
+          "records": [
+            {
+              "date": "2026-09-06",
+              "course": "Экономика",
+              "teacher": "Ёжиков Лев",
+              "status": "present"
+            },
+            {
+              "date": "2026-09-05",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "present"
+            },
+            {
+              "date": "2026-09-03",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-02",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "present"
+            },
+            {
+              "date": "2026-09-02",
+              "course": "Экономика",
+              "teacher": "Ёжиков Лев",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-02",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            }
+          ],
+          "canEdit": true
+        },
+        {
+          "id": "s_b",
+          "name": "Ёлкина Мария",
+          "version": 1,
+          "program": "Юриспруденция",
+          "year": 2,
+          "foreignStatus": "confirmed",
+          "manager": {
+            "id": "smirnova",
+            "name": "Смирнова Екатерина Дмитриевна",
+            "role": "office",
+            "scopes": [
+              {
+                "program": "Юриспруденция",
+                "year": 2
+              }
+            ]
+          },
+          "procedureOverdue": 0,
+          "procedureUnknown": 5,
+          "procedureReview": 0,
+          "groups": ["Г-1"],
+          "teacherIds": ["t_1"],
+          "lastVisit": "2026-09-02",
+          "days": 11,
+          "absences": 12,
+          "marked": 13,
+          "attendance": 8,
+          "debtCount": 1,
+          "absenceAlert": true,
+          "attention": true,
+          "records": [
+            {
+              "date": "2026-09-16",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-15",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-14",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-13",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-12",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-11",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-10",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-09",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-08",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-07",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-03",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-02",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-02",
+              "course": "Право",
+              "teacher": "Щукин Борис",
+              "status": "present"
+            }
+          ],
+          "canEdit": true
+        },
+        {
+          "id": "s_e",
+          "name": "Жуков Олег",
+          "version": 1,
+          "program": "Юриспруденция",
+          "year": 2,
+          "foreignStatus": "confirmed",
+          "manager": {
+            "id": "smirnova",
+            "name": "Смирнова Екатерина Дмитриевна",
+            "role": "office",
+            "scopes": [
+              {
+                "program": "Юриспруденция",
+                "year": 2
+              }
+            ]
+          },
+          "procedureOverdue": 0,
+          "procedureUnknown": 5,
+          "procedureReview": 0,
+          "groups": ["Г-4"],
+          "teacherIds": ["t_3"],
+          "lastVisit": null,
+          "days": 3,
+          "absences": 3,
+          "marked": 3,
+          "attendance": 0,
+          "debtCount": 1,
+          "absenceAlert": false,
+          "attention": false,
+          "records": [
+            {
+              "date": "2026-09-06",
+              "course": "Логика",
+              "teacher": "Щукин Борис",
+              "status": "absent"
+            },
+            {
+              "date": "2026-09-05",
+              "course": "История",
+              "teacher": "Ежов Глеб",
+              "status": "absent"
+            },
+            {
+              "date": "2026-08-30",
+              "course": "История",
+              "teacher": "Ежов Глеб",
+              "status": "absent"
+            }
+          ],
+          "canEdit": true
+        }
+      ],
+      "faculty": {
+        "loaded": 3,
+        "confirmed": 3,
+        "unverified": 0,
+        "unassigned": 0,
+        "silentTeachers": 3
+      },
+      "yearRollover": null,
+      "quality": {},
+      "teachers": 4,
+      "audit": []
+    },
+    "card": {
+      "student": {
+        "id": "s_a",
+        "name": "Яковлев Иван",
+        "version": 1,
+        "program": "Юриспруденция",
+        "year": 2,
+        "foreignStatus": "confirmed",
+        "manager": {
+          "id": "smirnova",
+          "name": "Смирнова Екатерина Дмитриевна",
+          "role": "office",
+          "scopes": [
+            {
+              "program": "Юриспруденция",
+              "year": 2
+            }
+          ]
+        },
+        "procedureOverdue": 0,
+        "procedureUnknown": 5,
+        "procedureReview": 0,
+        "groups": ["Г-1", "Г-2", "Г-3"],
+        "teacherIds": ["t_1", "t_2"],
+        "lastVisit": "2026-09-06",
+        "days": 0,
+        "absences": 3,
+        "marked": 6,
+        "attendance": 50,
+        "debtCount": 0,
+        "absenceAlert": false,
+        "attention": false,
+        "records": [
+          {
+            "date": "2026-09-06",
+            "course": "Экономика",
+            "teacher": "Ёжиков Лев",
+            "status": "present"
+          },
+          {
+            "date": "2026-09-05",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "present"
+          },
+          {
+            "date": "2026-09-03",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "absent"
+          },
+          {
+            "date": "2026-09-02",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "present"
+          },
+          {
+            "date": "2026-09-02",
+            "course": "Экономика",
+            "teacher": "Ёжиков Лев",
+            "status": "absent"
+          },
+          {
+            "date": "2026-09-02",
+            "course": "Право",
+            "teacher": "Щукин Борис",
+            "status": "absent"
+          }
+        ]
+      },
+      "canEdit": true,
+      "programs": [
+        "Право",
+        "Публичное право",
+        "Юрист в бизнесе",
+        "Юриспруденция",
+        "Юриспруденция: цифровой юрист",
+        "Цифровой юрист",
+        "Комплаенс и профилактика правовых рисков",
+        "Комплаенс и профилактика правовых рисков (совместная с ЧГУ)",
+        "Сравнительное правоведение и фундаментальный правовой анализ",
+        "Цифровое право",
+        "Современное частное право",
+        "Фармправо и здравоохранение",
+        "Юрист в правосудии",
+        "Право международной торговли и разрешение споров",
+        "ЛигалТех"
+      ],
+      "procedures": [
+        {
+          "id": "registration",
+          "title": "Миграционный учёт",
+          "source": "https://ivisa.hse.ru/",
+          "hint": "Проверить основание пребывания, дату въезда и место проживания. При изменениях нужна повторная проверка.",
+          "closedBy": "staff",
+          "state": "unknown",
+          "dueDate": "",
+          "validUntil": "",
+          "completedAt": "",
+          "note": "",
+          "status": "unknown"
+        },
+        {
+          "id": "visa",
+          "title": "Виза и срок пребывания",
+          "source": "https://ivisa.hse.ru/",
+          "hint": "Применимость зависит от гражданства и основания пребывания. Безвизовый въезд не означает отсутствие ограничений по срокам.",
+          "closedBy": "staff",
+          "state": "unknown",
+          "dueDate": "",
+          "validUntil": "",
+          "completedAt": "",
+          "note": "",
+          "status": "unknown"
+        },
+        {
+          "id": "medical",
+          "title": "Медицинское освидетельствование",
+          "source": "https://ivisa.hse.ru/medst",
+          "hint": "Проверить исключения и срок действия подтверждения. В журнале хранится статус, без диагнозов и результатов анализов.",
+          "closedBy": "staff",
+          "state": "unknown",
+          "dueDate": "",
+          "validUntil": "",
+          "completedAt": "",
+          "note": "",
+          "status": "unknown"
+        },
+        {
+          "id": "fingerprints",
+          "title": "Дактилоскопия и фотографирование",
+          "source": "https://ivisa.hse.ru/medst",
+          "hint": "Проверить применимость и ранее пройденную процедуру. Не назначать повтор автоматически.",
+          "closedBy": "staff",
+          "state": "unknown",
+          "dueDate": "",
+          "validUntil": "",
+          "completedAt": "",
+          "note": "",
+          "status": "unknown"
+        },
+        {
+          "id": "insurance",
+          "title": "Медицинское страхование",
+          "source": "https://istudents.hse.ru/",
+          "hint": "Проверить подходящее основание медицинского обеспечения и срок действия полиса.",
+          "closedBy": "staff",
+          "state": "unknown",
+          "dueDate": "",
+          "validUntil": "",
+          "completedAt": "",
+          "note": "",
+          "status": "unknown"
+        }
+      ],
+      "records": [
+        {
+          "date": "2026-09-06",
+          "course": "Экономика",
+          "teacher": "Ёжиков Лев",
+          "status": "present"
+        },
+        {
+          "date": "2026-09-05",
+          "course": "Право",
+          "teacher": "Щукин Борис",
+          "status": "present"
+        },
+        {
+          "date": "2026-09-03",
+          "course": "Право",
+          "teacher": "Щукин Борис",
+          "status": "absent"
+        },
+        {
+          "date": "2026-09-02",
+          "course": "Право",
+          "teacher": "Щукин Борис",
+          "status": "present"
+        },
+        {
+          "date": "2026-09-02",
+          "course": "Экономика",
+          "teacher": "Ёжиков Лев",
+          "status": "absent"
+        },
+        {
+          "date": "2026-09-02",
+          "course": "Право",
+          "teacher": "Щукин Борис",
+          "status": "absent"
+        }
+      ],
+      "account": null,
+      "attachments": [],
+      "debts": [],
+      "courses": ["Право", "Экономика"],
+      "links": [
+        {
+          "teacherId": "t_1",
+          "teacher": "Щукин Борис",
+          "course": "Право",
+          "group": "Г-1"
+        },
+        {
+          "teacherId": "t_2",
+          "teacher": "Ёжиков Лев",
+          "course": "Экономика",
+          "group": "Г-2"
+        },
+        {
+          "teacherId": "t_2",
+          "teacher": "Ёжиков Лев",
+          "course": "Экономика",
+          "group": "Г-3"
+        }
+      ]
+    }
+  }
+}
