@@ -5,6 +5,7 @@ import {
   validDate,
 } from "./office.js";
 import { moscowDate } from "./domain.js";
+import { attendanceRecords, summarizeAttendance } from "./daily.js";
 
 // Допустимые значения для полей, которые студент правит сам. Правила те же,
 // что использует сотруднический маршрут PUT /api/admin/students/:id/profile
@@ -101,6 +102,39 @@ export function registerStudent(
     );
     audit(req.session.user, "student.profile", req.studentId);
     res.json({ ok: true, version: data.version });
+  });
+  app.get("/api/student/attendance", onlyStudent, (req, res) => {
+    const from = req.query.from || moscowDate(),
+      to = req.query.to || moscowDate();
+    if (![from, to].every(validDate) || from > to)
+      throw fail(400, "Проверьте период");
+    const own = attendanceRecords(db).filter(
+      (r) => r.studentId === req.studentId,
+    );
+    const [summary] = summarizeAttendance(
+      [studentProfile(req.studentId)],
+      own,
+      from,
+      to,
+    );
+    const records = own.filter((r) => r.date >= from && r.date <= to);
+    const days = [...new Set(records.map((r) => r.date))]
+      .sort()
+      .reverse()
+      .map((date) => ({
+        date,
+        marks: records
+          .filter((r) => r.date === date)
+          // Имена преподавателей студенту не показываем: только дисциплина и отметка.
+          .map((r) => ({ course: r.course || "", status: r.status })),
+      }));
+    res.json({
+      from,
+      to,
+      absenceDays: summary.absenceDays,
+      lastVisit: summary.lastVisit,
+      days,
+    });
   });
   app.get("/api/student/requirements", onlyStudent, (req, res) =>
     res.json({ requirements: proceduresFor(req.studentId) }),

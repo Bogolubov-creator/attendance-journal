@@ -61,6 +61,7 @@ test("Кабинет студента", async (t) => {
     const admin = await login("admin", "gadzhieva");
     const studentId = "s_test_1";
     const otherStudentId = "s_test_2";
+    const teacherId = "t_test_1";
     const cookie = await demoLogin(studentId);
 
     await t.test("Студент видит свою карточку", async () => {
@@ -362,6 +363,76 @@ test("Кабинет студента", async (t) => {
         assert.equal(theirs.version || 0, 0);
       },
     );
+
+    await t.test("Студент видит свою сводку и дни по дисциплинам", async () => {
+      // Отметку ставит преподаватель, у которого этот студент есть в связях.
+      const teacher = await login("teacher", teacherId);
+      // Дисциплина указана явно: у преподавателя их две, а у второго
+      // студента отметка нужна только в «Право» (общая с первым студентом).
+      const daily = await (
+        await call(
+          "/api/daily?date=2026-09-22&course=" + encodeURIComponent("Право"),
+          {
+            cookie: teacher,
+          },
+        )
+      ).json();
+      const put = await call("/api/daily", {
+        method: "PUT",
+        cookie: teacher,
+        body: {
+          date: "2026-09-22",
+          course: daily.course,
+          version: daily.version,
+          marks: [
+            { studentId, status: "present" },
+            { studentId: otherStudentId, status: "present" },
+          ],
+        },
+      });
+      assert.equal(put.status, 200, await put.clone().text());
+      const mine = await (
+        await call("/api/student/attendance?from=2026-09-01&to=2026-09-30", {
+          cookie,
+        })
+      ).json();
+      assert.equal(mine.days.length, 1);
+      assert.equal(mine.days[0].date, "2026-09-22");
+      assert.equal(mine.days[0].marks[0].status, "present");
+      assert.equal(mine.lastVisit, "2026-09-22");
+    });
+
+    await t.test("Имён преподавателей в кабинете нет", async () => {
+      const mine = await (
+        await call("/api/student/attendance?from=2026-09-01&to=2026-09-30", {
+          cookie,
+        })
+      ).json();
+      assert.ok(!JSON.stringify(mine).includes("Преподаватель Первый"));
+    });
+
+    await t.test("Чужие отметки в свою сводку не попадают", async () => {
+      const mine = await (
+        await call("/api/student/attendance?from=2026-09-01&to=2026-09-30", {
+          cookie,
+        })
+      ).json();
+      assert.ok(mine.days.every((d) => d.marks.length));
+      assert.ok(!JSON.stringify(mine).includes(otherStudentId));
+    });
+
+    await t.test("Некорректный период отклоняется", async () => {
+      const badDate = await call(
+        "/api/student/attendance?from=2026-13-01&to=2026-09-30",
+        { cookie },
+      );
+      assert.equal(badDate.status, 400);
+      const inverted = await call(
+        "/api/student/attendance?from=2026-09-30&to=2026-09-01",
+        { cookie },
+      );
+      assert.equal(inverted.status, 400);
+    });
   } finally {
     child.kill("SIGTERM");
     await new Promise((r) => child.once("exit", r));
