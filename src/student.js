@@ -1,4 +1,5 @@
 import {
+  canSeeStudent,
   pickStudentFields,
   procedureCatalog,
   studentEditableFields,
@@ -6,6 +7,11 @@ import {
 } from "./office.js";
 import { moscowDate } from "./domain.js";
 import { attendanceRecords, summarizeAttendance } from "./daily.js";
+import { detectType, saveAttachment, attachmentPath } from "./attachments.js";
+import express from "express";
+import { randomBytes } from "node:crypto";
+import { existsSync, rmSync } from "node:fs";
+import path from "node:path";
 
 // Допустимые значения для полей, которые студент правит сам. Правила те же,
 // что использует сотруднический маршрут PUT /api/admin/students/:id/profile
@@ -45,11 +51,27 @@ function validStudentEdit(body) {
 
 export function registerStudent(
   app,
-  { db, studentProfile, audit, proceduresFor },
+  { db, studentProfile, audit, proceduresFor, uploadDir },
 ) {
   const fail = (status, message) =>
     Object.assign(new Error(message), { status });
   const run = (sql, ...a) => db.prepare(sql).run(...a);
+  const get = (sql, ...a) => db.prepare(sql).get(...a);
+  // Присланное студентом имя только показывается при скачивании – в путь на диске оно не попадает.
+  const cleanName = (raw) => {
+    let decoded;
+    try {
+      decoded = decodeURIComponent(raw || "файл");
+    } catch {
+      decoded = "файл";
+    }
+    return (
+      decoded
+        .replace(/[\u0000-\u001f/\\]/g, " ")
+        .trim()
+        .slice(0, 200) || "файл"
+    );
+  };
   // У свежеимпортированного студента строки в student_profiles ещё нет.
   const emptyProfile = {
     version: 0,
@@ -202,5 +224,98 @@ export function registerStudent(
       req.studentId + ":" + req.params.kind,
     );
     res.json({ ok: true, version: data.version });
+  });
+  app.post(
+    "/api/student/attachments/:kind",
+    onlyStudent,
+    express.raw({ type: () => true, limit: "10mb" }),
+    (req, res) => {
+      if (!procedureCatalog.some((c) => c.id === req.params.kind))
+        throw fail(404, "Требование не найдено");
+      if (!Buffer.isBuffer(req.body) || !req.body.length)
+        throw fail(400, "Загрузите файл PDF, JPEG или PNG");
+      const type = detectType(req.body);
+      if (!type) throw fail(400, "Принимаются только PDF, JPEG и PNG");
+      const count = get(
+        "SELECT COUNT(*) n FROM attachments WHERE studentId=? AND kind=?",
+        req.studentId,
+        req.params.kind,
+      ).n;
+      if (count >= 10)
+        throw fail(400, "К одному требованию не больше 10 файлов");
+      const saved = saveAttachment({
+        dir: uploadDir,
+        studentId: req.studentId,
+        buffer: req.body,
+        ext: type.ext,
+      });
+      const id = "a_" + randomBytes(8).toString("hex");
+      run(
+        "INSERT INTO attachments VALUES(?,?,?,?,?,?,?,?,?,?)",
+        id,
+        req.studentId,
+        req.params.kind,
+        cleanName(req.headers["x-file-name"]),
+        saved.storedName,
+        type.mime,
+        saved.size,
+        saved.sha256,
+        new Date().toISOString(),
+        req.session.user.name,
+      );
+      audit(
+        req.session.user,
+        "attachment.add",
+        req.studentId + ":" + req.params.kind,
+      );
+      res.json({ id });
+    },
+  );
+  // Общий маршрут скачивания: свой скан студенту, чужой – только менеджеру
+  // программы и курса или полному доступу; преподавателю сканы не показываются.
+  app.get("/api/attachments/:id", (req, res) => {
+    const user = req.session?.user;
+    if (!user) throw fail(401, "Войдите в свой кабинет");
+    const row = get("SELECT * FROM attachments WHERE id=?", req.params.id);
+    if (!row) throw fail(404, "Файл не найден");
+    const allowed =
+      user.role === "student"
+        ? user.studentId === row.studentId
+        : ["admin", "office"].includes(user.role) &&
+          canSeeStudent(user, studentProfile(row.studentId));
+    if (!allowed) throw fail(403, "Файл другого студента");
+    const file = path.resolve(
+      attachmentPath(uploadDir, row.studentId, row.storedName),
+    );
+    if (!existsSync(file)) throw fail(404, "Файл отсутствует на сервере");
+    audit(user, "attachment.view", row.studentId + ":" + row.id);
+    res.set({
+      "Content-Type": row.mime,
+      "Cache-Control": "no-store",
+      "Content-Disposition":
+        "attachment; filename*=UTF-8''" + encodeURIComponent(row.fileName),
+    });
+    res.sendFile(file);
+  });
+  app.delete("/api/student/attachments/:id", onlyStudent, (req, res) => {
+    const row = get("SELECT * FROM attachments WHERE id=?", req.params.id);
+    if (!row || row.studentId !== req.studentId)
+      throw fail(404, "Файл не найден");
+    const requirement = proceduresFor(req.studentId).find(
+      (p) => p.id === row.kind,
+    );
+    // Подтверждённое требование студент уже не разбирает: файл снимает сотрудник.
+    if (requirement.state === "confirmed")
+      throw fail(403, "Требование подтверждено, обратитесь к менеджеру");
+    rmSync(attachmentPath(uploadDir, row.studentId, row.storedName), {
+      force: true,
+    });
+    run("DELETE FROM attachments WHERE id=?", req.params.id);
+    audit(
+      req.session.user,
+      "attachment.delete",
+      req.studentId + ":" + row.kind,
+    );
+    res.json({ ok: true });
   });
 }

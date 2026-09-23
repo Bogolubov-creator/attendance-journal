@@ -1,6 +1,7 @@
 import { csvCell } from "./csv.js";
 import { registerDaily, attendanceRecords } from "./daily.js";
 import { registerStudent } from "./student.js";
+import { attachmentPath } from "./attachments.js";
 import { verifyPassword } from "./management-auth.js";
 import { parseRoster, planImport, applyImport } from "./roster-import.js";
 import express from "express";
@@ -56,7 +57,10 @@ CREATE TABLE IF NOT EXISTS procedures(studentId TEXT, kind TEXT, data TEXT NOT N
 CREATE TABLE IF NOT EXISTS roster_additions(id TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS roster_students(id TEXT PRIMARY KEY, name TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS roster_teachers(id TEXT PRIMARY KEY, name TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS roster_enrollments(studentId TEXT NOT NULL, teacherId TEXT NOT NULL, grp TEXT NOT NULL, course TEXT NOT NULL, kind TEXT NOT NULL);`);
+CREATE TABLE IF NOT EXISTS roster_enrollments(studentId TEXT NOT NULL, teacherId TEXT NOT NULL, grp TEXT NOT NULL, course TEXT NOT NULL, kind TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS attachments(id TEXT PRIMARY KEY, studentId TEXT NOT NULL, kind TEXT NOT NULL, fileName TEXT NOT NULL, storedName TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL, uploadedAt TEXT NOT NULL, uploadedBy TEXT NOT NULL);`);
+// Куда складываются сканы студентов; читается один раз здесь, маршруты получают путь готовым.
+const uploadDir = process.env.UPLOAD_DIR || "data/uploads";
 const get = (sql, ...a) => db.prepare(sql).get(...a),
   all = (sql, ...a) => db.prepare(sql).all(...a),
   run = (sql, ...a) => db.prepare(sql).run(...a);
@@ -142,6 +146,9 @@ const registryActions = [
   "account.link",
   "account.unlink",
   "student.requirement",
+  "attachment.add",
+  "attachment.view",
+  "attachment.delete",
 ];
 let accounts = [];
 try {
@@ -463,7 +470,7 @@ app.get("/auth/callback", async (req, res) => {
 });
 app.use("/api", auth);
 registerDaily(app, { db, roster, auth, admin, studentProfile, audit });
-registerStudent(app, { db, studentProfile, audit, proceduresFor });
+registerStudent(app, { db, studentProfile, audit, proceduresFor, uploadDir });
 app.use("/api/admin", admin);
 function studentProfile(id) {
   const base = roster.students.find((s) => s.id === id);
@@ -1063,6 +1070,19 @@ app.delete("/api/admin/students/:id/account", (req, res) => {
   editable(req, req.params.id);
   run("DELETE FROM student_accounts WHERE studentId=?", req.params.id);
   audit(req.session.user, "account.unlink", req.params.id);
+  res.json({ ok: true });
+});
+// Сотрудник снимает скан независимо от состояния требования – в отличие от
+// студенческого маршрута в src/student.js, который блокирует это после подтверждения.
+app.delete("/api/admin/attachments/:id", (req, res) => {
+  const row = get("SELECT * FROM attachments WHERE id=?", req.params.id);
+  if (!row) throw fail(404, "Файл не найден");
+  editable(req, row.studentId);
+  rmSync(attachmentPath(uploadDir, row.studentId, row.storedName), {
+    force: true,
+  });
+  run("DELETE FROM attachments WHERE id=?", req.params.id);
+  audit(req.session.user, "attachment.delete", row.studentId + ":" + row.kind);
   res.json({ ok: true });
 });
 app.get("/api/admin/students-without-account", (req, res) => {
