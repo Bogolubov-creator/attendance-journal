@@ -234,7 +234,18 @@ app.use((req, res, next) => {
     req.session = null;
   }
 
-  if (selection && req.session?.user?.source === "selection") {
+  if (req.session?.user?.role === "student") {
+    const u = req.session.user;
+    const valid =
+      roster.students.some((s) => s.id === u.studentId) &&
+      (u.source === "demo"
+        ? demo
+        : studentByExternalId(u.subject) === u.studentId);
+    if (!valid) {
+      run("DELETE FROM sessions WHERE id=?", req.sessionKey);
+      req.session = null;
+    }
+  } else if (selection && req.session?.user?.source === "selection") {
     const u = req.session.user;
     const valid =
       u.role === "teacher"
@@ -295,6 +306,7 @@ app.get("/api/session", (req, res) =>
     demo: demo && process.env.DATA_MODE !== "live",
     oidcReady: !!(process.env.OIDC_ISSUER && process.env.OIDC_CLIENT_ID),
     demoTeachers: demo ? roster.teachers : [],
+    demoStudents: demo ? roster.students : [],
     selection,
     teachers: selection ? roster.teachers : [],
     managers: selection ? managers : [],
@@ -319,6 +331,20 @@ app.post("/api/demo-login", (req, res) => {
   if (!demo) return res.sendStatus(404);
   const role = req.body.role;
   checkManagementPassword(req);
+  if (role === "student") {
+    const student = roster.students.find((s) => s.id === req.body.studentId);
+    if (!student) throw fail(400, "Выберите студента");
+    if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
+    const user = {
+      id: student.id,
+      name: student.name,
+      role: "student",
+      studentId: student.id,
+      source: "demo",
+    };
+    session(res, { user, managementVersion });
+    return res.json({ user });
+  }
   const teacher = roster.teachers.find((t) => t.id === req.body.teacherId);
   if (role !== "admin" && !teacher) throw fail(400, "Выберите преподавателя");
   if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
@@ -385,10 +411,31 @@ app.get("/auth/callback", async (req, res) => {
   const account = accounts.find(
     (a) => a.email.toLowerCase() === email && a.subject === claims.sub,
   );
+  if (!account) {
+    // Студенты входят по @edu.hse.ru – проверка домена почты им не требуется.
+    const studentId = studentByExternalId(claims.sub);
+    const student =
+      studentId && roster.students.find((s) => s.id === studentId);
+    if (!student)
+      throw fail(
+        403,
+        "Ваша учётная запись не связана с записью в журнале, обратитесь к менеджеру",
+      );
+    session(res, {
+      user: {
+        id: studentId,
+        name: student.name,
+        role: "student",
+        studentId,
+        source: "oidc",
+        subject: claims.sub,
+      },
+    });
+    return res.redirect("/");
+  }
   if (
     claims.email_verified !== true ||
     !email.endsWith("@hse.ru") ||
-    !account ||
     !["admin", "teacher"].includes(account.role)
   )
     throw fail(

@@ -136,6 +136,73 @@ test("Привязка учётной записи студента", async (t) 
         JSON.stringify(data.students),
       );
     });
+
+    await t.test(
+      "Демо-вход студентом даёт роль student и свой id",
+      async () => {
+        const studentId = students.students[0].id;
+        await call("/api/admin/students/" + studentId + "/account", {
+          method: "PUT",
+          cookie: admin,
+          body: { externalId: "hse-777" },
+        });
+        const r = await call("/api/demo-login", {
+          method: "POST",
+          body: {
+            role: "student",
+            studentId,
+            password: "test-management-password",
+          },
+        });
+        assert.equal(r.status, 200, await r.clone().text());
+        const cookie = r.headers.get("set-cookie").split(";")[0];
+        const session = await (await call("/api/session", { cookie })).json();
+        assert.equal(session.user.role, "student");
+        assert.equal(session.user.studentId, studentId);
+      },
+    );
+
+    await t.test("Студент не попадает в сотрудничьи разделы", async () => {
+      const studentId = students.students[0].id;
+      const r = await call("/api/demo-login", {
+        method: "POST",
+        body: {
+          role: "student",
+          studentId,
+          password: "test-management-password",
+        },
+      });
+      const cookie = r.headers.get("set-cookie").split(";")[0];
+      assert.equal(
+        (
+          await call("/api/admin/overview?from=2026-09-01&to=2026-09-01", {
+            cookie,
+          })
+        ).status,
+        403,
+      );
+      assert.equal((await call("/api/daily", { cookie })).status, 403);
+    });
+
+    await t.test("Осиротевшая привязка не роняет сервер", async () => {
+      const studentId = students.students[0].id;
+      const r = await call("/api/demo-login", {
+        method: "POST",
+        body: {
+          role: "student",
+          studentId,
+          password: "test-management-password",
+        },
+      });
+      const cookie = r.headers.get("set-cookie").split(";")[0];
+      // Студента удаляют из реестра: сессия ссылается на несуществующую запись.
+      await call("/api/admin/students/" + studentId, {
+        method: "DELETE",
+        cookie: admin,
+      });
+      const after = await call("/api/student/profile", { cookie });
+      assert.equal(after.status, 401, await after.clone().text());
+    });
   } finally {
     child.kill("SIGTERM");
     await new Promise((r) => child.once("exit", r));
