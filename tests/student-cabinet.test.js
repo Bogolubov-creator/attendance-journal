@@ -526,6 +526,56 @@ test("Кабинет студента", async (t) => {
       );
       assert.equal(inverted.status, 400);
     });
+
+    await t.test(
+      "Выпускнику и отчисленному кабинет закрыт, академический отпуск – нет",
+      async () => {
+        const setStatus = async (enrollmentStatus) => {
+          const card = await (
+            await call("/api/admin/students/" + studentId, { cookie: admin })
+          ).json();
+          const r = await call(
+            "/api/admin/students/" + studentId + "/profile",
+            {
+              method: "PUT",
+              cookie: admin,
+              body: {
+                program: card.student.program || "",
+                year: card.student.year || 0,
+                foreignStatus: card.student.foreignStatus || "unknown",
+                enrollmentStatus,
+                citizenship: card.student.citizenship || "",
+                version: card.student.version || 0,
+              },
+            },
+          );
+          assert.equal(r.status, 200, await r.clone().text());
+        };
+        const studentLogin = (id) =>
+          call("/api/demo-login", {
+            method: "POST",
+            body: {
+              role: "student",
+              studentId: id,
+              password: "test-management-password",
+            },
+          });
+        const open = await demoLogin(studentId);
+        for (const status of ["graduated", "withdrawn"]) {
+          await setStatus(status);
+          // Открытая сессия обрывается на следующем запросе.
+          assert.equal(
+            (await call("/api/student/profile", { cookie: open })).status,
+            401,
+            status,
+          );
+          assert.equal((await studentLogin(studentId)).status, 403, status);
+        }
+        await setStatus("leave");
+        assert.equal((await studentLogin(studentId)).status, 200);
+        await setStatus("active");
+      },
+    );
   } finally {
     child.kill("SIGTERM");
     await new Promise((r) => child.once("exit", r));
