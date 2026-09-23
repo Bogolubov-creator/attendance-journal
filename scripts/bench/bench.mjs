@@ -167,39 +167,43 @@ rows.push(
     teacher,
   ),
 );
-// PUT: сохранить тот же набор отметок; версия берётся заново.
+// PUT: сохранить тот же набор отметок; версия берётся заново, время – только PUT.
+// Тело готовится заранее, чтобы под нагрузкой мерить ровно сохранение.
+async function marksBody(i) {
+  const g = await (
+    await fetch(
+      B + `/api/daily?date=${to}&course=${encodeURIComponent(course)}`,
+      { headers: { cookie: teacher } },
+    )
+  ).json();
+  return {
+    date: to,
+    course,
+    version: g.version,
+    marks: g.students.map((s, k) => ({
+      studentId: s.id,
+      status: (i + k) % 7 ? "present" : "absent",
+    })),
+  };
+}
+async function saveMarks(body) {
+  const s = performance.now();
+  const r = await fetch(B + "/api/daily", {
+    method: "PUT",
+    headers: {
+      cookie: teacher,
+      origin: B,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  await r.arrayBuffer();
+  if (!r.ok) throw Error("PUT " + r.status);
+  return performance.now() - s;
+}
 {
   const t = [];
-  for (let i = 0; i < N; i++) {
-    const g = await (
-      await fetch(
-        B + `/api/daily?date=${to}&course=${encodeURIComponent(course)}`,
-        { headers: { cookie: teacher } },
-      )
-    ).json();
-    const body = {
-      date: to,
-      course,
-      version: g.version,
-      marks: g.students.map((s, k) => ({
-        studentId: s.id,
-        status: (i + k) % 7 ? "present" : "absent",
-      })),
-    };
-    const s = performance.now();
-    const r = await fetch(B + "/api/daily", {
-      method: "PUT",
-      headers: {
-        cookie: teacher,
-        origin: B,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-    await r.arrayBuffer();
-    t.push(performance.now() - s);
-    if (!r.ok) throw Error("PUT " + r.status);
-  }
+  for (let i = 0; i < N; i++) t.push(await saveMarks(await marksBody(i)));
   const { med, p95 } = q(t);
   rows.push({
     name: "PUT /api/daily (сохранение)",
@@ -224,19 +228,28 @@ rows.push(
   ),
 );
 
-// Блокировка цикла событий: /healthz, пока параллельно идут 5 обзоров.
+// Блокировка цикла событий: /healthz и сохранение отметок, пока параллельно идут 5 обзоров.
+const overviews = () =>
+  Array.from({ length: 5 }, () =>
+    fetch(B + "/api/admin/overview", { headers: { cookie: admin } }).then((r) =>
+      r.arrayBuffer(),
+    ),
+  );
 const hz = [];
-const bg = Array.from({ length: 5 }, () =>
-  fetch(B + "/api/admin/overview", { headers: { cookie: admin } }).then((r) =>
-    r.arrayBuffer(),
-  ),
-);
+let bg = overviews();
 for (let i = 0; i < 5; i++) {
   const s = performance.now();
   await (await fetch(B + "/healthz")).arrayBuffer();
   hz.push(performance.now() - s);
 }
 await Promise.all(bg);
+const putLoad = [];
+for (let i = 0; i < 3; i++) {
+  const body = await marksBody(N + i);
+  bg = overviews();
+  putLoad.push(await saveMarks(body));
+  await Promise.all(bg);
+}
 
 // Статика
 const stat = [];
@@ -270,6 +283,7 @@ const result = {
   N,
   rows,
   healthzUnderLoadMs: hz.map((x) => +x.toFixed(0)),
+  saveUnderLoadMs: putLoad.map((x) => +x.toFixed(0)),
   overviewGzipKb: +(gzipSync(Buffer.from(ov)).length / 1024).toFixed(1),
   static: stat,
 };
@@ -301,6 +315,11 @@ console.log(
   "мс; обзор в gzip",
   result.overviewGzipKb,
   "КБ",
+);
+console.log(
+  "  сохранение отметок под 5 обзорами:",
+  result.saveUnderLoadMs.join(", "),
+  "мс",
 );
 console.log("результат записан в", outFile);
 

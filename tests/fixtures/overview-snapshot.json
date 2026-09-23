@@ -33,44 +33,7 @@
           "debtCount": 0,
           "absenceAlert": false,
           "attention": false,
-          "records": [
-            {
-              "date": "2026-09-06",
-              "course": "Экономика",
-              "teacher": "Ёжиков Лев",
-              "status": "present"
-            },
-            {
-              "date": "2026-09-05",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "present"
-            },
-            {
-              "date": "2026-09-03",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-02",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "present"
-            },
-            {
-              "date": "2026-09-02",
-              "course": "Экономика",
-              "teacher": "Ёжиков Лев",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-02",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            }
-          ],
+          "recordCount": 6,
           "canEdit": true
         },
         {
@@ -104,86 +67,7 @@
           "debtCount": 1,
           "absenceAlert": true,
           "attention": true,
-          "records": [
-            {
-              "date": "2026-09-16",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-15",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-14",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-13",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-12",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-11",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-10",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-09",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-08",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-07",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-03",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-02",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-02",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "present"
-            }
-          ],
+          "recordCount": 13,
           "canEdit": true
         },
         {
@@ -218,20 +102,7 @@
           "debtCount": 0,
           "absenceAlert": false,
           "attention": false,
-          "records": [
-            {
-              "date": "2026-09-04",
-              "course": "Ёмкость",
-              "teacher": "Ёжиков Лев",
-              "status": "present"
-            },
-            {
-              "date": "2026-09-04",
-              "course": "Арбитраж",
-              "teacher": "Ёжиков Лев",
-              "status": "absent"
-            }
-          ],
+          "recordCount": 2,
           "canEdit": true
         },
         {
@@ -251,14 +122,7 @@
           "debtCount": 0,
           "absenceAlert": false,
           "attention": false,
-          "records": [
-            {
-              "date": "2026-08-30",
-              "course": "История",
-              "teacher": "Ежов Глеб",
-              "status": "present"
-            }
-          ],
+          "recordCount": 1,
           "canEdit": true
         },
         {
@@ -292,26 +156,7 @@
           "debtCount": 1,
           "absenceAlert": false,
           "attention": false,
-          "records": [
-            {
-              "date": "2026-09-06",
-              "course": "Логика",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-05",
-              "course": "История",
-              "teacher": "Ежов Глеб",
-              "status": "absent"
-            },
-            {
-              "date": "2026-08-30",
-              "course": "История",
-              "teacher": "Ежов Глеб",
-              "status": "absent"
-            }
-          ],
+          "recordCount": 3,
           "canEdit": true
         },
         {
@@ -331,7 +176,7 @@
           "debtCount": 0,
           "absenceAlert": false,
           "attention": false,
-          "records": [],
+          "recordCount": 0,
           "canEdit": true
         }
       ],
@@ -1570,44 +1415,7 @@
           "debtCount": 0,
           "absenceAlert": false,
           "attention": false,
-          "records": [
-            {
-              "date": "2026-09-06",
-              "course": "Экономика",
-              "teacher": "Ёжиков Лев",
-              "status": "present"
-            },
-            {
-              "date": "2026-09-05",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "present"
-            },
-            {
-              "date": "2026-09-03",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-02",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "present"
-            },
-            {
-              "date": "2026-09-02",
-              "course": "Экономика",
-              "teacher": "Ёжиков Лев",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-02",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            }
-          ],
+          "recordCount": 6,
           "canEdit": true
         },
         {
@@ -1641,86 +1449,7 @@
           "debtCount": 1,
           "absenceAlert": true,
           "attention": true,
-          "records": [
-            {
-              "date": "2026-09-16",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-15",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-14",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-13",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-12",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-11",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-10",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-09",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-08",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-07",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-03",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-02",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-02",
-              "course": "Право",
-              "teacher": "Щукин Борис",
-              "status": "present"
-            }
-          ],
+          "recordCount": 13,
           "canEdit": true
         },
         {
@@ -1754,26 +1483,7 @@
           "debtCount": 1,
           "absenceAlert": false,
           "attention": false,
-          "records": [
-            {
-              "date": "2026-09-06",
-              "course": "Логика",
-              "teacher": "Щукин Борис",
-              "status": "absent"
-            },
-            {
-              "date": "2026-09-05",
-              "course": "История",
-              "teacher": "Ежов Глеб",
-              "status": "absent"
-            },
-            {
-              "date": "2026-08-30",
-              "course": "История",
-              "teacher": "Ежов Глеб",
-              "status": "absent"
-            }
-          ],
+          "recordCount": 3,
           "canEdit": true
         }
       ],

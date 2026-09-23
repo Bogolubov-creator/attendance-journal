@@ -188,10 +188,17 @@ test("API: изоляция, сохранение, редактирование 
     await t.test("Админ видит историю и архив задолженностей", async () => {
       const overview = await request("/api/admin/overview");
       assert.equal(overview.status, 200);
-      // В строке студента – все его занятия: дата, дисциплина, преподаватель, отметка; новые сверху.
-      const listed = (await overview.json()).students.find(
+      // В обзоре – только число занятий; сам список отдаёт маршрут одного студента.
+      const listedRow = (await overview.json()).students.find(
         (s) => s.id === e.studentId,
-      ).records;
+      );
+      assert.equal("records" in listedRow, false);
+      const card = await (
+        await request("/api/admin/students/" + e.studentId)
+      ).json();
+      assert.equal(listedRow.recordCount, card.records.length);
+      // В карточке – все занятия: дата, дисциплина, преподаватель, отметка; новые сверху.
+      const listed = card.records;
       assert.deepEqual(listed[0], {
         date: "2026-09-09",
         course: e.course,

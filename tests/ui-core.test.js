@@ -73,3 +73,60 @@ test("Журнал и кабинет берут служебные функци�
       );
   }
 });
+
+test("Реестр: «Занятия: N» подгружает занятия студента один раз, повторный клик сворачивает", async () => {
+  const dom = new JSDOM(
+    '<table><tr><td><button data-records="s 1" aria-expanded="false">Занятия: 2</button></td></tr><tr class="records-row" id="records-s 1" hidden><td colspan="4"></td></tr></table>',
+    { url: "http://localhost" },
+  );
+  globalThis.window = dom.window;
+  globalThis.document = dom.window.document;
+  const { toggleRecords } = await import("../public/ui-core.js");
+  const requests = [];
+  let answer;
+  const api = (path) => {
+    requests.push(path);
+    return new Promise((resolve, reject) => (answer = { resolve, reject }));
+  };
+  const render = (records) =>
+    records.map((r) => `<div class="record">${r.course}</div>`).join("");
+  const button = document.querySelector("[data-records]"),
+    row = document.getElementById("records-s 1");
+  button.onclick = () => toggleRecords(button, { api, render });
+
+  // Ошибка: понятный текст в строке, следующее раскрытие пробует снова.
+  button.click();
+  assert.equal(row.hidden, false);
+  assert.equal(row.textContent, "Загрузка…");
+  answer.reject(Error("Студент не относится к вашим программам и курсам"));
+  await new Promise((r) => setTimeout(r));
+  assert.match(row.textContent, /не относится к вашим программам/);
+  button.click();
+  assert.equal(row.hidden, true);
+
+  button.click();
+  assert.deepEqual(requests, [
+    "/api/admin/students/s%201",
+    "/api/admin/students/s%201",
+  ]);
+  assert.equal(button.getAttribute("aria-expanded"), "true");
+  answer.resolve({ records: [{ course: "Право" }, { course: "Логика" }] });
+  await new Promise((r) => setTimeout(r));
+  assert.equal(row.querySelectorAll(".record").length, 2);
+  assert.match(row.textContent, /Право.*Логика/);
+
+  // Свернуть и раскрыть снова – без нового запроса, с теми же занятиями.
+  button.click();
+  assert.equal(row.hidden, true);
+  assert.equal(button.getAttribute("aria-expanded"), "false");
+  button.click();
+  assert.equal(row.hidden, false);
+  assert.equal(row.querySelectorAll(".record").length, 2);
+  assert.equal(requests.length, 2);
+});
+
+test("Реестр подгружает занятия через общий toggleRecords, а не из обзора", () => {
+  const src = readFileSync("public/app.js", "utf8");
+  assert.ok(/toggleRecords\(/.test(src));
+  assert.ok(!/s\.records\b/.test(src));
+});

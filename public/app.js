@@ -19,6 +19,7 @@ import {
   residenceLabels,
   inRussiaLabels,
   housingLabels,
+  toggleRecords,
 } from "./ui-core.js";
 const $ = (s) => document.querySelector(s),
   root = $("#app");
@@ -556,6 +557,14 @@ const matchesFilter = (s, id) =>
                 : id === "unmarked"
                   ? !s.marked
                   : true;
+// Занятия студента в раскрытой строке реестра; новые сверху, как отдаёт сервер.
+const recordsHtml = (records) =>
+  records
+    .map(
+      (r) =>
+        `<div class="record"><div>${esc(r.course || "Без дисциплины")}<small>${fmtDate(r.date)} · ${esc(r.teacher || "Преподаватель")}</small></div><span class="pill ${r.status === "present" ? "green" : "red"}">${labels[r.status]}</span></div>`,
+    )
+    .join("");
 function renderAdminRows() {
   // Поиск, программа, курс и ответственность сужают базу; вкладки показывают счётчики по этой базе.
   const base = overview.students.filter(
@@ -606,7 +615,7 @@ function renderAdminRows() {
         .slice(tablePage * 20, (tablePage + 1) * 20)
         .map(
           (s) =>
-            `<tr><td><button class="student-link" data-profile="${s.id}">${esc(s.name)}</button><div class="student-sub">${esc(s.program || "Программа не указана")}${s.year ? " · " + s.year + " курс" : ""}<br>${esc(s.manager?.name || "Менеджер не назначен")}<br>${s.foreignStatus === "confirmed" ? "Иностранный статус подтверждён" : s.foreignStatus === "excluded" ? "Не входит в иностранный контингент" : "Иностранный статус не проверен"}</div></td><td>${s.attendance === null ? '<span class="muted">Нет отметок</span>' : s.attendance + "%"}${s.records.length ? `<br><button class="student-link records-toggle" data-records="${s.id}" aria-expanded="false">Занятия: ${s.records.length}</button>` : ""}</td><td><span class="pill ${s.absenceAlert ? "red" : ""}">${s.days} уч. дн.</span></td><td>${s.procedureOverdue ? `<span class="pill red">Просрочено: ${s.procedureOverdue}</span>` : ""}${s.procedureReview ? `<div class="student-sub">На проверке: ${s.procedureReview}</div>` : ""}${s.procedureUnknown ? `<div class="student-sub">Нет данных: ${s.procedureUnknown}</div>` : !s.procedureOverdue && !s.procedureReview ? '<span class="muted">Нет просрочек</span>' : ""}</td></tr>${s.records.length ? `<tr class="records-row" id="records-${s.id}" hidden><td colspan="4">${s.records.map((r) => `<div class="record"><div>${esc(r.course || "Без дисциплины")}<small>${fmtDate(r.date)} · ${esc(r.teacher || "Преподаватель")}</small></div><span class="pill ${r.status === "present" ? "green" : "red"}">${labels[r.status]}</span></div>`).join("")}</td></tr>` : ""}`,
+            `<tr><td><button class="student-link" data-profile="${s.id}">${esc(s.name)}</button><div class="student-sub">${esc(s.program || "Программа не указана")}${s.year ? " · " + s.year + " курс" : ""}<br>${esc(s.manager?.name || "Менеджер не назначен")}<br>${s.foreignStatus === "confirmed" ? "Иностранный статус подтверждён" : s.foreignStatus === "excluded" ? "Не входит в иностранный контингент" : "Иностранный статус не проверен"}</div></td><td>${s.attendance === null ? '<span class="muted">Нет отметок</span>' : s.attendance + "%"}${s.recordCount ? `<br><button class="student-link records-toggle" data-records="${s.id}" aria-expanded="false">Занятия: ${s.recordCount}</button>` : ""}</td><td><span class="pill ${s.absenceAlert ? "red" : ""}">${s.days} уч. дн.</span></td><td>${s.procedureOverdue ? `<span class="pill red">Просрочено: ${s.procedureOverdue}</span>` : ""}${s.procedureReview ? `<div class="student-sub">На проверке: ${s.procedureReview}</div>` : ""}${s.procedureUnknown ? `<div class="student-sub">Нет данных: ${s.procedureUnknown}</div>` : !s.procedureOverdue && !s.procedureReview ? '<span class="muted">Нет просрочек</span>' : ""}</td></tr>${s.recordCount ? `<tr class="records-row" id="records-${s.id}" hidden><td colspan="4"></td></tr>` : ""}`,
         )
         .join("")
     : '<tr><td colspan="4"><div class="empty"><h3>Студенты не найдены</h3><p>Проверьте фильтры. Нераспределённые студенты находятся во всём реестре.</p></div></td></tr>';
@@ -627,12 +636,7 @@ function renderAdminRows() {
     (b) => (b.onclick = () => safe(() => profile(b.dataset.profile))),
   );
   $$("[data-records]").forEach(
-    (b) =>
-      (b.onclick = () => {
-        const row = document.getElementById("records-" + b.dataset.records);
-        row.hidden = !row.hidden;
-        b.setAttribute("aria-expanded", String(!row.hidden));
-      }),
+    (b) => (b.onclick = () => toggleRecords(b, { api, render: recordsHtml })),
   );
 }
 // Руководство добавляет студента, которого нет в импортированном реестре, и привязывает его к преподавателям.

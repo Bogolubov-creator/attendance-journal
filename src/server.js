@@ -1208,7 +1208,7 @@ function enrollmentsOf(field, id) {
 }
 // Без аргумента – все студенты реестра, с id – только этот (для карточки).
 function studentRows(only) {
-  const records = groupBy(attendanceRecords(db, only), "studentId"),
+  const records = groupBy(attendanceRecords(db, only, true), "studentId"),
     debts = groupBy(all("SELECT * FROM debts"), "studentId", only),
     teacherNames = new Map(roster.teachers.map((t) => [t.id, t.name]));
   const students =
@@ -1235,15 +1235,21 @@ function studentRows(only) {
         ...new Set(enrollmentsOf("studentId", s.id).map((e) => e.teacherId)),
       ],
       ...studentMetrics(own, debts.get(s.id) || []),
-      // Где и на каких занятиях был студент: новые отметки сверху.
-      records: own
-        .sort((a, b) => b.date.localeCompare(a.date))
-        .map((r) => ({
-          date: r.date,
-          course: r.course,
-          teacher: teacherNames.get(r.teacherId),
-          status: r.status,
-        })),
+      // Где и на каких занятиях был студент: новые отметки сверху. Для всего реестра
+      // (обзор, CSV) – только число: список весит мегабайты, интерфейс берёт его из
+      // карточки при раскрытии строки.
+      ...(only === undefined
+        ? { recordCount: own.length }
+        : {
+            records: own
+              .sort((a, b) => b.date.localeCompare(a.date))
+              .map((r) => ({
+                date: r.date,
+                course: r.course,
+                teacher: teacherNames.get(r.teacherId),
+                status: r.status,
+              })),
+          }),
     };
   });
 }

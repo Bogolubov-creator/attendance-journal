@@ -64,6 +64,27 @@ export async function safe(fn) {
     toast(e.message, true);
   }
 }
+// Строка «Занятия: N» в реестре: занятия студента берутся из его карточки при
+// первом раскрытии; дальше строка только сворачивается и раскрывается.
+export async function toggleRecords(button, { api, render }) {
+  const row = document.getElementById("records-" + button.dataset.records),
+    open = row.hidden;
+  row.hidden = !open;
+  button.setAttribute("aria-expanded", String(open));
+  if (!open || row.dataset.loaded) return;
+  row.dataset.loaded = "true";
+  const cell = row.firstElementChild;
+  cell.textContent = "Загрузка…";
+  try {
+    const data = await api(
+      "/api/admin/students/" + encodeURIComponent(button.dataset.records),
+    );
+    cell.innerHTML = render(data.records);
+  } catch (e) {
+    delete row.dataset.loaded;
+    cell.textContent = e.message || "Не удалось загрузить занятия";
+  }
+}
 // Статусы требования – одна подпись в карточке сотрудника и в кабинете студента.
 export const procedureLabels = {
   unknown: "Нет данных",
