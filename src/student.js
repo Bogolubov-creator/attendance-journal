@@ -57,6 +57,7 @@ export function registerStudent(
     Object.assign(new Error(message), { status });
   const run = (sql, ...a) => db.prepare(sql).run(...a);
   const get = (sql, ...a) => db.prepare(sql).get(...a);
+  const all = (sql, ...a) => db.prepare(sql).all(...a);
   // Присланное студентом имя только показывается при скачивании – в путь на диске оно не попадает.
   const cleanName = (raw) => {
     let decoded;
@@ -157,9 +158,26 @@ export function registerStudent(
       days,
     });
   });
-  app.get("/api/student/requirements", onlyStudent, (req, res) =>
-    res.json({ requirements: proceduresFor(req.studentId) }),
-  );
+  app.get("/api/student/requirements", onlyStudent, (req, res) => {
+    // Кабинету нужны свои сканы под каждым требованием – карточка сотрудника
+    // отдаёт их отдельным плоским списком, студенту удобнее по требованиям.
+    const attachments = all(
+      "SELECT id,kind,fileName,size,uploadedAt FROM attachments WHERE studentId=? ORDER BY uploadedAt",
+      req.studentId,
+    );
+    const requirements = proceduresFor(req.studentId).map((p) => ({
+      ...p,
+      attachments: attachments
+        .filter((a) => a.kind === p.id)
+        .map(({ id, fileName, size, uploadedAt }) => ({
+          id,
+          fileName,
+          size,
+          uploadedAt,
+        })),
+    }));
+    res.json({ requirements });
+  });
   app.put("/api/student/requirements/:kind", onlyStudent, (req, res) => {
     if (
       typeof req.body !== "object" ||

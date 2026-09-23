@@ -281,6 +281,41 @@ test("Сканы: загрузка, скачивание, удаление", asy
       }
     });
 
+    await t.test(
+      "Список требований показывает только свои сканы под нужным требованием",
+      async () => {
+        const mine = await (
+          await call("/api/student/requirements", { cookie })
+        ).json();
+        const registration = mine.requirements.find(
+          (r) => r.id === "registration",
+        );
+        assert.deepEqual(
+          registration.attachments.map((a) => a.id).sort(),
+          [id, secondId].sort(),
+        );
+        for (const a of registration.attachments)
+          assert.deepEqual(Object.keys(a).sort(), [
+            "fileName",
+            "id",
+            "size",
+            "uploadedAt",
+          ]);
+        // «visa» ещё не тронуто загрузками к этому месту сценария.
+        const visa = mine.requirements.find((r) => r.id === "visa");
+        assert.equal(visa.attachments.length, 0);
+        const otherCookie = await demoLogin(otherStudentId);
+        const theirs = await (
+          await call("/api/student/requirements", { cookie: otherCookie })
+        ).json();
+        assert.equal(
+          theirs.requirements.find((r) => r.id === "registration").attachments
+            .length,
+          0,
+        );
+      },
+    );
+
     await t.test("Свой файл выдаётся вложением", async () => {
       const r = await fetch(origin + "/api/attachments/" + id, {
         headers: { origin, cookie },

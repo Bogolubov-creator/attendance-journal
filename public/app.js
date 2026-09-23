@@ -137,13 +137,15 @@ const brand =
 const search = (id, placeholder, value = "") =>
   `<div class="search"><input id="${id}" type="search" placeholder="${placeholder}" aria-label="${placeholder}" value="${esc(value)}"></div>`;
 function loginView() {
-  root.innerHTML = `<div class="login"><section class="login-art">${brand}<div><h2 class="login-title">Журнал<br>посещаемости</h2><p>Факультет права НИУ ВШЭ</p></div><small>Посещаемость · Студенты · Документы</small></section><section class="login-main"><div class="login-box"><div class="eyebrow">Факультет права</div><h1>Вход в журнал</h1>${session.selection ? `<form id="select-login" class="access-form"><label for="login-role">Роль</label><select id="login-role"><option value="teacher">Преподаватель</option><option value="office">Менеджер</option><option value="admin">Полный доступ</option></select><label for="person-search">Поиск сотрудника</label><input id="person-search" type="search" placeholder="Начните вводить фамилию"><label for="login-person">Сотрудник</label><select id="login-person" required></select><label for="management-password">Пароль</label><input id="management-password" type="password" autocomplete="current-password" maxlength="256" required><p id="person-scope" class="muted" aria-live="polite"></p><button class="btn primary">Открыть кабинет →</button></form><div class="login-footer">Вход по имени и паролю.${session.demo ? " Локальный просмотр: отметки сохраняются в тестовой базе." : ""}</div>` : '<a class="btn primary" href="/auth/login">Войти</a>'}</div></section></div>`;
+  root.innerHTML = `<div class="login"><section class="login-art">${brand}<div><h2 class="login-title">Журнал<br>посещаемости</h2><p>Факультет права НИУ ВШЭ</p></div><small>Посещаемость · Студенты · Документы</small></section><section class="login-main"><div class="login-box"><div class="eyebrow">Факультет права</div><h1>Вход в журнал</h1>${session.selection ? `<form id="select-login" class="access-form"><label for="login-role">Роль</label><select id="login-role"><option value="teacher">Преподаватель</option><option value="office">Менеджер</option><option value="admin">Полный доступ</option>${session.demoStudents?.length ? '<option value="student">Студент (демо-вход)</option>' : ""}</select><label for="person-search">Поиск сотрудника</label><input id="person-search" type="search" placeholder="Начните вводить фамилию"><label for="login-person">Сотрудник</label><select id="login-person" required></select><label for="management-password">Пароль</label><input id="management-password" type="password" autocomplete="current-password" maxlength="256" required><p id="person-scope" class="muted" aria-live="polite"></p><button class="btn primary">Открыть кабинет →</button></form><div class="login-footer">Вход по имени и паролю.${session.demo ? " Локальный просмотр: отметки сохраняются в тестовой базе." : ""}</div>` : '<a class="btn primary" href="/auth/login">Войти</a>'}</div></section></div>`;
   if (!session.selection) return;
   const updateSelection = (hint = "Выберите сотрудника из списка.") => {
     const personId = $("#login-person").value;
-    const person = [...session.teachers, ...session.managers].find(
-      (p) => p.id === personId,
-    );
+    const person = [
+      ...session.teachers,
+      ...session.managers,
+      ...(session.demoStudents || []),
+    ].find((p) => p.id === personId);
     const m = session.managers.find(
       (p) => p.id === personId && p.role === "office",
     );
@@ -170,7 +172,9 @@ function loginView() {
     const people = (
       role === "teacher"
         ? session.teachers
-        : session.managers.filter((m) => m.role === role)
+        : role === "student"
+          ? session.demoStudents || []
+          : session.managers.filter((m) => m.role === role)
     )
       .filter((p) =>
         p.name.toLocaleLowerCase("ru").replace(/ё/g, "е").includes(q),
@@ -203,15 +207,23 @@ function loginView() {
       const button = e.target.querySelector("button");
       button.disabled = true;
       try {
-        const r = await api("/api/select-login", {
-          method: "POST",
-          body: JSON.stringify({
-            role: $("#login-role").value,
-            personId: $("#login-person").value,
-            password: $("#management-password").value,
-          }),
-        });
+        const role = $("#login-role").value,
+          personId = $("#login-person").value,
+          password = $("#management-password").value;
+        const r = await api(
+          role === "student" ? "/api/demo-login" : "/api/select-login",
+          {
+            method: "POST",
+            body: JSON.stringify(
+              role === "student"
+                ? { role, studentId: personId, password }
+                : { role, personId, password },
+            ),
+          },
+        );
         user = r.user;
+        // Студент ведёт себя в своём кабинете, а не в этом приложении.
+        if (user.role === "student") return location.replace("/student.html");
         resetDailySession();
         officeScope = "all";
         officeProgram = "";
@@ -1094,9 +1106,13 @@ try {
   session = await api("/api/session");
   user = session.user;
   if (user) {
-    officeScope = "all";
-    page = user.role !== "teacher" ? "dashboard" : "journal";
-    await showApp();
+    // Роль student ведёт свой кабинет отдельно от этого приложения.
+    if (user.role === "student") location.replace("/student.html");
+    else {
+      officeScope = "all";
+      page = user.role !== "teacher" ? "dashboard" : "journal";
+      await showApp();
+    }
   } else loginView();
 } catch (e) {
   root.innerHTML =

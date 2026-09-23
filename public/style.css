@@ -2337,3 +2337,29 @@ dialog::backdrop {
     padding: 16px;
   }
 }
+
+/* Личный кабинет студента (задача 9): вкладки без модального окна, поле,
+   закрытое учебным офисом, и строка загрузки скана. */
+.cabinet-tabs {
+  margin: 0 0 20px;
+  padding: 0;
+  border-bottom: 1px solid var(--line);
+}
+.field-note {
+  display: block;
+  margin-top: 4px;
+}
+.proc-scans {
+  margin: 10px 0 14px;
+}
+.upload-row {
+  display: block;
+  margin: 14px 0 0;
+  font-size: 12px;
+}
+.upload-row input[type="file"] {
+  display: block;
+  margin-top: 6px;
+  font: inherit;
+  font-size: 12px;
+}
