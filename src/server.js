@@ -247,7 +247,7 @@ app.use((req, res, next) => {
   if (req.session?.user?.role === "student") {
     const u = req.session.user;
     const valid =
-      roster.students.some((s) => s.id === u.studentId) &&
+      cabinetOpen(u.studentId) &&
       (u.source === "demo"
         ? demo
         : studentByExternalId(u.subject) === u.studentId);
@@ -344,6 +344,8 @@ app.post("/api/demo-login", (req, res) => {
   if (role === "student") {
     const student = roster.students.find((s) => s.id === req.body.studentId);
     if (!student) throw fail(400, "Выберите студента");
+    if (!cabinetOpen(student.id))
+      throw fail(403, "Личный кабинет закрыт: обучение завершено");
     if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
     const user = {
       id: student.id,
@@ -428,6 +430,7 @@ app.get("/auth/callback", async (req, res) => {
       studentId && roster.students.find((s) => s.id === studentId);
     // Студент попадает на экран входа с объяснением, а не на голый JSON.
     if (!student) return res.redirect("/?error=unlinked");
+    if (!cabinetOpen(studentId)) return res.redirect("/?error=closed");
     session(res, {
       user: {
         id: studentId,
@@ -488,6 +491,16 @@ function studentByExternalId(externalId) {
     get("SELECT studentId FROM student_accounts WHERE externalId=?", externalId)
       ?.studentId || null
   );
+}
+// Кабинет открыт студенту из реестра, пока он не выпустился и не отчислен.
+// Академический отпуск доступ не закрывает (решение владельца 23.09.2026).
+function cabinetOpen(studentId) {
+  if (!roster.students.some((s) => s.id === studentId)) return false;
+  const status = JSON.parse(
+    get("SELECT data FROM student_profiles WHERE studentId=?", studentId)
+      ?.data || "{}",
+  ).enrollmentStatus;
+  return !["graduated", "withdrawn"].includes(status);
 }
 function proceduresFor(id) {
   const rows = all("SELECT kind,data FROM procedures WHERE studentId=?", id),
