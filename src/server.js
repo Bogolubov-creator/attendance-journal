@@ -1,5 +1,7 @@
 import { csvCell } from "./csv.js";
 import { registerDaily, attendanceRecords } from "./daily.js";
+import { registerStudent } from "./student.js";
+import { attachmentPath, attachmentLabel } from "./attachments.js";
 import { verifyPassword } from "./management-auth.js";
 import { parseRoster, planImport, applyImport } from "./roster-import.js";
 import express from "express";
@@ -50,11 +52,15 @@ db.exec(
   "PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS service_state(key TEXT PRIMARY KEY,value TEXT);",
 );
 db.exec(`CREATE TABLE IF NOT EXISTS student_profiles(studentId TEXT PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS student_accounts(externalId TEXT PRIMARY KEY, studentId TEXT NOT NULL, linkedAt TEXT NOT NULL, linkedBy TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS procedures(studentId TEXT, kind TEXT, data TEXT NOT NULL, PRIMARY KEY(studentId,kind));
 CREATE TABLE IF NOT EXISTS roster_additions(id TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS roster_students(id TEXT PRIMARY KEY, name TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS roster_teachers(id TEXT PRIMARY KEY, name TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS roster_enrollments(studentId TEXT NOT NULL, teacherId TEXT NOT NULL, grp TEXT NOT NULL, course TEXT NOT NULL, kind TEXT NOT NULL);`);
+CREATE TABLE IF NOT EXISTS roster_enrollments(studentId TEXT NOT NULL, teacherId TEXT NOT NULL, grp TEXT NOT NULL, course TEXT NOT NULL, kind TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS attachments(id TEXT PRIMARY KEY, studentId TEXT NOT NULL, kind TEXT NOT NULL, fileName TEXT NOT NULL, storedName TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL, uploadedAt TEXT NOT NULL, uploadedBy TEXT NOT NULL);`);
+// Куда складываются сканы студентов; читается один раз здесь, маршруты получают путь готовым.
+const uploadDir = process.env.UPLOAD_DIR || "data/uploads";
 const get = (sql, ...a) => db.prepare(sql).get(...a),
   all = (sql, ...a) => db.prepare(sql).all(...a),
   run = (sql, ...a) => db.prepare(sql).run(...a);
@@ -137,6 +143,13 @@ const registryActions = [
   "enrollment.delete",
   "roster.import",
   "year.rollover",
+  "account.link",
+  "account.unlink",
+  "student.profile",
+  "student.requirement",
+  "attachment.add",
+  "attachment.view",
+  "attachment.delete",
 ];
 let accounts = [];
 try {
@@ -231,7 +244,18 @@ app.use((req, res, next) => {
     req.session = null;
   }
 
-  if (selection && req.session?.user?.source === "selection") {
+  if (req.session?.user?.role === "student") {
+    const u = req.session.user;
+    const valid =
+      roster.students.some((s) => s.id === u.studentId) &&
+      (u.source === "demo"
+        ? demo
+        : studentByExternalId(u.subject) === u.studentId);
+    if (!valid) {
+      run("DELETE FROM sessions WHERE id=?", req.sessionKey);
+      req.session = null;
+    }
+  } else if (selection && req.session?.user?.source === "selection") {
     const u = req.session.user;
     const valid =
       u.role === "teacher"
@@ -292,6 +316,7 @@ app.get("/api/session", (req, res) =>
     demo: demo && process.env.DATA_MODE !== "live",
     oidcReady: !!(process.env.OIDC_ISSUER && process.env.OIDC_CLIENT_ID),
     demoTeachers: demo ? roster.teachers : [],
+    demoStudents: demo ? roster.students : [],
     selection,
     teachers: selection ? roster.teachers : [],
     managers: selection ? managers : [],
@@ -316,6 +341,20 @@ app.post("/api/demo-login", (req, res) => {
   if (!demo) return res.sendStatus(404);
   const role = req.body.role;
   checkManagementPassword(req);
+  if (role === "student") {
+    const student = roster.students.find((s) => s.id === req.body.studentId);
+    if (!student) throw fail(400, "Выберите студента");
+    if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
+    const user = {
+      id: student.id,
+      name: student.name,
+      role: "student",
+      studentId: student.id,
+      source: "demo",
+    };
+    session(res, { user, managementVersion });
+    return res.json({ user });
+  }
   const teacher = roster.teachers.find((t) => t.id === req.body.teacherId);
   if (role !== "admin" && !teacher) throw fail(400, "Выберите преподавателя");
   if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
@@ -382,10 +421,28 @@ app.get("/auth/callback", async (req, res) => {
   const account = accounts.find(
     (a) => a.email.toLowerCase() === email && a.subject === claims.sub,
   );
+  if (!account) {
+    // Студенты входят по @edu.hse.ru – проверка домена почты им не требуется.
+    const studentId = studentByExternalId(claims.sub);
+    const student =
+      studentId && roster.students.find((s) => s.id === studentId);
+    // Студент попадает на экран входа с объяснением, а не на голый JSON.
+    if (!student) return res.redirect("/?error=unlinked");
+    session(res, {
+      user: {
+        id: studentId,
+        name: student.name,
+        role: "student",
+        studentId,
+        source: "oidc",
+        subject: claims.sub,
+      },
+    });
+    return res.redirect("/");
+  }
   if (
     claims.email_verified !== true ||
     !email.endsWith("@hse.ru") ||
-    !account ||
     !["admin", "teacher"].includes(account.role)
   )
     throw fail(
@@ -411,6 +468,7 @@ app.get("/auth/callback", async (req, res) => {
 });
 app.use("/api", auth);
 registerDaily(app, { db, roster, auth, admin, studentProfile, audit });
+registerStudent(app, { db, studentProfile, audit, proceduresFor, uploadDir });
 app.use("/api/admin", admin);
 function studentProfile(id) {
   const base = roster.students.find((s) => s.id === id);
@@ -422,6 +480,14 @@ function studentProfile(id) {
         "{}",
     ),
   };
+}
+// Привязка живёт отдельной таблицей: обновление реестра из Excel пересобирает
+// записи студентов, а связь с учётной записью обязана это пережить.
+function studentByExternalId(externalId) {
+  return (
+    get("SELECT studentId FROM student_accounts WHERE externalId=?", externalId)
+      ?.studentId || null
+  );
 }
 function proceduresFor(id) {
   const rows = all("SELECT kind,data FROM procedures WHERE studentId=?", id),
@@ -792,6 +858,21 @@ app.delete("/api/admin/students/:id", (req, res) => {
       409,
       "У студента есть отметки. Вместо удаления смените статус обучения в карточке",
     );
+  // ID производится от ФИО: удалённая вместе с записью привязка или сканы
+  // достались бы новому студенту с тем же ФИО. Сканы удаляются только вручную.
+  const linked = get("SELECT 1 FROM student_accounts WHERE studentId=?", id),
+    scans = get("SELECT 1 FROM attachments WHERE studentId=?", id);
+  if (linked || scans)
+    throw fail(
+      409,
+      "Сначала " +
+        [
+          linked && "отвяжите учётную запись ВШЭ",
+          scans && "удалите приложенные сканы",
+        ]
+          .filter(Boolean)
+          .join(" и "),
+    );
   db.exec("BEGIN IMMEDIATE");
   try {
     for (const table of [
@@ -978,6 +1059,68 @@ app.put("/api/admin/students/:id/profile", (req, res) => {
   audit(req.session.user, "student.profile", req.params.id);
   res.json({ ok: true, version: data.version, manager: managerFor(data) });
 });
+app.put("/api/admin/students/:id/account", (req, res) => {
+  editable(req, req.params.id);
+  const externalId =
+    typeof req.body.externalId === "string" ? req.body.externalId.trim() : "";
+  if (!externalId || externalId.length > 200)
+    throw fail(400, "Укажите идентификатор учётной записи");
+  const taken = studentByExternalId(externalId);
+  if (taken && taken !== req.params.id)
+    throw fail(409, "Эта учётная запись уже связана с другим студентом");
+  run("DELETE FROM student_accounts WHERE studentId=?", req.params.id);
+  run(
+    "INSERT INTO student_accounts VALUES(?,?,?,?)",
+    externalId,
+    req.params.id,
+    new Date().toISOString(),
+    req.session.user.name,
+  );
+  audit(req.session.user, "account.link", req.params.id, externalId);
+  res.json({ ok: true });
+});
+app.delete("/api/admin/students/:id/account", (req, res) => {
+  editable(req, req.params.id);
+  run("DELETE FROM student_accounts WHERE studentId=?", req.params.id);
+  audit(req.session.user, "account.unlink", req.params.id);
+  res.json({ ok: true });
+});
+// Сотрудник снимает скан независимо от состояния требования – в отличие от
+// студенческого маршрута в src/student.js, который блокирует это после подтверждения.
+app.delete("/api/admin/attachments/:id", (req, res) => {
+  const row = get("SELECT * FROM attachments WHERE id=?", req.params.id);
+  if (!row) throw fail(404, "Файл не найден");
+  editable(req, row.studentId);
+  rmSync(attachmentPath(uploadDir, row.studentId, row.storedName), {
+    force: true,
+  });
+  run("DELETE FROM attachments WHERE id=?", req.params.id);
+  audit(
+    req.session.user,
+    "attachment.delete",
+    row.studentId + ":" + row.id,
+    attachmentLabel(studentProfile(row.studentId).name, row),
+  );
+  res.json({ ok: true });
+});
+app.get("/api/admin/students-without-account", (req, res) => {
+  registryStaff(req);
+  const linked = new Set(
+    all("SELECT studentId FROM student_accounts").map((r) => r.studentId),
+  );
+  const students = roster.students
+    .map((s) => studentProfile(s.id))
+    .filter((s) => !linked.has(s.id))
+    .filter((s) => canSeeStudent(req.session.user, s))
+    .map((s) => ({
+      id: s.id,
+      name: s.name,
+      program: s.program || "",
+      year: s.year || 0,
+      manager: managerFor(s),
+    }));
+  res.json({ students });
+});
 app.put("/api/admin/students/:id/procedures/:kind", (req, res) => {
   editable(req, req.params.id);
   if (!procedureCatalog.some((c) => c.id === req.params.kind))
@@ -1018,6 +1161,8 @@ app.put("/api/admin/students/:id/procedures/:kind", (req, res) => {
     completedAt,
     note: note.trim(),
     checkedBy: req.session.user.name,
+    submittedBy: "staff",
+    submittedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
   run(
@@ -1123,12 +1268,21 @@ app.get("/api/admin/students/:id", (req, res) => {
   if (!student) throw fail(404, "Студент не найден");
   if (!canSeeStudent(req.session.user, student))
     throw fail(403, "Студент не относится к вашим программам и курсам");
+  const account = get(
+    "SELECT externalId,linkedAt,linkedBy FROM student_accounts WHERE studentId=?",
+    student.id,
+  );
   res.json({
     student,
     canEdit: canEditStudent(req.session.user, student),
     programs,
     procedures: proceduresFor(student.id),
     records: student.records,
+    account: account || null,
+    attachments: all(
+      "SELECT id,kind,fileName,size,uploadedAt,uploadedBy FROM attachments WHERE studentId=? ORDER BY uploadedAt",
+      student.id,
+    ),
     debts: all(
       "SELECT * FROM debts WHERE studentId=? ORDER BY createdAt DESC",
       student.id,

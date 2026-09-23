@@ -193,6 +193,16 @@ test("Чистая установка без данных: сервер рабо
     });
     assert.equal(empty.status, 400);
     assert.match(await empty.text(), /Загрузите файл .xlsx/);
+    // Без демо-режима вход студентом (как и вход преподавателем) недоступен.
+    const studentLogin = await proxyFetch(
+      "http://127.0.0.1:3111/api/demo-login",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ role: "student", studentId: "s_1" }),
+      },
+    );
+    assert.equal(studentLogin.status, 404);
   } finally {
     child.kill("SIGTERM");
     await new Promise((r) => child.once("exit", r));
