@@ -7,6 +7,19 @@ import {
   isDailySaving,
 } from "./daily.js";
 import { registryView } from "./registry.js";
+import {
+  esc,
+  fmtSize,
+  createApi,
+  toast,
+  safe,
+  procedureLabels,
+  foreignStatusLabels,
+  enrollmentStatusLabels,
+  residenceLabels,
+  inRussiaLabels,
+  housingLabels,
+} from "./ui-core.js";
 const $ = (s) => document.querySelector(s),
   root = $("#app");
 const roleLabel = (role) =>
@@ -15,14 +28,6 @@ const roleLabel = (role) =>
     : role === "office"
       ? "Менеджер"
       : "Преподаватель";
-const esc = (s) =>
-  String(s ?? "").replace(
-    /[&<>"']/g,
-    (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        c
-      ],
-  );
 const labels = { present: "Присутствовал(а)", absent: "Отсутствовал(а)" };
 let session,
   user,
@@ -30,7 +35,6 @@ let session,
   overview,
   filter = "all",
   query = "",
-  toastTimer,
   tablePage = 0,
   // Сортировка таблицы студентов: default – тревоги и просрочки сверху.
   sortKey = "default",
@@ -47,50 +51,11 @@ const plural = (n, forms) =>
         ? 1
         : 2
   ];
-async function api(path, options = {}) {
-  const r = await fetch(path, {
-    signal: AbortSignal.timeout(25000),
-    ...options,
-    headers: { "Content-Type": "application/json", ...options.headers },
-  });
-  let data;
-  try {
-    data = await r.json();
-  } catch {
-    throw Error("Сервер недоступен. Повторите запрос.");
-  }
-  if (!r.ok) {
-    if (r.status === 401) {
-      user = null;
-      resetDailySession();
-      loginView();
-    }
-    throw Object.assign(Error(data.error || "Не удалось выполнить запрос"), {
-      status: r.status,
-    });
-  }
-  return data;
-}
-// Ошибка остаётся на экране, пока её не закроют; обычное уведомление исчезает само.
-function toast(message, error = false) {
-  const el = $("#toast");
-  el.innerHTML =
-    `<span>${esc(message)}</span>` +
-    (error
-      ? '<button type="button" class="toast-close" aria-label="Закрыть уведомление">×</button>'
-      : "");
-  el.className = "show" + (error ? " error" : "");
-  el.setAttribute("role", error ? "alert" : "status");
-  // Popover живёт в верхнем слое, поэтому уведомление видно и поверх модальных окон.
-  const hide = () => {
-    el.className = "";
-    if (el.matches(":popover-open")) el.hidePopover();
-  };
-  if (el.showPopover && !el.matches(":popover-open")) el.showPopover();
-  clearTimeout(toastTimer);
-  if (error) el.querySelector(".toast-close").onclick = hide;
-  else toastTimer = setTimeout(hide, 5500);
-}
+const api = createApi(() => {
+  user = null;
+  resetDailySession();
+  loginView();
+});
 // Иконки навигации: один набор, штрих 1,5, 20 px.
 const iconPaths = {
   overview:
@@ -109,23 +74,12 @@ const icon = (name) =>
 // Каркас страницы на время загрузки: заголовок, показатели, строки таблицы.
 const skeleton = () =>
   `<div class="skeleton" aria-busy="true" aria-label="Загружаем данные"><div class="bar w40 h28"></div><div class="bar w70"></div><div class="skeleton-metrics">${'<div class="bar h72"></div>'.repeat(4)}</div>${'<div class="bar h56"></div>'.repeat(5)}</div>`;
-async function safe(fn) {
-  try {
-    await fn();
-  } catch (e) {
-    toast(e.message, true);
-  }
-}
 function fmtDate(d, options = { day: "numeric", month: "long" }) {
   return new Intl.DateTimeFormat("ru-RU", {
     ...options,
     timeZone: "Europe/Moscow",
   }).format(new Date(d.length === 10 ? d + "T12:00:00+03:00" : d));
 }
-const fmtSize = (n) =>
-  n < 1024 * 1024
-    ? Math.round(n / 1024) + " КБ"
-    : (n / 1024 / 1024).toFixed(1) + " МБ";
 const initials = (n) =>
   n
     .split(" ")
@@ -343,15 +297,6 @@ async function showApp() {
   overview = await api("/api/admin/overview");
   adminView();
 }
-const procedureLabels = {
-  unknown: "Нет данных",
-  pending: "Не выполнено",
-  submitted: "На проверке",
-  confirmed: "Подтверждено",
-  exempt: "Не требуется",
-  overdue: "Просрочено",
-  expired: "Истёк срок действия",
-};
 let officeScope = "all",
   officeProgram = "",
   officeYear = "",
@@ -837,47 +782,7 @@ async function profile(id) {
           ? "не требуется"
           : "";
   d.innerHTML = `<div class="dialog-sticky"><div class="dialog-head"><div><div class="eyebrow">Карточка студента</div><h2>${esc(s.name)}</h2></div><button class="btn small" id="close-profile" aria-label="Закрыть карточку">×</button></div><nav class="card-tabs" role="tablist" aria-label="Разделы карточки"><button role="tab" data-tab="lessons">Занятия <span class="count">${data.links.length}</span></button><button role="tab" data-tab="data">Данные</button><button role="tab" data-tab="requirements">Требования${overdueCount ? ` <span class="count red">${overdueCount}</span>` : ""}</button><button role="tab" data-tab="attendance">Посещаемость</button></nav></div><div class="dialog-body"><p id="student-assignment">${esc(s.manager?.name || "Менеджер не назначен")} · ${esc(s.program || "Программа не указана")} ${s.year ? "· " + s.year + " курс" : ""}</p>${!data.canEdit ? '<div class="notice">Просмотр. Изменения доступны менеджеру программы и курса или руководству.</div>' : ""}
-  <section class="card-tab" data-tab="data"><details ${!s.program || !s.year ? "open" : ""}><summary>Контингент и распределение</summary>${!s.program || !s.year ? '<p class="notice warn">Без программы и курса студент не закреплён за менеджером и не попадает в его список.</p>' : ""}<form id="student-profile" class="profile-form"><fieldset ${user.role !== "admin" ? "disabled" : ""}><label>Программа<select name="program">${options([["", "Не указана"], ...data.programs.map((p) => [p, p])], s.program)}</select></label><label>Курс<select name="year">${options([[0, "Не указан"], ...[1, 2, 3, 4, 5, 6].map((y) => [y, y])], s.year || 0)}</select></label><label>Иностранный контингент<select name="foreignStatus">${options(
-    [
-      ["unknown", "Не проверено"],
-      ["confirmed", "Подтверждён"],
-      ["excluded", "Не входит"],
-    ],
-    s.foreignStatus || "unknown",
-  )}</select></label><label>Обучение<select name="enrollmentStatus">${options(
-    [
-      ["active", "Обучается"],
-      ["leave", "Академический отпуск"],
-      ["graduated", "Выпускник"],
-      ["withdrawn", "Отчислен"],
-    ],
-    s.enrollmentStatus || "active",
-  )}</select></label><label>Гражданство<input name="citizenship" maxlength="100" value="${esc(s.citizenship)}"></label><label>Последний въезд в РФ<input type="date" name="arrivalDate" value="${esc(s.arrivalDate)}"></label><label>Основание пребывания<select name="residence">${options(
-    [
-      ["", "Не указано"],
-      ["visa", "Виза"],
-      ["visa_free", "Безвизовый въезд"],
-      ["rvp", "РВП"],
-      ["rvpo", "РВПО"],
-      ["residence_permit", "ВНЖ"],
-      ["other", "Другое"],
-    ],
-    s.residence,
-  )}</select></label><label>Находится в РФ<select name="inRussia">${options(
-    [
-      ["", "Не указано"],
-      ["yes", "Да"],
-      ["no", "Нет"],
-    ],
-    s.inRussia,
-  )}</select></label><label>Проживание<select name="housing">${options(
-    [
-      ["", "Не указано"],
-      ["dormitory", "Общежитие"],
-      ["private", "Частный адрес"],
-    ],
-    s.housing,
-  )}</select></label><label>Куратор по миграционному учёту<input name="curator" maxlength="200" value="${esc(s.curator)}"></label><label>Паспорт действителен до<input type="date" name="passportUntil" value="${esc(s.passportUntil)}"></label><label>Миграционная карта до<input type="date" name="migrationCardUntil" value="${esc(s.migrationCardUntil)}"></label><label>ФИО латиницей<input name="nameLatin" maxlength="200" value="${esc(s.nameLatin)}"></label><label>Страна, направившая на обучение<input name="sendingCountry" maxlength="200" value="${esc(s.sendingCountry)}"></label><label class="wide">Версия образовательной программы<input name="programVersion" maxlength="200" value="${esc(s.programVersion)}"></label><button class="btn primary small">Сохранить данные студента</button></fieldset></form></details><h3>Учётная запись ВШЭ</h3>${
+  <section class="card-tab" data-tab="data"><details ${!s.program || !s.year ? "open" : ""}><summary>Контингент и распределение</summary>${!s.program || !s.year ? '<p class="notice warn">Без программы и курса студент не закреплён за менеджером и не попадает в его список.</p>' : ""}<form id="student-profile" class="profile-form"><fieldset ${user.role !== "admin" ? "disabled" : ""}><label>Программа<select name="program">${options([["", "Не указана"], ...data.programs.map((p) => [p, p])], s.program)}</select></label><label>Курс<select name="year">${options([[0, "Не указан"], ...[1, 2, 3, 4, 5, 6].map((y) => [y, y])], s.year || 0)}</select></label><label>Иностранный контингент<select name="foreignStatus">${options(Object.entries(foreignStatusLabels), s.foreignStatus || "unknown")}</select></label><label>Обучение<select name="enrollmentStatus">${options(Object.entries(enrollmentStatusLabels), s.enrollmentStatus || "active")}</select></label><label>Гражданство<input name="citizenship" maxlength="100" value="${esc(s.citizenship)}"></label><label>Последний въезд в РФ<input type="date" name="arrivalDate" value="${esc(s.arrivalDate)}"></label><label>Основание пребывания<select name="residence">${options(Object.entries(residenceLabels), s.residence)}</select></label><label>Находится в РФ<select name="inRussia">${options(Object.entries(inRussiaLabels), s.inRussia)}</select></label><label>Проживание<select name="housing">${options(Object.entries(housingLabels), s.housing)}</select></label><label>Куратор по миграционному учёту<input name="curator" maxlength="200" value="${esc(s.curator)}"></label><label>Паспорт действителен до<input type="date" name="passportUntil" value="${esc(s.passportUntil)}"></label><label>Миграционная карта до<input type="date" name="migrationCardUntil" value="${esc(s.migrationCardUntil)}"></label><label>ФИО латиницей<input name="nameLatin" maxlength="200" value="${esc(s.nameLatin)}"></label><label>Страна, направившая на обучение<input name="sendingCountry" maxlength="200" value="${esc(s.sendingCountry)}"></label><label class="wide">Версия образовательной программы<input name="programVersion" maxlength="200" value="${esc(s.programVersion)}"></label><button class="btn primary small">Сохранить данные студента</button></fieldset></form></details><h3>Учётная запись ВШЭ</h3>${
     data.account
       ? `<div class="schedule-row"><div><strong>${esc(data.account.externalId)}</strong><small>Связал(а) ${esc(data.account.linkedBy)} · ${fmtDate(data.account.linkedAt)}</small></div>${data.canEdit ? '<button type="button" class="btn small" id="account-unlink">Отвязать</button>' : ""}</div>`
       : data.canEdit
