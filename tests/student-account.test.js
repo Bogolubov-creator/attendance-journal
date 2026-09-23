@@ -5,6 +5,8 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 
 const origin = "http://127.0.0.1:3113";
 const temp = mkdtempSync(join(tmpdir(), "attendance-account-"));
@@ -141,11 +143,15 @@ test("Привязка учётной записи студента", async (t) 
       "Демо-вход студентом даёт роль student и свой id",
       async () => {
         const studentId = students.students[0].id;
-        await call("/api/admin/students/" + studentId + "/account", {
-          method: "PUT",
-          cookie: admin,
-          body: { externalId: "hse-777" },
-        });
+        const link = await call(
+          "/api/admin/students/" + studentId + "/account",
+          {
+            method: "PUT",
+            cookie: admin,
+            body: { externalId: "hse-777" },
+          },
+        );
+        assert.equal(link.status, 200, await link.clone().text());
         const r = await call("/api/demo-login", {
           method: "POST",
           body: {
@@ -184,6 +190,52 @@ test("Привязка учётной записи студента", async (t) 
       assert.equal((await call("/api/daily", { cookie })).status, 403);
     });
 
+    await t.test(
+      "Отвязка учётной записи ВШЭ обрывает OIDC-сессию студента",
+      async () => {
+        // Провайдера OIDC в тестах нет, поэтому такую сессию кладём в базу
+        // напрямую – ровно в том формате, что использует сервер.
+        const student = students.students[1]; // привязан к "hse-12345"
+        const rawToken = "test-oidc-token-" + Math.random().toString(36);
+        const sessionId = createHash("sha256").update(rawToken).digest("hex");
+        const db = new DatabaseSync(join(temp, "db.sqlite"));
+        db.exec("PRAGMA busy_timeout=5000");
+        db.prepare("INSERT INTO sessions VALUES(?,?,?)").run(
+          sessionId,
+          JSON.stringify({
+            user: {
+              id: student.id,
+              name: student.name,
+              role: "student",
+              studentId: student.id,
+              source: "oidc",
+              subject: "hse-12345",
+            },
+          }),
+          Date.now() + 8 * 3600000,
+        );
+        db.close();
+        const cookie = "journal=" + rawToken;
+
+        const before = await (await call("/api/session", { cookie })).json();
+        assert.equal(before.user?.role, "student");
+        assert.equal(before.user?.studentId, student.id);
+
+        const unlink = await call(
+          "/api/admin/students/" + student.id + "/account",
+          { method: "DELETE", cookie: admin },
+        );
+        assert.equal(unlink.status, 200, await unlink.clone().text());
+
+        const after = await (await call("/api/session", { cookie })).json();
+        assert.equal(after.user, null);
+        assert.equal(
+          (await call("/api/student/profile", { cookie })).status,
+          401,
+        );
+      },
+    );
+
     await t.test("Осиротевшая привязка не роняет сервер", async () => {
       const studentId = students.students[0].id;
       const r = await call("/api/demo-login", {
@@ -196,10 +248,11 @@ test("Привязка учётной записи студента", async (t) 
       });
       const cookie = r.headers.get("set-cookie").split(";")[0];
       // Студента удаляют из реестра: сессия ссылается на несуществующую запись.
-      await call("/api/admin/students/" + studentId, {
+      const remove = await call("/api/admin/students/" + studentId, {
         method: "DELETE",
         cookie: admin,
       });
+      assert.equal(remove.status, 200, await remove.clone().text());
       const after = await call("/api/student/profile", { cookie });
       assert.equal(after.status, 401, await after.clone().text());
     });
