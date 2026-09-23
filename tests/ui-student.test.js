@@ -203,3 +203,48 @@ test("Моя посещаемость: сводка и дни без имён п
   assert.match(text, /Право/);
   assert.doesNotMatch(text, /Преподаватель/);
 });
+
+test("Истёкшее требование: форма и загрузка открыты, подпись просит продлить документ", async () => {
+  const dom = new JSDOM('<main id="content"></main>', {
+    url: "http://localhost",
+  });
+  globalThis.window = dom.window;
+  globalThis.document = dom.window.document;
+  const student = await import("../public/student.js");
+  const esc = (s) => String(s);
+  const base = {
+    id: "visa",
+    title: "Виза и срок пребывания",
+    hint: "Подсказка",
+    source: "https://example.test/",
+    closedBy: "staff",
+    state: "confirmed",
+    completedAt: "2025-01-10",
+    validUntil: "2025-12-31",
+    version: 2,
+    attachments: [],
+  };
+  document.querySelector("#content").innerHTML =
+    await student.renderRequirements({
+      api: async () => ({
+        requirements: [{ ...base, status: "expired" }],
+      }),
+      esc,
+    });
+  assert.ok(document.querySelector('form[data-requirement="visa"]'));
+  assert.ok(document.querySelector('input[data-upload="visa"]'));
+  assert.match(document.body.textContent, /продлить/i);
+
+  // Подтверждённое и ещё действующее – по-прежнему закрыто.
+  document.querySelector("#content").innerHTML =
+    await student.renderRequirements({
+      api: async () => ({
+        requirements: [
+          { ...base, validUntil: "2099-12-31", status: "confirmed" },
+        ],
+      }),
+      esc,
+    });
+  assert.equal(document.querySelector("form[data-requirement]"), null);
+  assert.equal(document.querySelector("input[data-upload]"), null);
+});

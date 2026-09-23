@@ -7,7 +7,12 @@ import {
 } from "./office.js";
 import { moscowDate } from "./domain.js";
 import { attendanceRecords, summarizeAttendance } from "./daily.js";
-import { detectType, saveAttachment, attachmentPath } from "./attachments.js";
+import {
+  detectType,
+  saveAttachment,
+  attachmentPath,
+  attachmentLabel,
+} from "./attachments.js";
 import express from "express";
 import { randomBytes } from "node:crypto";
 import { existsSync, rmSync } from "node:fs";
@@ -198,11 +203,20 @@ export function registerStudent(
         : ["pending", "submitted"];
     if (!allowed.includes(state))
       throw fail(403, "Этот статус ставит учебный офис");
-    // Подтверждённое или снятое сотрудником требование студент откатить не может –
+    // Освобождение ставит только сотрудник – студент его не переписывает,
+    // кто бы ни закрывал требование.
+    if (previous.state === "exempt")
+      throw fail(
+        403,
+        "Учебный офис отметил, что требование не нужно, обратитесь к менеджеру",
+      );
+    // Подтверждённое сотрудником требование студент откатить не может –
     // иначе он мог бы отменить уже проверенный сотрудником результат.
+    // Исключение – истёкший срок действия: документ нужно продлить.
     if (
       rule.closedBy === "staff" &&
-      ["confirmed", "exempt"].includes(previous.state)
+      previous.state === "confirmed" &&
+      previous.status !== "expired"
     )
       throw fail(
         403,
@@ -239,6 +253,7 @@ export function registerStudent(
       req.session.user,
       "student.requirement",
       req.studentId + ":" + req.params.kind,
+      studentProfile(req.studentId).name + " – " + rule.title,
     );
     res.json({ ok: true, version: data.version });
   });
@@ -267,13 +282,14 @@ export function registerStudent(
         ext: type.ext,
       });
       const id = "a_" + randomBytes(8).toString("hex");
+      const fileName = cleanName(req.headers["x-file-name"]);
       try {
         run(
           "INSERT INTO attachments VALUES(?,?,?,?,?,?,?,?,?,?)",
           id,
           req.studentId,
           req.params.kind,
-          cleanName(req.headers["x-file-name"]),
+          fileName,
           saved.storedName,
           type.mime,
           saved.size,
@@ -288,9 +304,22 @@ export function registerStudent(
         });
         throw error;
       }
-      audit(req.session.user, "attachment.add", req.studentId + ":" + id);
+      audit(
+        req.session.user,
+        "attachment.add",
+        req.studentId + ":" + id,
+        attachmentLabel(studentProfile(req.studentId).name, {
+          kind: req.params.kind,
+          fileName,
+        }),
+      );
       res.json({ id });
     },
+    // express.raw отвечает на слишком большой файл по-английски.
+    (err, req, res, next) =>
+      next(
+        err.type === "entity.too.large" ? fail(413, "Файл больше 10 МБ") : err,
+      ),
   );
   // Общий маршрут скачивания: свой скан студенту, чужой – только менеджеру
   // программы и курса или полному доступу; преподавателю сканы не показываются.
@@ -309,12 +338,22 @@ export function registerStudent(
       attachmentPath(uploadDir, row.studentId, row.storedName),
     );
     if (!existsSync(file)) throw fail(404, "Файл отсутствует на сервере");
-    audit(user, "attachment.view", row.studentId + ":" + row.id);
+    audit(
+      user,
+      "attachment.view",
+      row.studentId + ":" + row.id,
+      attachmentLabel(studentProfile(row.studentId).name, row),
+    );
     res.set({
       "Content-Type": row.mime,
       "Cache-Control": "no-store",
       "Content-Disposition":
-        "attachment; filename*=UTF-8''" + encodeURIComponent(row.fileName),
+        "attachment; filename*=UTF-8''" +
+        // RFC 5987: encodeURIComponent оставляет ' ( ) * – кодируем и их.
+        encodeURIComponent(row.fileName).replace(
+          /['()*]/g,
+          (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase(),
+        ),
     });
     res.sendFile(file);
   });
@@ -325,14 +364,22 @@ export function registerStudent(
     const requirement = proceduresFor(req.studentId).find(
       (p) => p.id === row.kind,
     );
-    // Подтверждённое требование студент уже не разбирает: файл снимает сотрудник.
+    // Подтверждённое или освобождённое требование студент уже не разбирает:
+    // файл снимает сотрудник.
     if (requirement.state === "confirmed")
       throw fail(403, "Требование подтверждено, обратитесь к менеджеру");
+    if (requirement.state === "exempt")
+      throw fail(403, "Требование не нужно, обратитесь к менеджеру");
     rmSync(attachmentPath(uploadDir, row.studentId, row.storedName), {
       force: true,
     });
     run("DELETE FROM attachments WHERE id=?", req.params.id);
-    audit(req.session.user, "attachment.delete", req.studentId + ":" + row.id);
+    audit(
+      req.session.user,
+      "attachment.delete",
+      req.studentId + ":" + row.id,
+      attachmentLabel(studentProfile(req.studentId).name, row),
+    );
     res.json({ ok: true });
   });
 }

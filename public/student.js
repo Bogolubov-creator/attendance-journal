@@ -72,17 +72,21 @@ const housingLabels = {
 
 // Требование считается «закрытым» для правки, когда его подтвердил или
 // освободил сотрудник – студент видит только объяснение, без формы.
+// Истёкший срок действия снова открывает форму: документ нужно продлить
+// (сервер пропускает такую правку, см. PUT /api/student/requirements/:kind).
 function isLocked(r) {
   return (
-    r.state === "exempt" || (r.state === "confirmed" && r.closedBy === "staff")
+    r.state === "exempt" ||
+    (r.state === "confirmed" &&
+      r.closedBy === "staff" &&
+      r.status !== "expired")
   );
 }
 // Удаление скана сервер запрещает по своему правилу (DELETE
 // /api/student/attachments/:id в src/student.js): state==="confirmed" –
 // требование уже проверено, файл снимает сотрудник. Освобождённое
-// требование студент тоже не разбирает – хотя сервер это отдельно не
-// проверяет, кнопка на экране была бы лишней. Это НЕ то же самое, что
-// isLocked: у самозакрываемого требования (closedBy==="student") форма
+// требование (state==="exempt") сервер тоже закрывает для студента.
+// Это НЕ то же самое, что isLocked: у самозакрываемого требования (closedBy==="student") форма
 // редактирования остаётся открытой и при state==="confirmed" (студент
 // может исправить и подтвердить заново), а вот удалить уже приложенный
 // скан в этом состоянии – нельзя, сервер ответит 403.
@@ -121,6 +125,7 @@ function requirementCard(r, esc) {
     <summary><span class="proc-title">${esc(r.title)}</span><span class="pill ${pillClass}">${esc(procedureLabels[r.status] || r.status)}</span><span class="proc-date">${esc(procDateText(r))}</span><span class="proc-edit">${locked ? "" : "Изменить"}</span></summary>
     <p>${esc(r.hint)} <a href="${esc(r.source)}" target="_blank" rel="noopener">Инструкция ВШЭ ↗</a></p>
     ${(r.attachments || []).length ? `<div class="proc-scans">${r.attachments.map((a) => scanRow(a, !canDeleteAttachment(r), esc)).join("")}</div>` : ""}
+    ${r.status === "expired" ? '<p class="notice warn">Срок действия документа истёк. Нужно продлить документ: приложите новый скан и укажите новые даты.</p>' : ""}
     ${
       locked
         ? `<p class="notice">${esc(lockedExplanation(r))}</p>`

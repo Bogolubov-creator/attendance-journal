@@ -137,7 +137,13 @@ const brand =
 const search = (id, placeholder, value = "") =>
   `<div class="search"><input id="${id}" type="search" placeholder="${placeholder}" aria-label="${placeholder}" value="${esc(value)}"></div>`;
 function loginView() {
-  root.innerHTML = `<div class="login"><section class="login-art">${brand}<div><h2 class="login-title">Журнал<br>посещаемости</h2><p>Факультет права НИУ ВШЭ</p></div><small>Посещаемость · Студенты · Документы</small></section><section class="login-main"><div class="login-box"><div class="eyebrow">Факультет права</div><h1>Вход в журнал</h1>${session.selection ? `<form id="select-login" class="access-form"><label for="login-role">Роль</label><select id="login-role"><option value="teacher">Преподаватель</option><option value="office">Менеджер</option><option value="admin">Полный доступ</option>${session.demoStudents?.length ? '<option value="student">Студент (демо-вход)</option>' : ""}</select><label for="person-search">Поиск сотрудника</label><input id="person-search" type="search" placeholder="Начните вводить фамилию"><label for="login-person">Сотрудник</label><select id="login-person" required></select><label for="management-password">Пароль</label><input id="management-password" type="password" autocomplete="current-password" maxlength="256" required><p id="person-scope" class="muted" aria-live="polite"></p><button class="btn primary">Открыть кабинет →</button></form><div class="login-footer">Вход по имени и паролю.${session.demo ? " Локальный просмотр: отметки сохраняются в тестовой базе." : ""}</div>` : '<a class="btn primary" href="/auth/login">Войти</a>'}</div></section></div>`;
+  root.innerHTML = `<div class="login"><section class="login-art">${brand}<div><h2 class="login-title">Журнал<br>посещаемости</h2><p>Факультет права НИУ ВШЭ</p></div><small>Посещаемость · Студенты · Документы</small></section><section class="login-main"><div class="login-box"><div class="eyebrow">Факультет права</div><h1>Вход в журнал</h1><p id="login-error" class="notice warn" hidden></p>${session.selection ? `<form id="select-login" class="access-form"><label for="login-role">Роль</label><select id="login-role"><option value="teacher">Преподаватель</option><option value="office">Менеджер</option><option value="admin">Полный доступ</option>${session.demoStudents?.length ? '<option value="student">Студент (демо-вход)</option>' : ""}</select><label for="person-search">Поиск сотрудника</label><input id="person-search" type="search" placeholder="Начните вводить фамилию"><label for="login-person">Сотрудник</label><select id="login-person" required></select><label for="management-password">Пароль</label><input id="management-password" type="password" autocomplete="current-password" maxlength="256" required><p id="person-scope" class="muted" aria-live="polite"></p><button class="btn primary">Открыть кабинет →</button></form><div class="login-footer">Вход по имени и паролю.${session.demo ? " Локальный просмотр: отметки сохраняются в тестовой базе." : ""}</div>` : '<a class="btn primary" href="/auth/login">Войти</a>'}</div></section></div>`;
+  // Сервер возвращает сюда студента, чья учётная запись ВШЭ ни с кем не связана.
+  if (new URLSearchParams(location.search).get("error") === "unlinked") {
+    $("#login-error").textContent =
+      "Ваша учётная запись не связана с записью в журнале, обратитесь к менеджеру";
+    $("#login-error").hidden = false;
+  }
   if (!session.selection) return;
   const updateSelection = (hint = "Выберите сотрудника из списка.") => {
     const personId = $("#login-person").value;
@@ -195,6 +201,13 @@ function loginView() {
     );
   };
   $("#login-role").onchange = () => {
+    const student = $("#login-role").value === "student";
+    $('label[for="person-search"]').textContent = student
+      ? "Поиск студента"
+      : "Поиск сотрудника";
+    $('label[for="login-person"]').textContent = student
+      ? "Студент"
+      : "Сотрудник";
     $("#person-search").value = "";
     $("#management-password").value = "";
     fill();
@@ -354,6 +367,11 @@ const changeLabels = {
   "year.rollover": "Перевод на следующий курс",
   "account.link": "Учётная запись связана",
   "account.unlink": "Учётная запись отвязана",
+  "student.profile": "Изменены данные студента",
+  "student.requirement": "Студент прислал сведения по требованию",
+  "attachment.add": "Приложен скан",
+  "attachment.view": "Открыт скан",
+  "attachment.delete": "Удалён скан",
 };
 // Со страницы «Студенты» можно открыть «Сотрудники» сразу с фильтром «без отметок за 7 дней».
 let registrySilent = false;
@@ -872,7 +890,7 @@ async function profile(id) {
             (v) => [v, procedureLabels[v]],
           ),
           p.state,
-        )}</select></label><label>Выполнить до<input type="date" name="dueDate" value="${esc(p.dueDate)}"></label><label>Дата выполнения<input type="date" name="completedAt" value="${esc(p.completedAt)}"></label><label>Действительно до<input type="date" name="validUntil" value="${esc(p.validUntil)}"></label><label class="wide">Комментарий / основание освобождения<textarea name="note" maxlength="1000" rows="2">${esc(p.note)}</textarea></label><button class="btn primary small">Сохранить требование</button></fieldset></form>${p.updatedAt ? `<small>Обновлено ${fmtDate(p.updatedAt)} · ${esc(p.checkedBy)}</small>` : ""}</details>`,
+        )}</select></label><label>Выполнить до<input type="date" name="dueDate" value="${esc(p.dueDate)}"></label><label>Дата выполнения<input type="date" name="completedAt" value="${esc(p.completedAt)}"></label><label>Действительно до<input type="date" name="validUntil" value="${esc(p.validUntil)}"></label><label class="wide">Комментарий / основание освобождения<textarea name="note" maxlength="1000" rows="2">${esc(p.note)}</textarea></label><button class="btn primary small">Сохранить требование</button></fieldset></form>${p.submittedBy === "student" && p.submittedAt ? `<small>Прислал студент ${fmtDate(p.submittedAt)}</small>` : p.updatedAt ? `<small>Обновлено ${fmtDate(p.updatedAt)}${p.checkedBy ? " · " + esc(p.checkedBy) : ""}</small>` : ""}</details>`,
     )
     .join("")}</section>
   <section class="card-tab" data-tab="attendance"><h3>Посещаемость</h3><p>${s.attendance === null ? "Пока нет отметок" : "Посещение: " + s.attendance + "%"} · Без явки: ${s.days} учебных дней</p>${data.records.length ? data.records.map((r) => `<div class="record"><div>${esc(r.course || "Без дисциплины")}<small>${fmtDate(r.date)} · ${esc(r.teacher || "Преподаватель")}</small></div><span>${labels[r.status]}</span></div>`).join("") : '<p class="muted">Преподаватели ещё не внесли отметки.</p>'}${data.debts.length ? '<p class="notice">В прежней версии внесены отдельные учебные задолженности. Они сохранены, но не считаются долгами по требованиям.</p>' + data.debts.map((x) => `<p>${esc(x.title)}: ${x.resolved ? "закрыта" : "открыта"}</p>`).join("") : ""}</section></div>`;

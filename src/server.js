@@ -1,7 +1,7 @@
 import { csvCell } from "./csv.js";
 import { registerDaily, attendanceRecords } from "./daily.js";
 import { registerStudent } from "./student.js";
-import { attachmentPath } from "./attachments.js";
+import { attachmentPath, attachmentLabel } from "./attachments.js";
 import { verifyPassword } from "./management-auth.js";
 import { parseRoster, planImport, applyImport } from "./roster-import.js";
 import express from "express";
@@ -145,6 +145,7 @@ const registryActions = [
   "year.rollover",
   "account.link",
   "account.unlink",
+  "student.profile",
   "student.requirement",
   "attachment.add",
   "attachment.view",
@@ -425,11 +426,8 @@ app.get("/auth/callback", async (req, res) => {
     const studentId = studentByExternalId(claims.sub);
     const student =
       studentId && roster.students.find((s) => s.id === studentId);
-    if (!student)
-      throw fail(
-        403,
-        "Ваша учётная запись не связана с записью в журнале, обратитесь к менеджеру",
-      );
+    // Студент попадает на экран входа с объяснением, а не на голый JSON.
+    if (!student) return res.redirect("/?error=unlinked");
     session(res, {
       user: {
         id: studentId,
@@ -860,6 +858,21 @@ app.delete("/api/admin/students/:id", (req, res) => {
       409,
       "У студента есть отметки. Вместо удаления смените статус обучения в карточке",
     );
+  // ID производится от ФИО: удалённая вместе с записью привязка или сканы
+  // достались бы новому студенту с тем же ФИО. Сканы удаляются только вручную.
+  const linked = get("SELECT 1 FROM student_accounts WHERE studentId=?", id),
+    scans = get("SELECT 1 FROM attachments WHERE studentId=?", id);
+  if (linked || scans)
+    throw fail(
+      409,
+      "Сначала " +
+        [
+          linked && "отвяжите учётную запись ВШЭ",
+          scans && "удалите приложенные сканы",
+        ]
+          .filter(Boolean)
+          .join(" и "),
+    );
   db.exec("BEGIN IMMEDIATE");
   try {
     for (const table of [
@@ -1082,7 +1095,12 @@ app.delete("/api/admin/attachments/:id", (req, res) => {
     force: true,
   });
   run("DELETE FROM attachments WHERE id=?", req.params.id);
-  audit(req.session.user, "attachment.delete", row.studentId + ":" + row.id);
+  audit(
+    req.session.user,
+    "attachment.delete",
+    row.studentId + ":" + row.id,
+    attachmentLabel(studentProfile(row.studentId).name, row),
+  );
   res.json({ ok: true });
 });
 app.get("/api/admin/students-without-account", (req, res) => {

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
+import { procedureCatalog } from "./office.js";
 
 // Тип файла проверяется по первым байтам, а не по расширению или
 // заголовку content-type – их студент может подставить любые.
@@ -42,3 +43,13 @@ export function saveAttachment({ dir, studentId, buffer, ext }) {
 
 export const attachmentPath = (dir, studentId, storedName) =>
   path.join(dir, studentId, storedName);
+
+// Подпись для «Последних изменений»: студент, требование и имя файла вместо
+// внутренних идентификаторов. Считается при записи – после удаления скана
+// строки в attachments уже нет.
+export const attachmentLabel = (studentName, { kind, fileName }) =>
+  [
+    studentName,
+    procedureCatalog.find((c) => c.id === kind)?.title || kind,
+    fileName,
+  ].join(" – ");

@@ -247,6 +247,15 @@ test("Привязка учётной записи студента", async (t) 
         },
       });
       const cookie = r.headers.get("set-cookie").split(";")[0];
+      // Со связанной учётной записью удаление запрещено – сначала отвязка.
+      const unlink = await call(
+        "/api/admin/students/" + studentId + "/account",
+        {
+          method: "DELETE",
+          cookie: admin,
+        },
+      );
+      assert.equal(unlink.status, 200);
       // Студента удаляют из реестра: сессия ссылается на несуществующую запись.
       const remove = await call("/api/admin/students/" + studentId, {
         method: "DELETE",

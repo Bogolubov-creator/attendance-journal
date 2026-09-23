@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 const origin = "http://127.0.0.1:3114";
 const temp = mkdtempSync(join(tmpdir(), "attendance-cabinet-"));
@@ -331,6 +332,98 @@ test("Кабинет студента", async (t) => {
         );
         assert.equal(stillConfirmed.state, "confirmed");
         assert.equal(stillConfirmed.version, confirmed.version);
+      },
+    );
+
+    await t.test(
+      "Истёкшее требование студент продлевает: присылает новые сведения на проверку",
+      async () => {
+        const before = await (
+          await call("/api/admin/students/" + studentId, { cookie: admin })
+        ).json();
+        const visa = before.procedures.find((p) => p.id === "visa");
+        const confirm = await call(
+          "/api/admin/students/" + studentId + "/procedures/visa",
+          {
+            method: "PUT",
+            cookie: admin,
+            body: {
+              state: "confirmed",
+              completedAt: "2025-01-10",
+              validUntil: "2025-12-31",
+              version: visa.version || 0,
+            },
+          },
+        );
+        assert.equal(confirm.status, 200, await confirm.clone().text());
+        const { version } = await confirm.json();
+        const mine = await (
+          await call("/api/student/requirements", { cookie })
+        ).json();
+        assert.equal(
+          mine.requirements.find((r) => r.id === "visa").status,
+          "expired",
+        );
+        const r = await call("/api/student/requirements/visa", {
+          method: "PUT",
+          cookie,
+          body: {
+            state: "submitted",
+            completedAt: "2026-09-01",
+            validUntil: "2027-08-31",
+            note: "Новая виза",
+            version,
+          },
+        });
+        assert.equal(r.status, 200, await r.clone().text());
+        const after = await (
+          await call("/api/admin/students/" + studentId, { cookie: admin })
+        ).json();
+        const renewed = after.procedures.find((p) => p.id === "visa");
+        assert.equal(renewed.state, "submitted");
+        assert.equal(renewed.validUntil, "2027-08-31");
+      },
+    );
+
+    await t.test(
+      "Преподаватель и менеджер не входят ни в один маршрут кабинета",
+      async () => {
+        const teacher = await login("teacher", teacherId);
+        const office = await login("office", "smirnova");
+        const routes = [
+          ["GET", "/api/student/profile"],
+          ["PUT", "/api/student/profile", { citizenship: "X", version: 0 }],
+          ["GET", "/api/student/requirements"],
+          [
+            "PUT",
+            "/api/student/requirements/registration",
+            { state: "submitted", version: 0 },
+          ],
+          ["POST", "/api/student/attachments/registration", { x: 1 }],
+          ["DELETE", "/api/student/attachments/a_0000000000000000"],
+          ["GET", "/api/student/attendance?from=2026-09-01&to=2026-09-30"],
+        ];
+        for (const staff of [teacher, office])
+          for (const [method, path, body] of routes) {
+            const r = await call(path, { method, cookie: staff, body });
+            assert.equal(r.status, 403, method + " " + path);
+          }
+      },
+    );
+
+    await t.test(
+      "Правка своих данных записана в журнал с ролью student",
+      async () => {
+        const db = new DatabaseSync(join(temp, "db.sqlite"));
+        db.exec("PRAGMA busy_timeout=5000");
+        const rows = db
+          .prepare(
+            "SELECT role FROM audit WHERE action='student.profile' AND actor=?",
+          )
+          .all("Студент Первый");
+        db.close();
+        assert.ok(rows.length);
+        assert.ok(rows.every((r) => r.role === "student"));
       },
     );
 

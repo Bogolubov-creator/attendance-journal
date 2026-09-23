@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { detectType } from "../src/attachments.js";
 
@@ -194,7 +195,9 @@ test("Сканы: загрузка, скачивание, удаление", asy
             ]),
           },
         );
-        assert.ok([400, 413].includes(r.status));
+        assert.equal(r.status, 413);
+        // Сообщение показывается студенту как есть – по-русски, с пределом.
+        assert.equal((await r.json()).error, "Файл больше 10 МБ");
         assert.equal(
           readdirSync(join(uploadDir, studentId)).length,
           beforeFiles,
@@ -260,6 +263,38 @@ test("Сканы: загрузка, скачивание, удаление", asy
         });
         assert.equal(dl.status, 200, await dl.clone().text());
         assert.ok(dl.headers.get("content-disposition"));
+      },
+    );
+
+    await t.test(
+      "Скобки, апостроф и звёздочка в имени кодируются по RFC 5987",
+      async () => {
+        const r = await fetch(origin + "/api/student/attachments/insurance", {
+          method: "POST",
+          headers: {
+            origin,
+            cookie,
+            "content-type": "application/pdf",
+            "x-file-name": encodeURIComponent("скан (копия) O'Neil*.pdf"),
+          },
+          body: Buffer.from("%PDF-1.7 спецсимволы"),
+        });
+        assert.equal(r.status, 200, await r.clone().text());
+        const dl = await fetch(
+          origin + "/api/attachments/" + (await r.json()).id,
+          {
+            headers: { origin, cookie },
+          },
+        );
+        assert.equal(dl.status, 200);
+        const value = dl.headers
+          .get("content-disposition")
+          .split("filename*=UTF-8''")[1];
+        assert.doesNotMatch(value, /['()*]/);
+        assert.match(value, /%28/);
+        assert.match(value, /%29/);
+        assert.match(value, /%27/);
+        assert.match(value, /%2A/);
       },
     );
 
@@ -532,6 +567,67 @@ test("Сканы: загрузка, скачивание, удаление", asy
       },
     );
 
+    await t.test(
+      "Освобождённое требование студент не переписывает и сканы не удаляет",
+      async () => {
+        const card = await (
+          await call("/api/admin/students/" + studentId, { cookie: admin })
+        ).json();
+        const insurance = card.procedures.find((p) => p.id === "insurance");
+        const exempt = await call(
+          "/api/admin/students/" + studentId + "/procedures/insurance",
+          {
+            method: "PUT",
+            cookie: admin,
+            body: {
+              state: "exempt",
+              note: "Полис не нужен",
+              version: insurance.version || 0,
+            },
+          },
+        );
+        assert.equal(exempt.status, 200, await exempt.clone().text());
+        const { version } = await exempt.json();
+        const put = await call("/api/student/requirements/insurance", {
+          method: "PUT",
+          cookie,
+          body: { state: "submitted", note: "Всё же полис", version },
+        });
+        assert.equal(put.status, 403);
+        const scan = withDb((db) =>
+          db
+            .prepare(
+              "SELECT id FROM attachments WHERE studentId=? AND kind='insurance'",
+            )
+            .get(studentId),
+        );
+        const del = await call("/api/student/attachments/" + scan.id, {
+          method: "DELETE",
+          cookie,
+        });
+        assert.equal(del.status, 403);
+        assert.ok(attachmentRow(scan.id));
+      },
+    );
+
+    await t.test(
+      "Добавление и удаление скана записаны в журнал с ролью student и понятной подписью",
+      async () => {
+        const rows = withDb((db) =>
+          db
+            .prepare(
+              "SELECT action,role,label FROM audit WHERE action IN ('attachment.add','attachment.delete') AND role='student'",
+            )
+            .all(),
+        );
+        assert.ok(rows.some((r) => r.action === "attachment.add"));
+        assert.ok(rows.some((r) => r.action === "attachment.delete"));
+        const add = rows.find((r) => r.action === "attachment.add");
+        assert.match(add.label, /Студент Первый/);
+        assert.doesNotMatch(add.label, /a_[0-9a-f]{16}/);
+      },
+    );
+
     await t.test("Карточка студента показывает сканы и привязку", async () => {
       const card = await (
         await call("/api/admin/students/" + studentId, { cookie: admin })
@@ -560,6 +656,123 @@ test("Сканы: загрузка, скачивание, удаление", asy
           cookie: foreignManager,
         });
         assert.equal(r.status, 403);
+      },
+    );
+
+    await t.test(
+      "Удаление студента со связью или сканами отклоняется; повторное добавление того же ФИО не видит прежних сканов и связи",
+      async () => {
+        const name = "Студент Удаляемый";
+        const addBody = {
+          name,
+          links: [{ teacherId: "t_test_1", course: "Право" }],
+        };
+        const added = await call("/api/admin/students", {
+          method: "POST",
+          cookie: admin,
+          body: addBody,
+        });
+        assert.equal(added.status, 200, await added.clone().text());
+        const goneId = (await added.json()).id;
+        const link = await call("/api/admin/students/" + goneId + "/account", {
+          method: "PUT",
+          cookie: admin,
+          body: { externalId: "hse-gone" },
+        });
+        assert.equal(link.status, 200, await link.clone().text());
+        // Провайдера OIDC в тестах нет – сессию кладём в базу напрямую,
+        // как это делает tests/student-account.test.js.
+        const rawToken = "test-oidc-gone-" + Math.random().toString(36);
+        withDb((db) =>
+          db.prepare("INSERT INTO sessions VALUES(?,?,?)").run(
+            createHash("sha256").update(rawToken).digest("hex"),
+            JSON.stringify({
+              user: {
+                id: goneId,
+                name,
+                role: "student",
+                studentId: goneId,
+                source: "oidc",
+                subject: "hse-gone",
+              },
+            }),
+            Date.now() + 8 * 3600000,
+          ),
+        );
+        const oidcCookie = "journal=" + rawToken;
+        const upload = await fetch(
+          origin + "/api/student/attachments/registration",
+          {
+            method: "POST",
+            headers: {
+              origin,
+              cookie: oidcCookie,
+              "content-type": "application/pdf",
+              "x-file-name": encodeURIComponent("Паспорт.pdf"),
+            },
+            body: Buffer.from("%PDF-1.7 паспорт"),
+          },
+        );
+        assert.equal(upload.status, 200, await upload.clone().text());
+        const scanId = (await upload.json()).id;
+        const storedName = attachmentRow(scanId).storedName;
+
+        const refused = await call("/api/admin/students/" + goneId, {
+          method: "DELETE",
+          cookie: admin,
+        });
+        assert.equal(refused.status, 409);
+        assert.match((await refused.json()).error, /учётную запись/);
+        assert.ok(attachmentRow(scanId), "строка скана на месте");
+        assert.ok(
+          readdirSync(join(uploadDir, goneId)).includes(storedName),
+          "файл скана на месте",
+        );
+        assert.equal(
+          (await call("/api/student/profile", { cookie: oidcCookie })).status,
+          200,
+          "связь не тронута",
+        );
+
+        const unlink = await call(
+          "/api/admin/students/" + goneId + "/account",
+          { method: "DELETE", cookie: admin },
+        );
+        assert.equal(unlink.status, 200);
+        const stillScans = await call("/api/admin/students/" + goneId, {
+          method: "DELETE",
+          cookie: admin,
+        });
+        assert.equal(stillScans.status, 409, "сканы ещё приложены");
+        assert.ok(attachmentRow(scanId));
+
+        const dropScan = await call("/api/admin/attachments/" + scanId, {
+          method: "DELETE",
+          cookie: admin,
+        });
+        assert.equal(dropScan.status, 200);
+        const removed = await call("/api/admin/students/" + goneId, {
+          method: "DELETE",
+          cookie: admin,
+        });
+        assert.equal(removed.status, 200, await removed.clone().text());
+
+        const again = await call("/api/admin/students", {
+          method: "POST",
+          cookie: admin,
+          body: addBody,
+        });
+        assert.equal(again.status, 200, await again.clone().text());
+        assert.equal((await again.json()).id, goneId, "id производится от ФИО");
+        const card = await (
+          await call("/api/admin/students/" + goneId, { cookie: admin })
+        ).json();
+        assert.equal(card.account, null);
+        assert.deepEqual(card.attachments, []);
+        assert.equal(
+          (await call("/api/student/profile", { cookie: oidcCookie })).status,
+          401,
+        );
       },
     );
   } finally {
