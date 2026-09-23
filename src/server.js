@@ -33,6 +33,8 @@ import { moscowDate, studentMetrics } from "./domain.js";
 const app = express(),
   port = Number(process.env.PORT || 3100),
   demo = process.env.DEMO_MODE === "true";
+// На живых данных демо-режим не раскрывает студентов: ни списка ФИО, ни входа в их кабинет.
+const demoStudentLogin = demo && process.env.DATA_MODE !== "live";
 const selection =
   (process.env.AUTH_MODE || (demo ? "selection" : "oidc")) === "selection";
 const origin = process.env.APP_ORIGIN || `http://127.0.0.1:${port}`;
@@ -322,7 +324,7 @@ app.get("/api/session", (req, res) =>
     demo: demo && process.env.DATA_MODE !== "live",
     oidcReady: !!(process.env.OIDC_ISSUER && process.env.OIDC_CLIENT_ID),
     demoTeachers: demo ? roster.teachers : [],
-    demoStudents: demo ? roster.students : [],
+    demoStudents: demoStudentLogin ? roster.students : [],
     selection,
     teachers: selection ? roster.teachers : [],
     managers: selection ? managers : [],
@@ -348,6 +350,7 @@ app.post("/api/demo-login", (req, res) => {
   const role = req.body.role;
   checkManagementPassword(req);
   if (role === "student") {
+    if (!demoStudentLogin) throw fail(403, "Демо-вход студентом отключён");
     const student = roster.students.find((s) => s.id === req.body.studentId);
     if (!student) throw fail(400, "Выберите студента");
     if (!cabinetOpen(student.id))
