@@ -50,6 +50,7 @@ db.exec(
   "PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS service_state(key TEXT PRIMARY KEY,value TEXT);",
 );
 db.exec(`CREATE TABLE IF NOT EXISTS student_profiles(studentId TEXT PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS student_accounts(externalId TEXT PRIMARY KEY, studentId TEXT NOT NULL, linkedAt TEXT NOT NULL, linkedBy TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS procedures(studentId TEXT, kind TEXT, data TEXT NOT NULL, PRIMARY KEY(studentId,kind));
 CREATE TABLE IF NOT EXISTS roster_additions(id TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS roster_students(id TEXT PRIMARY KEY, name TEXT NOT NULL);
@@ -137,6 +138,8 @@ const registryActions = [
   "enrollment.delete",
   "roster.import",
   "year.rollover",
+  "account.link",
+  "account.unlink",
 ];
 let accounts = [];
 try {
@@ -422,6 +425,14 @@ function studentProfile(id) {
         "{}",
     ),
   };
+}
+// Привязка живёт отдельной таблицей: обновление реестра из Excel пересобирает
+// записи студентов, а связь с учётной записью обязана это пережить.
+function studentByExternalId(externalId) {
+  return (
+    get("SELECT studentId FROM student_accounts WHERE externalId=?", externalId)
+      ?.studentId || null
+  );
 }
 function proceduresFor(id) {
   const rows = all("SELECT kind,data FROM procedures WHERE studentId=?", id),
@@ -977,6 +988,50 @@ app.put("/api/admin/students/:id/profile", (req, res) => {
   );
   audit(req.session.user, "student.profile", req.params.id);
   res.json({ ok: true, version: data.version, manager: managerFor(data) });
+});
+app.put("/api/admin/students/:id/account", (req, res) => {
+  editable(req, req.params.id);
+  const externalId =
+    typeof req.body.externalId === "string" ? req.body.externalId.trim() : "";
+  if (!externalId || externalId.length > 200)
+    throw fail(400, "Укажите идентификатор учётной записи");
+  const taken = studentByExternalId(externalId);
+  if (taken && taken !== req.params.id)
+    throw fail(409, "Эта учётная запись уже связана с другим студентом");
+  run("DELETE FROM student_accounts WHERE studentId=?", req.params.id);
+  run(
+    "INSERT INTO student_accounts VALUES(?,?,?,?)",
+    externalId,
+    req.params.id,
+    new Date().toISOString(),
+    req.session.user.name,
+  );
+  audit(req.session.user, "account.link", req.params.id, externalId);
+  res.json({ ok: true });
+});
+app.delete("/api/admin/students/:id/account", (req, res) => {
+  editable(req, req.params.id);
+  run("DELETE FROM student_accounts WHERE studentId=?", req.params.id);
+  audit(req.session.user, "account.unlink", req.params.id);
+  res.json({ ok: true });
+});
+app.get("/api/admin/students-without-account", (req, res) => {
+  registryStaff(req);
+  const linked = new Set(
+    all("SELECT studentId FROM student_accounts").map((r) => r.studentId),
+  );
+  const students = roster.students
+    .map((s) => studentProfile(s.id))
+    .filter((s) => !linked.has(s.id))
+    .filter((s) => canSeeStudent(req.session.user, s))
+    .map((s) => ({
+      id: s.id,
+      name: s.name,
+      program: s.program || "",
+      year: s.year || 0,
+      manager: managerFor(s),
+    }));
+  res.json({ students });
 });
 app.put("/api/admin/students/:id/procedures/:kind", (req, res) => {
   editable(req, req.params.id);
