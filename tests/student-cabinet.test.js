@@ -219,6 +219,149 @@ test("Кабинет студента", async (t) => {
         assert.equal(card.student.citizenship, "Бразилия");
       },
     );
+
+    await t.test("Список требований показывает политику", async () => {
+      const data = await (
+        await call("/api/student/requirements", { cookie })
+      ).json();
+      assert.equal(data.requirements.length, 5);
+      assert.ok(data.requirements.every((r) => r.closedBy === "staff"));
+    });
+
+    await t.test("Студент доводит требование до проверки", async () => {
+      const r = await call("/api/student/requirements/registration", {
+        method: "PUT",
+        cookie,
+        body: { state: "submitted", note: "Подал документы", version: 0 },
+      });
+      assert.equal(r.status, 200, await r.clone().text());
+    });
+
+    await t.test("Студент не подтверждает требование сотрудника", async () => {
+      const r = await call("/api/student/requirements/visa", {
+        method: "PUT",
+        cookie,
+        body: { state: "confirmed", completedAt: "2026-09-01", version: 0 },
+      });
+      assert.equal(r.status, 403);
+    });
+
+    await t.test("Студент не освобождает себя от требования", async () => {
+      const r = await call("/api/student/requirements/medical", {
+        method: "PUT",
+        cookie,
+        body: { state: "exempt", note: "не нужно", version: 0 },
+      });
+      assert.equal(r.status, 403);
+    });
+
+    await t.test("Неверная дата отклоняется", async () => {
+      const r = await call("/api/student/requirements/insurance", {
+        method: "PUT",
+        cookie,
+        body: { state: "submitted", validUntil: "31.12.2026", version: 0 },
+      });
+      assert.equal(r.status, 400);
+    });
+
+    await t.test(
+      "Действие студента записано в журнал с ролью student",
+      async () => {
+        const overview = await (
+          await call("/api/admin/overview?from=2026-09-01&to=2026-09-01", {
+            cookie: admin,
+          })
+        ).json();
+        const row = overview.audit.find(
+          (r) => r.action === "student.requirement",
+        );
+        assert.ok(row, JSON.stringify(overview.audit));
+        assert.equal(row.role, "student");
+      },
+    );
+
+    await t.test("Сотрудник видит, что прислал студент", async () => {
+      const card = await (
+        await call("/api/admin/students/" + studentId, { cookie: admin })
+      ).json();
+      const registration = card.procedures.find((p) => p.id === "registration");
+      assert.equal(registration.state, "submitted");
+      assert.equal(registration.submittedBy, "student");
+    });
+
+    await t.test(
+      "Студент не откатывает требование, подтверждённое сотрудником",
+      async () => {
+        const before = await (
+          await call("/api/admin/students/" + studentId, { cookie: admin })
+        ).json();
+        const fingerprints = before.procedures.find(
+          (p) => p.id === "fingerprints",
+        );
+        const confirm = await call(
+          "/api/admin/students/" + studentId + "/procedures/fingerprints",
+          {
+            method: "PUT",
+            cookie: admin,
+            body: {
+              state: "confirmed",
+              completedAt: "2026-09-01",
+              version: fingerprints.version || 0,
+            },
+          },
+        );
+        assert.equal(confirm.status, 200, await confirm.clone().text());
+        const confirmed = await confirm.json();
+        const r = await call("/api/student/requirements/fingerprints", {
+          method: "PUT",
+          cookie,
+          body: {
+            state: "submitted",
+            note: "Хочу поправить",
+            version: confirmed.version,
+          },
+        });
+        assert.equal(r.status, 403);
+        const after = await (
+          await call("/api/admin/students/" + studentId, { cookie: admin })
+        ).json();
+        const stillConfirmed = after.procedures.find(
+          (p) => p.id === "fingerprints",
+        );
+        assert.equal(stillConfirmed.state, "confirmed");
+        assert.equal(stillConfirmed.version, confirmed.version);
+      },
+    );
+
+    await t.test(
+      "Чужой studentId в теле не меняет чужое требование",
+      async () => {
+        const r = await call("/api/student/requirements/insurance", {
+          method: "PUT",
+          cookie,
+          body: {
+            studentId: otherStudentId,
+            state: "submitted",
+            note: "Свой полис",
+            version: 0,
+          },
+        });
+        assert.equal(r.status, 200, await r.clone().text());
+        const own = await (
+          await call("/api/admin/students/" + studentId, { cookie: admin })
+        ).json();
+        const mine = own.procedures.find((p) => p.id === "insurance");
+        assert.equal(mine.state, "submitted");
+        const other = await (
+          await call("/api/admin/students/" + otherStudentId, {
+            cookie: admin,
+          })
+        ).json();
+        const theirs = other.procedures.find((p) => p.id === "insurance");
+        assert.equal(theirs.state, "unknown");
+        assert.equal(theirs.version || 0, 0);
+      },
+    );
   } finally {
     child.kill("SIGTERM");
     await new Promise((r) => child.once("exit", r));

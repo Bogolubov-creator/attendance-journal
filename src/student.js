@@ -1,8 +1,10 @@
 import {
   pickStudentFields,
+  procedureCatalog,
   studentEditableFields,
   validDate,
 } from "./office.js";
+import { moscowDate } from "./domain.js";
 
 // Допустимые значения для полей, которые студент правит сам. Правила те же,
 // что использует сотруднический маршрут PUT /api/admin/students/:id/profile
@@ -40,7 +42,10 @@ function validStudentEdit(body) {
   );
 }
 
-export function registerStudent(app, { db, studentProfile, audit }) {
+export function registerStudent(
+  app,
+  { db, studentProfile, audit, proceduresFor },
+) {
   const fail = (status, message) =>
     Object.assign(new Error(message), { status });
   const run = (sql, ...a) => db.prepare(sql).run(...a);
@@ -95,6 +100,73 @@ export function registerStudent(app, { db, studentProfile, audit }) {
       JSON.stringify(data),
     );
     audit(req.session.user, "student.profile", req.studentId);
+    res.json({ ok: true, version: data.version });
+  });
+  app.get("/api/student/requirements", onlyStudent, (req, res) =>
+    res.json({ requirements: proceduresFor(req.studentId) }),
+  );
+  app.put("/api/student/requirements/:kind", onlyStudent, (req, res) => {
+    if (
+      typeof req.body !== "object" ||
+      req.body === null ||
+      Array.isArray(req.body)
+    )
+      throw fail(400, "Некорректные данные");
+    const rule = procedureCatalog.find((c) => c.id === req.params.kind);
+    if (!rule) throw fail(404, "Требование не найдено");
+    const { state, validUntil = "", completedAt = "", note = "" } = req.body;
+    const previous = proceduresFor(req.studentId).find(
+      (p) => p.id === req.params.kind,
+    );
+    // Студент не освобождает себя и не подтверждает то, что проверяет сотрудник.
+    const allowed =
+      rule.closedBy === "student"
+        ? ["pending", "submitted", "confirmed"]
+        : ["pending", "submitted"];
+    if (!allowed.includes(state))
+      throw fail(403, "Этот статус ставит учебный офис");
+    // Подтверждённое или снятое сотрудником требование студент откатить не может –
+    // иначе он мог бы отменить уже проверенный сотрудником результат.
+    if (
+      rule.closedBy === "staff" &&
+      ["confirmed", "exempt"].includes(previous.state)
+    )
+      throw fail(
+        403,
+        "Требование подтверждено учебным офисом, обратитесь к менеджеру",
+      );
+    if (
+      ![validUntil, completedAt].every(validDate) ||
+      typeof note !== "string" ||
+      note.length > 1000 ||
+      (state === "confirmed" && (!completedAt || completedAt > moscowDate()))
+    )
+      throw fail(400, "Проверьте даты и пояснение");
+    if (req.body.version !== (previous.version || 0))
+      throw fail(409, "Требование изменено. Откройте страницу заново");
+    const data = {
+      version: (previous.version || 0) + 1,
+      state,
+      dueDate: previous.dueDate || "",
+      validUntil,
+      completedAt,
+      note: note.trim(),
+      checkedBy: previous.checkedBy || "",
+      submittedAt: new Date().toISOString(),
+      submittedBy: "student",
+      updatedAt: new Date().toISOString(),
+    };
+    run(
+      "INSERT OR REPLACE INTO procedures VALUES(?,?,?)",
+      req.studentId,
+      req.params.kind,
+      JSON.stringify(data),
+    );
+    audit(
+      req.session.user,
+      "student.requirement",
+      req.studentId + ":" + req.params.kind,
+    );
     res.json({ ok: true, version: data.version });
   });
 }

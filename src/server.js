@@ -141,6 +141,7 @@ const registryActions = [
   "year.rollover",
   "account.link",
   "account.unlink",
+  "student.requirement",
 ];
 let accounts = [];
 try {
@@ -462,7 +463,7 @@ app.get("/auth/callback", async (req, res) => {
 });
 app.use("/api", auth);
 registerDaily(app, { db, roster, auth, admin, studentProfile, audit });
-registerStudent(app, { db, studentProfile, audit });
+registerStudent(app, { db, studentProfile, audit, proceduresFor });
 app.use("/api/admin", admin);
 function studentProfile(id) {
   const base = roster.students.find((s) => s.id === id);
@@ -1122,6 +1123,8 @@ app.put("/api/admin/students/:id/procedures/:kind", (req, res) => {
     completedAt,
     note: note.trim(),
     checkedBy: req.session.user.name,
+    submittedBy: "staff",
+    submittedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
   run(
