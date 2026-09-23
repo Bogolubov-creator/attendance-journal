@@ -2,6 +2,7 @@ import { passwordHash } from "../src/management-auth.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { get as httpGet } from "node:http";
 import { mkdtempSync, rmSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -361,6 +362,67 @@ test("Сканы: загрузка, скачивание, удаление", asy
       assert.equal(r.headers.get("cache-control"), "no-store");
       assert.equal(r.headers.get("x-content-type-options"), "nosniff");
     });
+
+    await t.test(
+      "Статика – no-cache с ETag и 304, API и скан – no-store, заголовки безопасности прежние",
+      async () => {
+        // Заголовки безопасности до правки (задача 14) – эталон для сравнения.
+        const security = {
+          "x-content-type-options": "nosniff",
+          "referrer-policy": "same-origin",
+          "content-security-policy":
+            "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+        };
+        for (const path of [
+          "/",
+          "/student.html",
+          "/app.js",
+          "/style.css",
+          "/assets/hse-logo.svg",
+        ]) {
+          const r = await fetch(origin + path, { headers: { origin } });
+          assert.equal(r.status, 200, path);
+          await r.arrayBuffer();
+          assert.equal(r.headers.get("cache-control"), "no-cache", path);
+          const etag = r.headers.get("etag");
+          assert.ok(etag, path + " без ETag");
+          for (const [name, value] of Object.entries(security))
+            assert.equal(r.headers.get(name), value, path + " " + name);
+          // fetch сам добавляет Cache-Control: no-cache к условному запросу,
+          // поэтому повторный запрос – как у браузера, через node:http.
+          const again = await new Promise((resolve, reject) =>
+            httpGet(
+              origin + path,
+              { headers: { origin, "if-none-match": etag } },
+              (res) => {
+                let size = 0;
+                res.on("data", (chunk) => (size += chunk.length));
+                res.on("end", () => resolve({ status: res.statusCode, size }));
+              },
+            ).on("error", reject),
+          );
+          assert.equal(again.status, 304, path);
+          assert.equal(again.size, 0, path);
+        }
+        for (const path of ["/api/session", "/api/student/requirements"]) {
+          const r = await fetch(origin + path, { headers: { origin, cookie } });
+          await r.arrayBuffer();
+          assert.equal(r.headers.get("cache-control"), "no-store", path);
+          for (const [name, value] of Object.entries(security))
+            assert.equal(r.headers.get(name), value, path + " " + name);
+        }
+        const health = await fetch(origin + "/healthz", {
+          headers: { origin },
+        });
+        await health.arrayBuffer();
+        assert.equal(health.headers.get("cache-control"), "no-store");
+        const scan = await fetch(origin + "/api/attachments/" + id, {
+          headers: { origin, cookie },
+        });
+        await scan.arrayBuffer();
+        assert.equal(scan.headers.get("cache-control"), "no-store");
+      },
+    );
 
     await t.test("Неавторизованный запрос отклоняется", async () => {
       const r = await fetch(origin + "/api/attachments/" + id, {

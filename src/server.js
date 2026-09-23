@@ -1386,7 +1386,13 @@ app.get("/api/admin/export", (req, res) => {
         .join("\r\n"),
   );
 });
-app.use(express.static("public"));
+// Файлы интерфейса браузер переспрашивает по ETag (304 без тела);
+// всё остальное остаётся no-store из общей прослойки.
+app.use(
+  express.static("public", {
+    setHeaders: (res) => res.set("Cache-Control", "no-cache"),
+  }),
+);
 app.use((err, req, res, next) => {
   res.status(err.status || 500).json({
     error: err.status
