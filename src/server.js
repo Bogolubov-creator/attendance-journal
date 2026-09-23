@@ -16,7 +16,13 @@ import {
   validDate,
 } from "./office.js";
 import { DatabaseSync } from "node:sqlite";
-import { readFileSync, mkdirSync, existsSync } from "node:fs";
+import {
+  readFileSync,
+  mkdirSync,
+  existsSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
 import { randomBytes, createHash } from "node:crypto";
 import * as oidc from "openid-client";
 import { backup } from "node:sqlite";
@@ -158,6 +164,10 @@ if (!selection && (!demo || process.env.REQUIRE_AUTH_CONFIG === "true")) {
 const fail = (code, message) =>
   Object.assign(new Error(message), { status: code });
 app.disable("x-powered-by");
+// За обратным прокси адрес посетителя приходит в X-Forwarded-For.
+// TRUST_PROXY – число своих прокси перед приложением; без него считается адрес соединения.
+if (process.env.TRUST_PROXY)
+  app.set("trust proxy", Number(process.env.TRUST_PROXY));
 app.use((req, res, next) => {
   if (req.headers.host !== new URL(origin).host)
     return res.status(403).json({ error: "Недопустимый адрес сервера" });
@@ -1267,6 +1277,13 @@ async function createBackup() {
       "attendance-" + new Date().toISOString().replaceAll(":", "-") + ".sqlite",
     );
     await backup(db, target);
+    // Имя копии начинается с даты по ISO, поэтому обычная сортировка идёт от старых к новым.
+    const kept = Number(process.env.BACKUP_KEEP || 14);
+    const copies = readdirSync(dir)
+      .filter((name) => /^attendance-.+\.sqlite$/.test(name))
+      .sort();
+    for (const name of copies.slice(0, -kept))
+      rmSync(path.join(dir, name), { force: true });
     run(
       "INSERT OR REPLACE INTO service_state VALUES('backup',?)",
       JSON.stringify({ at: new Date().toISOString(), ok: true }),
