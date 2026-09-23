@@ -110,30 +110,35 @@ export const procedureCatalog = [
     title: "Миграционный учёт",
     source: "https://ivisa.hse.ru/",
     hint: "Проверить основание пребывания, дату въезда и место проживания. При изменениях нужна повторная проверка.",
+    closedBy: "staff",
   },
   {
     id: "visa",
     title: "Виза и срок пребывания",
     source: "https://ivisa.hse.ru/",
     hint: "Применимость зависит от гражданства и основания пребывания. Безвизовый въезд не означает отсутствие ограничений по срокам.",
+    closedBy: "staff",
   },
   {
     id: "medical",
     title: "Медицинское освидетельствование",
     source: "https://ivisa.hse.ru/medst",
     hint: "Проверить исключения и срок действия подтверждения. В журнале хранится статус, без диагнозов и результатов анализов.",
+    closedBy: "staff",
   },
   {
     id: "fingerprints",
     title: "Дактилоскопия и фотографирование",
     source: "https://ivisa.hse.ru/medst",
     hint: "Проверить применимость и ранее пройденную процедуру. Не назначать повтор автоматически.",
+    closedBy: "staff",
   },
   {
     id: "insurance",
     title: "Медицинское страхование",
     source: "https://istudents.hse.ru/",
     hint: "Проверить подходящее основание медицинского обеспечения и срок действия полиса.",
+    closedBy: "staff",
   },
 ];
 export const procedureStates = [
@@ -162,4 +167,23 @@ export function validDate(value) {
       !Number.isNaN(Date.parse(value)) &&
       new Date(value).toISOString().slice(0, 10) === value)
   );
+}
+// Поля карточки, которые студент правит сам. Учебные поля (программа, курс,
+// статус контингента, версия программы, куратор) меняет только сотрудник.
+export const studentEditableFields = [
+  "citizenship",
+  "nameLatin",
+  "sendingCountry",
+  "arrivalDate",
+  "residence",
+  "passportUntil",
+  "migrationCardUntil",
+  "housing",
+  "inRussia",
+];
+export function pickStudentFields(body, previous) {
+  const result = { ...previous };
+  for (const field of studentEditableFields)
+    if (field in body) result[field] = body[field];
+  return result;
 }
