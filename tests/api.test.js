@@ -185,7 +185,7 @@ test("API: изоляция, сохранение, редактирование 
         401,
       ),
     );
-    await t.test("Админ видит историю, создаёт и закрывает долг", async () => {
+    await t.test("Админ видит историю и архив задолженностей", async () => {
       const overview = await request("/api/admin/overview");
       assert.equal(overview.status, 200);
       // В строке студента – все его занятия: дата, дисциплина, преподаватель, отметка; новые сверху.
@@ -200,32 +200,67 @@ test("API: изоляция, сохранение, редактирование 
       });
       assert.ok(listed.length >= 8);
       assert.ok(listed.every((r, i) => !i || listed[i - 1].date >= r.date));
-      const r = await (
-        await request("/api/admin/debts", "POST", {
-          studentId: e.studentId,
-          title: "Тестовая работа",
-        })
-      ).json();
-      assert.ok(r.id);
+      // Задолженности – архив прежней версии: новые не создаются, старые видны.
+      const archive = new DatabaseSync(path);
+      archive.exec("PRAGMA busy_timeout=5000");
+      archive
+        .prepare("INSERT INTO debts VALUES(?,?,?,0,?)")
+        .run(
+          "archive_debt",
+          e.studentId,
+          "Тестовая работа",
+          "2026-09-01T00:00:00Z",
+        );
+      archive.close();
       let s = await (
         await request("/api/admin/students/" + e.studentId)
       ).json();
       assert.equal(s.student.debtCount, 1);
+      assert.deepEqual(
+        s.debts.map((d) => [d.title, d.resolved]),
+        [["Тестовая работа", 0]],
+      );
       assert.equal(s.records.length, 9);
       assert.equal(s.student.lastVisit, "2026-09-01");
       assert.equal(s.student.days, 8);
       assert.equal(s.student.absenceAlert, true);
       assert.equal(s.student.attention, true);
-      await request("/api/admin/debts/" + r.id, "PATCH", { resolved: true });
+      const name = roster.students.find((x) => x.id === e.studentId).name;
+      const row = (await (await request("/api/admin/export")).text())
+        .split("\r\n")
+        .find((line) => line.startsWith('"' + name + '"'))
+        .split(";");
+      assert.equal(row[4], '"1"');
+      assert.equal(
+        (
+          await request("/api/admin/debts", "POST", {
+            studentId: e.studentId,
+            title: "Новая работа",
+          })
+        ).status,
+        404,
+      );
+      assert.equal(
+        (
+          await request("/api/admin/debts/archive_debt", "PATCH", {
+            resolved: true,
+          })
+        ).status,
+        404,
+      );
       s = await (await request("/api/admin/students/" + e.studentId)).json();
-      assert.equal(s.student.debtCount, 0);
-      assert.equal(s.student.attention, false);
-      assert.equal(s.student.absenceAlert, true);
+      assert.equal(s.debts.length, 1);
+      assert.equal(s.student.debtCount, 1);
     });
     await t.test("CSV доступен администратору", async () => {
       const r = await request("/api/admin/export");
       assert.equal(r.status, 200);
       assert.match(await r.text(), /Студент/);
+    });
+    await t.test("Сессия не отдаёт неиспользуемых полей", async () => {
+      const session = await (await request("/api/session")).json();
+      assert.equal("oidcReady" in session, false);
+      assert.equal("demoTeachers" in session, false);
     });
     await t.test("Выход отзывает сессию", async () => {
       await request("/api/logout", "POST", {});

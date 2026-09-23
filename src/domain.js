@@ -1,4 +1,4 @@
-export const statuses = ["present", "absent"];
+const statuses = ["present", "absent"];
 export const moscowDate = (date = new Date()) =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Moscow",

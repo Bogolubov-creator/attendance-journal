@@ -11,7 +11,7 @@ const clean = (v) =>
     .replace(/\s+/g, " ");
 const norm = (n) => clean(n).toLocaleLowerCase("ru").replace(/ё/g, "е");
 const plain = (n) => (n.startsWith("Вак_") ? n.slice(4) : n);
-export const enrollmentKey = (e) =>
+const enrollmentKey = (e) =>
   [e.studentId, e.teacherId, e.group, e.course].join("\n");
 
 // Лист «База»: группа, преподаватель, студент, дисциплина, вид занятий. Строки без первых четырёх колонок пропускаются.

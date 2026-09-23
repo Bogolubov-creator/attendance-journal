@@ -322,8 +322,6 @@ app.get("/api/session", (req, res) =>
   res.json({
     user: req.session?.user || null,
     demo: demo && process.env.DATA_MODE !== "live",
-    oidcReady: !!(process.env.OIDC_ISSUER && process.env.OIDC_CLIENT_ID),
-    demoTeachers: demo ? roster.teachers : [],
     demoStudents: demoStudentLogin ? roster.students : [],
     selection,
     teachers: selection ? roster.teachers : [],
@@ -1332,44 +1330,6 @@ app.get("/api/admin/students/:id", (req, res) => {
       ).values(),
     ],
   });
-});
-app.post("/api/admin/debts", (req, res) => {
-  const { studentId, title } = req.body;
-  if (
-    !roster.students.some((s) => s.id === studentId) ||
-    typeof title !== "string" ||
-    !title.trim() ||
-    title.length > 200
-  )
-    throw fail(400, "Укажите студента и задолженность до 200 символов");
-  editable(req, studentId);
-  const id = token();
-  run(
-    "INSERT INTO debts VALUES(?,?,?,0,?)",
-    id,
-    studentId,
-    title.trim(),
-    new Date().toISOString(),
-  );
-  audit(req.session.user, "debt.create", studentId);
-  res.json({ id });
-});
-app.patch("/api/admin/debts/:id", (req, res) => {
-  if (typeof req.body.resolved !== "boolean")
-    throw fail(400, "Некорректный статус");
-  if (!get("SELECT id FROM debts WHERE id=?", req.params.id))
-    throw fail(404, "Задолженность не найдена");
-  editable(
-    req,
-    get("SELECT studentId FROM debts WHERE id=?", req.params.id).studentId,
-  );
-  run(
-    "UPDATE debts SET resolved=? WHERE id=?",
-    Number(req.body.resolved),
-    req.params.id,
-  );
-  audit(req.session.user, "debt.update", req.params.id);
-  res.json({ ok: true });
 });
 app.get("/api/admin/export", (req, res) => {
   const esc = csvCell;
