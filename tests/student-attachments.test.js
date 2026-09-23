@@ -77,6 +77,13 @@ const attachmentCount = (studentId, kind) =>
       )
       .get(studentId, kind),
   ).n;
+const attachmentIdsFor = (studentId) =>
+  withDb((db) =>
+    db
+      .prepare("SELECT id FROM attachments WHERE studentId=?")
+      .all(studentId)
+      .map((r) => r.id),
+  );
 
 test("Сканы: загрузка, скачивание, удаление", async (t) => {
   const child = spawn(process.execPath, ["src/server.js"], {
@@ -487,6 +494,37 @@ test("Сканы: загрузка, скачивание, удаление", asy
           ).status,
           403,
         );
+      },
+    );
+
+    await t.test("Карточка студента показывает сканы и привязку", async () => {
+      const card = await (
+        await call("/api/admin/students/" + studentId, { cookie: admin })
+      ).json();
+      const expectedIds = attachmentIdsFor(studentId).sort();
+      assert.deepEqual(card.attachments.map((a) => a.id).sort(), expectedIds);
+      for (const a of card.attachments) {
+        assert.deepEqual(Object.keys(a).sort(), [
+          "fileName",
+          "id",
+          "kind",
+          "size",
+          "uploadedAt",
+          "uploadedBy",
+        ]);
+      }
+      assert.equal(card.account.externalId, "hse-777");
+      assert.ok(card.account.linkedAt);
+      assert.ok(card.account.linkedBy);
+    });
+
+    await t.test(
+      "Менеджер, не видящий студента, получает 403 на карточке",
+      async () => {
+        const r = await call("/api/admin/students/" + studentId, {
+          cookie: foreignManager,
+        });
+        assert.equal(r.status, 403);
       },
     );
   } finally {

@@ -1250,12 +1250,21 @@ app.get("/api/admin/students/:id", (req, res) => {
   if (!student) throw fail(404, "Студент не найден");
   if (!canSeeStudent(req.session.user, student))
     throw fail(403, "Студент не относится к вашим программам и курсам");
+  const account = get(
+    "SELECT externalId,linkedAt,linkedBy FROM student_accounts WHERE studentId=?",
+    student.id,
+  );
   res.json({
     student,
     canEdit: canEditStudent(req.session.user, student),
     programs,
     procedures: proceduresFor(student.id),
     records: student.records,
+    account: account || null,
+    attachments: all(
+      "SELECT id,kind,fileName,size,uploadedAt,uploadedBy FROM attachments WHERE studentId=? ORDER BY uploadedAt",
+      student.id,
+    ),
     debts: all(
       "SELECT * FROM debts WHERE studentId=? ORDER BY createdAt DESC",
       student.id,

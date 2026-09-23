@@ -122,6 +122,10 @@ function fmtDate(d, options = { day: "numeric", month: "long" }) {
     timeZone: "Europe/Moscow",
   }).format(new Date(d.length === 10 ? d + "T12:00:00+03:00" : d));
 }
+const fmtSize = (n) =>
+  n < 1024 * 1024
+    ? Math.round(n / 1024) + " КБ"
+    : (n / 1024 / 1024).toFixed(1) + " МБ";
 const initials = (n) =>
   n
     .split(" ")
@@ -212,6 +216,7 @@ function loginView() {
         officeScope = "all";
         officeProgram = "";
         officeYear = "";
+        noAccountOnly = false;
         page = user.role === "teacher" ? "journal" : "dashboard";
         filter = "all";
         query = "";
@@ -235,6 +240,7 @@ function shell() {
           filter = "all";
           officeTeacher = null;
           registrySilent = false;
+          noAccountOnly = false;
           tablePage = 0;
 
           await showApp();
@@ -319,7 +325,10 @@ const procedureLabels = {
 };
 let officeScope = "all",
   officeProgram = "",
-  officeYear = "";
+  officeYear = "",
+  // Список без учётной записи запрашивается отдельно и кешируется до правки привязки.
+  noAccountOnly = false,
+  noAccountIds = null;
 const changeLabels = {
   "student.add": "Добавлен студент",
   "student.rename": "Изменено ФИО студента",
@@ -331,6 +340,8 @@ const changeLabels = {
   "enrollment.delete": "Убрана связь",
   "roster.import": "Реестр обновлён из Excel",
   "year.rollover": "Перевод на следующий курс",
+  "account.link": "Учётная запись связана",
+  "account.unlink": "Учётная запись отвязана",
 };
 // Со страницы «Студенты» можно открыть «Сотрудники» сразу с фильтром «без отметок за 7 дней».
 let registrySilent = false;
@@ -437,7 +448,7 @@ function adminView() {
   ${overview.faculty.unverified ? `<div class="notice">Полнота реестра ещё не подтверждена. Загружено ${students.length} студентов; иностранный статус не проверен у ${overview.faculty.unverified}. Они видны в реестре, но не включены в статистику иностранцев. Программы и курсы заполняет руководство.</div>` : ""}
   ${page === "dashboard" ? `<div class="attention-grid">${list("Не посещают занятия", attention, "absence")}${list("Не выполнены требования", overdue, "procedure")}</div>` : ""}
   <div class="admin-columns"><div class="panel"><div class="panel-heading"><div><h2>Список студентов</h2><small>${user.role === "admin" ? "Статистика сверху всегда по факультету, фильтры действуют на таблицу" : "Статистика сверху по вашим программам и курсам, фильтры действуют на таблицу"}</small></div></div>
-  <div class="office-filters"><label class="filter-search">Поиск по ФИО${search("admin-search", "Фамилия студента", query)}</label>${user.role === "admin" ? '<label>Ответственность<select id="office-scope"><option value="all">Весь факультет</option><option value="mine">Мои программы и курсы</option><option value="unassigned">Не распределены</option></select></label>' : ""}<label>Программа<select id="office-program"><option value="">Все программы</option>${programs.map((p) => `<option>${esc(p)}</option>`).join("")}</select></label><label>Курс<select id="office-year"><option value="">Все курсы</option>${years.map((y) => `<option>${y}</option>`).join("")}</select></label>${officeTeacher ? `<span class="filter-chip">Преподаватель: ${esc(officeTeacher.name)} <button type="button" id="clear-teacher" aria-label="Снять фильтр по преподавателю">×</button></span>` : ""}</div>
+  <div class="office-filters"><label class="filter-search">Поиск по ФИО${search("admin-search", "Фамилия студента", query)}</label>${user.role === "admin" ? '<label>Ответственность<select id="office-scope"><option value="all">Весь факультет</option><option value="mine">Мои программы и курсы</option><option value="unassigned">Не распределены</option></select></label>' : ""}<label>Программа<select id="office-program"><option value="">Все программы</option>${programs.map((p) => `<option>${esc(p)}</option>`).join("")}</select></label><label>Курс<select id="office-year"><option value="">Все курсы</option>${years.map((y) => `<option>${y}</option>`).join("")}</select></label><label class="filter-check"><input type="checkbox" id="office-no-account" ${noAccountOnly ? "checked" : ""}> Без учётной записи</label>${officeTeacher ? `<span class="filter-chip">Преподаватель: ${esc(officeTeacher.name)} <button type="button" id="clear-teacher" aria-label="Снять фильтр по преподавателю">×</button></span>` : ""}</div>
   <div class="filter-tabs">${[
     ["all", "Весь реестр"],
     ["foreign", "Подтверждённые иностранцы"],
@@ -504,6 +515,16 @@ function adminView() {
     tablePage = 0;
     renderAdminRows();
   };
+  $("#office-no-account").onchange = (e) =>
+    safe(async () => {
+      noAccountOnly = e.target.checked;
+      if (noAccountOnly && !noAccountIds) {
+        const r = await api("/api/admin/students-without-account");
+        noAccountIds = new Set(r.students.map((x) => x.id));
+      }
+      tablePage = 0;
+      renderAdminRows();
+    });
   $("#admin-search").oninput = (e) => {
     query = e.target.value;
     tablePage = 0;
@@ -568,7 +589,8 @@ function renderAdminRows() {
         : officeScope === "unassigned"
           ? !s.manager
           : true) &&
-      (!officeTeacher || (s.teacherIds || []).includes(officeTeacher.id)),
+      (!officeTeacher || (s.teacherIds || []).includes(officeTeacher.id)) &&
+      (!noAccountOnly || noAccountIds?.has(s.id)),
   );
   $$(".filter-tabs [data-filter]").forEach((b) => {
     const n = base.filter((s) => matchesFilter(s, b.dataset.filter)).length;
@@ -762,6 +784,10 @@ async function profile(id) {
   const overdueCount = data.procedures.filter((p) =>
     ["overdue", "expired"].includes(p.status),
   ).length;
+  const attachmentsFor = (kind) =>
+    data.attachments.filter((a) => a.kind === kind);
+  const scanRow = (a) =>
+    `<div class="schedule-row"><div><a href="/api/attachments/${a.id}">${esc(a.fileName)}</a><small>${fmtDate(a.uploadedAt)} · ${fmtSize(a.size)} · ${esc(a.uploadedBy)}</small></div>${data.canEdit ? `<button type="button" class="btn small" data-delete-attachment="${a.id}" data-file-name="${esc(a.fileName)}" aria-label="Удалить файл ${esc(a.fileName)}">Удалить</button>` : ""}</div>`;
   const procDate = (p) =>
     ["pending", "overdue", "submitted"].includes(p.status) && p.dueDate
       ? "до " +
@@ -817,13 +843,19 @@ async function profile(id) {
       ["private", "Частный адрес"],
     ],
     s.housing,
-  )}</select></label><label>Куратор по миграционному учёту<input name="curator" maxlength="200" value="${esc(s.curator)}"></label><label>Паспорт действителен до<input type="date" name="passportUntil" value="${esc(s.passportUntil)}"></label><label>Миграционная карта до<input type="date" name="migrationCardUntil" value="${esc(s.migrationCardUntil)}"></label><label>ФИО латиницей<input name="nameLatin" maxlength="200" value="${esc(s.nameLatin)}"></label><label>Страна, направившая на обучение<input name="sendingCountry" maxlength="200" value="${esc(s.sendingCountry)}"></label><label class="wide">Версия образовательной программы<input name="programVersion" maxlength="200" value="${esc(s.programVersion)}"></label><button class="btn primary small">Сохранить данные студента</button></fieldset></form></details></section>
+  )}</select></label><label>Куратор по миграционному учёту<input name="curator" maxlength="200" value="${esc(s.curator)}"></label><label>Паспорт действителен до<input type="date" name="passportUntil" value="${esc(s.passportUntil)}"></label><label>Миграционная карта до<input type="date" name="migrationCardUntil" value="${esc(s.migrationCardUntil)}"></label><label>ФИО латиницей<input name="nameLatin" maxlength="200" value="${esc(s.nameLatin)}"></label><label>Страна, направившая на обучение<input name="sendingCountry" maxlength="200" value="${esc(s.sendingCountry)}"></label><label class="wide">Версия образовательной программы<input name="programVersion" maxlength="200" value="${esc(s.programVersion)}"></label><button class="btn primary small">Сохранить данные студента</button></fieldset></form></details><h3>Учётная запись ВШЭ</h3>${
+    data.account
+      ? `<div class="schedule-row"><div><strong>${esc(data.account.externalId)}</strong><small>Связал(а) ${esc(data.account.linkedBy)} · ${fmtDate(data.account.linkedAt)}</small></div>${data.canEdit ? '<button type="button" class="btn small" id="account-unlink">Отвязать</button>' : ""}</div>`
+      : data.canEdit
+        ? '<form id="account-link" class="rename-row"><input name="externalId" maxlength="200" required autocomplete="off" placeholder="Идентификатор учётной записи" aria-label="Идентификатор учётной записи ВШЭ"><button class="btn primary small">Связать</button></form>'
+        : '<p class="muted">Учётная запись не связана</p>'
+  }</section>
   <section class="card-tab" data-tab="lessons">${data.canEdit ? `<details id="registry-block" class="schedule-block" ${scheduleOpen() ? "open" : ""}><summary><h3>Занятия и преподаватели <span class="pill">${data.links.length}</span></h3></summary><p class="schedule-note">Кто ведёт студента: дисциплина, группа, преподаватель. Правки сразу попадают в журнал преподавателя.</p><datalist id="profile-teachers">${teachers.map((t) => `<option value="${esc(t.name)}"></option>`).join("")}</datalist><datalist id="profile-courses"></datalist><form id="student-link" class="schedule-add"><h4>Добавить занятие</h4><div class="link-row"><label>Преподаватель<input name="teacher" list="profile-teachers" placeholder="Начните вводить фамилию" required autocomplete="off"></label><label>Дисциплина<input name="course" list="profile-courses" placeholder="Название дисциплины" required maxlength="200" autocomplete="off"></label><label>Группа<input name="group" placeholder="Необязательно" maxlength="100" autocomplete="off"></label><button class="btn primary small">+ Добавить занятие</button></div></form><div id="student-links">${data.links.map((l, i) => `<div class="schedule-row"><div><strong>${esc(l.course)}</strong><small>${esc(l.teacher)}${l.group ? ` · <span class="group-code" title="Группа ${esc(l.group)}">${esc(shortGroup(l.group))}</span>` : ""}</small></div><button class="btn small" data-unlink="${i}" aria-label="Убрать занятие: ${esc(l.course)}, ${esc(l.teacher)}">Убрать</button></div>`).join("") || '<p class="notice warn">Студент не привязан ни к одному преподавателю и не виден в журналах. Добавьте занятие ниже.</p>'}</div><details class="schedule-more"><summary>ФИО студента и удаление записи</summary><form id="student-rename" class="profile-form"><fieldset><label class="wide">ФИО студента<input name="name" required minlength="3" maxlength="150" autocomplete="off" value="${esc(s.name)}"></label><button class="btn primary small">Сохранить ФИО</button></fieldset></form><p><button type="button" class="btn small" id="student-delete">Удалить студента из реестра</button> <span class="muted">Только для ошибочных записей без отметок. Отчисленным меняйте статус обучения.</span></p></details></details>` : '<p class="muted">Занятия и преподавателей меняет менеджер программы и курса или полный доступ.</p>'}</section>
   <section class="card-tab" data-tab="requirements"><h3>Обязательные требования</h3><p class="muted">Сроки устанавливает сотрудник после проверки применимости. Отправленные документы ожидают проверки и не считаются подтверждённым нарушением.</p>
   ${data.procedures
     .map(
       (p) =>
-        `<details class="procedure-item"><summary><span class="proc-title">${esc(p.title)}</span><span class="pill ${["overdue", "expired"].includes(p.status) ? "red" : p.status === "confirmed" ? "green" : ""}">${procedureLabels[p.status]}</span><span class="proc-date">${esc(procDate(p))}</span><span class="proc-edit">Изменить</span></summary><p>${esc(p.hint)} <a href="${esc(p.source)}" target="_blank" rel="noopener">Инструкция ВШЭ ↗</a></p><form data-procedure="${p.id}" class="profile-form"><fieldset ${data.canEdit ? "" : "disabled"}><label>Статус<select name="state">${options(
+        `<details class="procedure-item"><summary><span class="proc-title">${esc(p.title)}</span><span class="pill ${["overdue", "expired"].includes(p.status) ? "red" : p.status === "confirmed" ? "green" : ""}">${procedureLabels[p.status]}</span><span class="proc-date">${esc(procDate(p))}</span><span class="proc-edit">Изменить</span></summary><p>${esc(p.hint)} <a href="${esc(p.source)}" target="_blank" rel="noopener">Инструкция ВШЭ ↗</a></p>${attachmentsFor(p.id).length ? `<div class="proc-scans">${attachmentsFor(p.id).map(scanRow).join("")}</div>` : ""}<form data-procedure="${p.id}" class="profile-form"><fieldset ${data.canEdit ? "" : "disabled"}><label>Статус<select name="state">${options(
           ["unknown", "pending", "submitted", "confirmed", "exempt"].map(
             (v) => [v, procedureLabels[v]],
           ),
@@ -912,6 +944,57 @@ async function profile(id) {
       });
     const link = (method, body) =>
       api("/api/admin/enrollments", { method, body: JSON.stringify(body) });
+    $$("[data-delete-attachment]").forEach(
+      (b) =>
+        (b.onclick = async () => {
+          if (
+            await ask({
+              title: "Удалить файл?",
+              text: `${b.dataset.fileName}. Файл будет удалён без возможности восстановления.`,
+              ok: "Удалить",
+              danger: true,
+            })
+          )
+            registry(
+              () =>
+                api("/api/admin/attachments/" + b.dataset.deleteAttachment, {
+                  method: "DELETE",
+                }),
+              "Файл удалён",
+            );
+        }),
+    );
+    const accountLinkForm = $("#account-link");
+    if (accountLinkForm)
+      accountLinkForm.onsubmit = (e) => {
+        e.preventDefault();
+        const externalId = new FormData(accountLinkForm).get("externalId");
+        registry(async () => {
+          await api("/api/admin/students/" + id + "/account", {
+            method: "PUT",
+            body: JSON.stringify({ externalId }),
+          });
+          noAccountIds = null;
+        }, "Учётная запись связана");
+      };
+    const accountUnlink = $("#account-unlink");
+    if (accountUnlink)
+      accountUnlink.onclick = async () => {
+        if (
+          await ask({
+            title: "Отвязать учётную запись?",
+            text: `${data.account.externalId}. Студент потеряет доступ в личный кабинет через эту учётную запись.`,
+            ok: "Отвязать",
+            danger: true,
+          })
+        )
+          registry(async () => {
+            await api("/api/admin/students/" + id + "/account", {
+              method: "DELETE",
+            });
+            noAccountIds = null;
+          }, "Учётная запись отвязана");
+      };
     $("#student-rename").onsubmit = (e) => {
       e.preventDefault();
       const name = new FormData(e.currentTarget).get("name");

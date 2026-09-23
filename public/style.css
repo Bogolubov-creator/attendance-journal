@@ -1675,6 +1675,14 @@ dialog::backdrop {
 .office-filters .filter-search .search {
   margin: 0;
 }
+.office-filters .filter-check {
+  align-self: end;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
 .filter-chip {
   align-self: end;
   display: inline-flex;
