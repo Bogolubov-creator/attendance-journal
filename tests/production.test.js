@@ -122,3 +122,80 @@ test("Рабочий выбор сотрудника запускается бе
     rmSync(temp, { recursive: true, force: true });
   }
 });
+
+test("Чистая установка без данных: сервер работает с пустым реестром", async () => {
+  const temp = mkdtempSync(join(tmpdir(), "attendance-empty-install-"));
+  const origin = "https://attendance.example.edu";
+  const headers = {
+    host: "attendance.example.edu",
+    origin,
+    "content-type": "application/json",
+  };
+  const child = spawn(process.execPath, ["src/server.js"], {
+    env: {
+      ...process.env,
+      MANAGEMENT_PASSWORD_HASH: passwordHash("test-management-password"),
+      AUTH_MODE: "selection",
+      DEMO_MODE: "false",
+      REQUIRE_AUTH_CONFIG: "true",
+      TRUST_PROXY: "1",
+      AUTO_BACKUP: "false",
+      APP_ORIGIN: origin,
+      OIDC_ISSUER: "",
+      OIDC_CLIENT_ID: "",
+      OIDC_CLIENT_SECRET: "",
+      // Реестра на сервере нет: ни файла импорта, ни записей в базе.
+      ROSTER_PATH: join(temp, "нет-такого-файла.json"),
+      DB_PATH: join(temp, "db.sqlite"),
+      HOST: "127.0.0.1",
+      PORT: "3111",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      child.stdout.once("data", resolve);
+      child.once("error", reject);
+      child.once("exit", (c) => reject(Error("server exit " + c)));
+    });
+    assert.equal(
+      (await proxyFetch("http://127.0.0.1:3111/healthz", { headers })).status,
+      200,
+    );
+    const login = await proxyFetch("http://127.0.0.1:3111/api/select-login", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        role: "admin",
+        personId: "gadzhieva",
+        password: "test-management-password",
+      }),
+    });
+    assert.equal(login.status, 200, await login.clone().text());
+    const cookie = login.headers.get("set-cookie").split(";")[0];
+    const overview = await (
+      await proxyFetch(
+        "http://127.0.0.1:3111/api/admin/overview?from=2026-09-01&to=2026-09-23",
+        { headers: { ...headers, cookie } },
+      )
+    ).json();
+    assert.equal(overview.students.length, 0);
+    assert.equal(overview.teachers, 0);
+    // Реестр загружается уже на сервере: адрес импорта отвечает и ждёт файл.
+    const empty = await proxyFetch("http://127.0.0.1:3111/api/admin/import", {
+      method: "POST",
+      headers: {
+        ...headers,
+        cookie,
+        "content-type": "application/octet-stream",
+      },
+      body: "",
+    });
+    assert.equal(empty.status, 400);
+    assert.match(await empty.text(), /Загрузите файл .xlsx/);
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise((r) => child.once("exit", r));
+    rmSync(temp, { recursive: true, force: true });
+  }
+});
