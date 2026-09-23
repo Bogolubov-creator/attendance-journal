@@ -1082,7 +1082,7 @@ app.delete("/api/admin/attachments/:id", (req, res) => {
     force: true,
   });
   run("DELETE FROM attachments WHERE id=?", req.params.id);
-  audit(req.session.user, "attachment.delete", row.studentId + ":" + row.kind);
+  audit(req.session.user, "attachment.delete", row.studentId + ":" + row.id);
   res.json({ ok: true });
 });
 app.get("/api/admin/students-without-account", (req, res) => {

@@ -219,10 +219,39 @@ test("Сканы: загрузка, скачивание, удаление", asy
         const row = attachmentRow(weirdId);
         // Имя на диске – журнал (шестнадцатеричные символы + расширение), не присланное студентом.
         assert.match(row.storedName, /^[0-9a-f]{32}\.pdf$/);
+        // Управляющие символы вычищены из показываемого имени, не только из имени на диске.
+        assert.ok(!/[\u0000-\u001f]/.test(row.fileName));
         const dl = await fetch(origin + "/api/attachments/" + weirdId, {
           headers: { origin, cookie },
         });
         assert.equal(dl.status, 200);
+        assert.ok(dl.headers.get("content-disposition"));
+      },
+    );
+
+    await t.test(
+      "Эмодзи на границе обрезки не оставляет одинокий суррогат при скачивании",
+      async () => {
+        // slice(0, 200) резал бы по UTF-16 code unit и разрывал бы суррогатную
+        // пару эмодзи ровно на границе – тогда encodeURIComponent при скачивании
+        // бросал бы URIError. Имя подобрано так, чтобы эмодзи попало на границу 200.
+        const boundaryName = "a".repeat(199) + "🎉.pdf";
+        const r = await fetch(origin + "/api/student/attachments/insurance", {
+          method: "POST",
+          headers: {
+            origin,
+            cookie,
+            "content-type": "application/pdf",
+            "x-file-name": encodeURIComponent(boundaryName),
+          },
+          body: Buffer.from("%PDF-1.7 граница обрезки имени"),
+        });
+        assert.equal(r.status, 200, await r.clone().text());
+        const boundaryId = (await r.json()).id;
+        const dl = await fetch(origin + "/api/attachments/" + boundaryId, {
+          headers: { origin, cookie },
+        });
+        assert.equal(dl.status, 200, await dl.clone().text());
         assert.ok(dl.headers.get("content-disposition"));
       },
     );
@@ -239,6 +268,10 @@ test("Сканы: загрузка, скачивание, удаление", asy
         body: Buffer.from("%PDF-1.7 битое имя"),
       });
       assert.ok([200, 400].includes(r.status));
+      if (r.status === 200) {
+        const row = attachmentRow((await r.json()).id);
+        assert.equal(row.fileName, "файл");
+      }
     });
 
     await t.test("Свой файл выдаётся вложением", async () => {

@@ -65,12 +65,11 @@ export function registerStudent(
     } catch {
       decoded = "файл";
     }
-    return (
-      decoded
-        .replace(/[\u0000-\u001f/\\]/g, " ")
-        .trim()
-        .slice(0, 200) || "файл"
-    );
+    const cleaned = decoded.replace(/[\u0000-\u001f/\\]/g, " ").trim();
+    // slice() режет по UTF-16 code unit и может разорвать эмодзи из
+    // суррогатной пары – Array.from делит строку по code points, поэтому
+    // символ либо попадает в имя целиком, либо не попадает совсем.
+    return Array.from(cleaned).slice(0, 200).join("") || "файл";
   };
   // У свежеимпортированного студента строки в student_profiles ещё нет.
   const emptyProfile = {
@@ -250,24 +249,28 @@ export function registerStudent(
         ext: type.ext,
       });
       const id = "a_" + randomBytes(8).toString("hex");
-      run(
-        "INSERT INTO attachments VALUES(?,?,?,?,?,?,?,?,?,?)",
-        id,
-        req.studentId,
-        req.params.kind,
-        cleanName(req.headers["x-file-name"]),
-        saved.storedName,
-        type.mime,
-        saved.size,
-        saved.sha256,
-        new Date().toISOString(),
-        req.session.user.name,
-      );
-      audit(
-        req.session.user,
-        "attachment.add",
-        req.studentId + ":" + req.params.kind,
-      );
+      try {
+        run(
+          "INSERT INTO attachments VALUES(?,?,?,?,?,?,?,?,?,?)",
+          id,
+          req.studentId,
+          req.params.kind,
+          cleanName(req.headers["x-file-name"]),
+          saved.storedName,
+          type.mime,
+          saved.size,
+          saved.sha256,
+          new Date().toISOString(),
+          req.session.user.name,
+        );
+      } catch (error) {
+        // Запись в базу не удалась – файл-сирота на диске не оставляем.
+        rmSync(attachmentPath(uploadDir, req.studentId, saved.storedName), {
+          force: true,
+        });
+        throw error;
+      }
+      audit(req.session.user, "attachment.add", req.studentId + ":" + id);
       res.json({ id });
     },
   );
@@ -311,11 +314,7 @@ export function registerStudent(
       force: true,
     });
     run("DELETE FROM attachments WHERE id=?", req.params.id);
-    audit(
-      req.session.user,
-      "attachment.delete",
-      req.studentId + ":" + row.kind,
-    );
+    audit(req.session.user, "attachment.delete", req.studentId + ":" + row.id);
     res.json({ ok: true });
   });
 }
