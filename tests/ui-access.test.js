@@ -175,6 +175,8 @@ test("Сотрудники: колонка «Доступ», фильтр «Бе
     calls.push({ path, method: options.method || "GET" });
     if (path === "/api/admin/teachers" && !options.method) return list;
     if (path === "/api/admin/staff-access") return staff;
+    if (path === "/api/admin/personal-only" && !options.method)
+      return { enabled: false, withoutPassword: 2 };
     if (path.startsWith("/api/admin/access/"))
       return {
         name: "Кто-то",
@@ -334,4 +336,33 @@ test("Смена пароля: окно проверяет повтор, пок�
   });
   assert.equal(document.querySelector("#change-password-form"), null);
   assert.deepEqual(toasts, ["Пароль изменён"]);
+});
+
+test("День X: предупреждение с числом сотрудников без пароля, без согласия режим не включается", async () => {
+  page("");
+  const { enablePersonalOnly } = await import("../public/access.js");
+  const calls = [];
+  let enabled = false,
+    answer = false;
+  const api = async (path, options = {}) => {
+    calls.push({ path, method: options.method || "GET", body: options.body });
+    return { enabled, withoutPassword: 7 };
+  };
+  const questions = [];
+  const ask = async (q) => (questions.push(q), answer);
+  assert.equal(await enablePersonalOnly({ api, ask }), false);
+  assert.match(questions[0].text, /У 7 сотрудников ещё нет личного пароля/);
+  assert.equal(questions[0].danger, true);
+  assert.ok(!calls.some((c) => c.method === "POST"));
+  answer = true;
+  assert.equal(await enablePersonalOnly({ api, ask }), true);
+  assert.deepEqual(calls.at(-1), {
+    path: "/api/admin/personal-only",
+    method: "POST",
+    body: JSON.stringify({ confirm: true }),
+  });
+  enabled = true;
+  const asked = questions.length;
+  assert.equal(await enablePersonalOnly({ api, ask }), false);
+  assert.equal(questions.length, asked, "уже включён – не спрашивает");
 });

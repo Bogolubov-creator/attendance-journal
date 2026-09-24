@@ -109,6 +109,17 @@ export function registerAuth(
       req.session = null;
     }
 
+    // В режиме «только личные пароли» гаснут сессии сотрудников, выданные
+    // по общему паролю: выбором из списка и демо-входом.
+    if (
+      req.session?.user &&
+      req.session.user.role !== "student" &&
+      !["personal", "oidc", "explicit"].includes(req.session.user.source) &&
+      staff.personalOnly()
+    ) {
+      run("DELETE FROM sessions WHERE id=?", req.sessionKey);
+      req.session = null;
+    }
     if (req.session?.user?.source === "personal") {
       // Личный пароль: сессия живёт, пока жива учётная запись, не сменилась
       // версия пароля и человек остался в справочнике или реестре с той же ролью.
@@ -203,12 +214,19 @@ export function registerAuth(
       demo: demo && process.env.DATA_MODE !== "live",
       demoStudents: demoStudentLogin ? roster.students : [],
       selection,
-      teachers: selection ? roster.teachers : [],
-      managers: selection ? managers : [],
+      // После дня X список сотрудников до входа не отдаётся никому.
+      personalOnly: staff.personalOnly(),
+      teachers: selection && !staff.personalOnly() ? roster.teachers : [],
+      managers: selection && !staff.personalOnly() ? managers : [],
     }),
   );
   app.post("/api/select-login", (req, res) => {
     if (!selection) return res.sendStatus(404);
+    if (staff.personalOnly())
+      throw fail(
+        403,
+        "Вход по общему паролю отключён. Войдите по личному логину",
+      );
     const { role, personId } = req.body;
     const person =
       role === "teacher"
@@ -308,6 +326,11 @@ export function registerAuth(
       session(res, { user, managementVersion });
       return res.json({ user });
     }
+    if (staff.personalOnly())
+      throw fail(
+        403,
+        "Вход по общему паролю отключён. Войдите по личному логину",
+      );
     const teacher = roster.teachers.find((t) => t.id === req.body.teacherId);
     if (role !== "admin" && !teacher) throw fail(400, "Выберите преподавателя");
     if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);

@@ -65,18 +65,50 @@ export function registerAccess(
     );
     res.json({ ...invite, name: person.name, reset });
   });
-  // Массовая выгрузка для первой раздачи: преподаватели со студентами и сотрудники
-  // офиса без пароля. Каждому – новый код, прежние неиспользованные гаснут.
-  app.post("/api/admin/access-export", (req, res) => {
-    if (req.session.user.role !== "admin")
-      throw fail(403, "Выгрузку кодов делает полный доступ");
+  // Кому нужен личный пароль и у кого его ещё нет: сотрудники офиса
+  // и преподаватели, у которых есть студенты.
+  function withoutPassword() {
     const withStudents = new Set(roster.enrollments.map((e) => e.teacherId));
-    const people = [
+    return [
       ...managers.map((m) => findPerson(m.id, roster)),
       ...roster.teachers
         .filter((t) => withStudents.has(t.id))
         .map((t) => findPerson(t.id, roster)),
     ].filter((p) => !staff.byPerson(p.id)?.passwordHash);
+  }
+  const adminOnly = (req) => {
+    if (req.session.user.role !== "admin")
+      throw fail(403, "Режим входа меняет полный доступ");
+  };
+  // День X: предпросмотр и включение режима «только личные пароли».
+  app.get("/api/admin/personal-only", (req, res) => {
+    adminOnly(req);
+    res.json({
+      enabled: staff.personalOnly(),
+      withoutPassword: withoutPassword().length,
+    });
+  });
+  app.post("/api/admin/personal-only", (req, res) => {
+    adminOnly(req);
+    if (req.body.confirm !== true)
+      throw fail(400, "Подтвердите включение режима");
+    if (!staff.personalOnly()) {
+      staff.enablePersonalOnly(req.session.user.name);
+      audit(
+        req.session.user,
+        "access.mode",
+        "access",
+        `вход только по личным паролям; без пароля: ${withoutPassword().length}`,
+      );
+    }
+    res.json({ enabled: true });
+  });
+  // Массовая выгрузка для первой раздачи: преподаватели со студентами и сотрудники
+  // офиса без пароля. Каждому – новый код, прежние неиспользованные гаснут.
+  app.post("/api/admin/access-export", (req, res) => {
+    if (req.session.user.role !== "admin")
+      throw fail(403, "Выгрузку кодов делает полный доступ");
+    const people = withoutPassword();
     const roles = {
       admin: "Полный доступ",
       office: "Менеджер",

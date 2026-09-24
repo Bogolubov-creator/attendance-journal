@@ -260,6 +260,15 @@ export function staffAccounts(db) {
       return { state: "invited", login: a.login, expires: a.inviteExpires };
     return { state: "none", login: a?.login || null };
   }
+  // Режим «только личные пароли» – флаг в служебном состоянии базы; снимается
+  // только серверным скриптом.
+  const personalOnly = () =>
+    !!get("SELECT 1 FROM service_state WHERE key='personalOnly'");
+  const enablePersonalOnly = (by) =>
+    run(
+      "INSERT OR REPLACE INTO service_state VALUES('personalOnly',?)",
+      JSON.stringify({ at: new Date().toISOString(), by }),
+    );
   const remove = (personId) =>
     run("DELETE FROM staff_accounts WHERE personId=?", personId);
   return {
@@ -272,5 +281,7 @@ export function staffAccounts(db) {
     resetPassword,
     accessState,
     remove,
+    personalOnly,
+    enablePersonalOnly,
   };
 }

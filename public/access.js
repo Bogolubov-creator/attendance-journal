@@ -208,3 +208,25 @@ export function openChangePassword({ api, toast }) {
   else dialog.setAttribute("open", "");
   return dialog;
 }
+
+// День X: кнопка включения режима «только личные пароли» с предпросмотром.
+export async function enablePersonalOnly({ api, ask }) {
+  const { enabled, withoutPassword } = await api("/api/admin/personal-only");
+  if (enabled) return false;
+  const confirmed = await ask({
+    title: "Включить вход только по личным паролям?",
+    text:
+      (withoutPassword
+        ? `У ${withoutPassword} сотрудников ещё нет личного пароля – после включения они не смогут войти, пока им не выдадут код. `
+        : "Личный пароль есть у всех сотрудников. ") +
+      "Общий пароль и выбор себя из списка перестанут работать. Вернуть их можно только настройкой на сервере.",
+    ok: "Включить",
+    danger: true,
+  });
+  if (!confirmed) return false;
+  await api("/api/admin/personal-only", {
+    method: "POST",
+    body: JSON.stringify({ confirm: true }),
+  });
+  return true;
+}
