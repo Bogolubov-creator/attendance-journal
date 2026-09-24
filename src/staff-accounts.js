@@ -252,6 +252,7 @@ export function staffAccounts(db) {
   // Попытки, чей хеш ещё считается, входят в счётчик: пачка одновременных
   // запросов не проскакивает блокировку.
   const pending = new Map();
+  const checkingCode = new Set();
   const locked = (a, now) =>
     a.lockedUntil > now ||
     a.failures + (pending.get(a.personId) || 0) >= LOCK_AFTER;
@@ -284,13 +285,29 @@ export function staffAccounts(db) {
   async function redeemInvite(login, code, password, now = Date.now()) {
     // Неверный код в счётчик блокировки не идёт: код около 59 бит онлайн не
     // подобрать, а счётчик позволил бы любому закрыть вход по чужому логину.
+    // Проверка кода всегда длится не меньше паузы: по времени ответа не видно,
+    // есть ли у логина действующий код. На один логин – одна проверка за раз,
+    // чтобы поток ложных кодов по одному логину не занимал ворота.
     const a = byLogin(login);
-    if (!a?.inviteHash || !(a.inviteExpires > now)) {
+    if (
+      !a?.inviteHash ||
+      !(a.inviteExpires > now) ||
+      checkingCode.has(a.personId)
+    ) {
       await pause();
       return BAD_CODE;
     }
-    if (!(await codeGate(() => codeMatches(code, a.inviteHash))))
-      return BAD_CODE;
+    checkingCode.add(a.personId);
+    let ok;
+    try {
+      [ok] = await Promise.all([
+        codeGate(() => codeMatches(code, a.inviteHash)),
+        pause(),
+      ]);
+    } finally {
+      checkingCode.delete(a.personId);
+    }
+    if (!ok) return BAD_CODE;
     const problem = passwordProblem(password);
     if (problem) return { status: 400, error: problem };
     const hash = await hashGate(() => passwordHashAsync(password));

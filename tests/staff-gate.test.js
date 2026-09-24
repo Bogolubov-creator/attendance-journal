@@ -144,3 +144,33 @@ test("Один код двумя запросами разом задаёт па
     await s.close();
   }
 });
+
+test("Время ответа «Первого входа» не выдаёт, есть ли у логина действующий код", async () => {
+  const s = await startServer(3130);
+  try {
+    const db = s.db();
+    const invite = staffAccounts(db).issueInvite({
+      id: "t_test_1",
+      name: "Преподаватель Первый",
+    });
+    db.close();
+    const timed = async (login) => {
+      const started = Date.now();
+      const r = await s.call("/api/first-login", {
+        method: "POST",
+        body: { login, code: "AAAA-BBBB-CCCC", password: PASSWORD },
+      });
+      assert.equal(r.status, 403);
+      return Date.now() - started;
+    };
+    for (let i = 0; i < 3; i++) {
+      assert.ok(
+        (await timed(invite.login)) >= 55,
+        "с кодом – не быстрее паузы",
+      );
+      assert.ok((await timed("nobody.xx")) >= 55);
+    }
+  } finally {
+    await s.close();
+  }
+});
