@@ -22,11 +22,10 @@ import {
   studentFieldsValid,
 } from "./office.js";
 import { openDatabase } from "./db.js";
-import { readFileSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { randomBytes, createHash } from "node:crypto";
 import * as oidc from "openid-client";
-import { backup } from "node:sqlite";
-import path from "node:path";
+import { startBackups } from "./backup.js";
 import { moscowDate, ruCompare, studentMetrics, studentId } from "./domain.js";
 const app = express(),
   port = Number(process.env.PORT || 3100),
@@ -1325,55 +1324,4 @@ const server = app.listen(port, host, () =>
     `Журнал: ${origin} | ${demo ? "Локальный демонстрационный режим" : "Рабочий режим"}`,
   ),
 );
-let backupTimer,
-  backupRunning = false;
-async function createBackup() {
-  if (backupRunning) return;
-  backupRunning = true;
-  try {
-    const dir = process.env.BACKUP_DIR || "data/backups";
-    mkdirSync(dir, { recursive: true });
-    const target = path.join(
-      dir,
-      "attendance-" + new Date().toISOString().replaceAll(":", "-") + ".sqlite",
-    );
-    await backup(db, target);
-    // Имя копии начинается с даты по ISO, поэтому обычная сортировка идёт от старых к новым.
-    const kept = Number(process.env.BACKUP_KEEP || 14);
-    const copies = readdirSync(dir)
-      .filter((name) => /^attendance-.+\.sqlite$/.test(name))
-      .sort();
-    for (const name of copies.slice(0, -kept))
-      rmSync(path.join(dir, name), { force: true });
-    run(
-      "INSERT OR REPLACE INTO service_state VALUES('backup',?)",
-      JSON.stringify({ at: new Date().toISOString(), ok: true }),
-    );
-  } catch {
-    run(
-      "INSERT OR REPLACE INTO service_state VALUES('backup',?)",
-      JSON.stringify({ at: new Date().toISOString(), ok: false }),
-    );
-  } finally {
-    backupRunning = false;
-  }
-}
-if (process.env.AUTO_BACKUP === "true") {
-  backupTimer = setInterval(createBackup, 86400000);
-  backupTimer.unref();
-  createBackup();
-}
-let shuttingDown = false;
-function shutdown() {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  clearInterval(backupTimer);
-  server.close(async () => {
-    while (backupRunning) await new Promise((r) => setTimeout(r, 50));
-    db.close();
-    process.exit(0);
-  });
-  setTimeout(() => process.exit(1), 30000).unref();
-}
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
+startBackups(server, { db, run });
