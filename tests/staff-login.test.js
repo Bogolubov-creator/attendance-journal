@@ -147,7 +147,7 @@ test("5 неверных паролей закрывают только эту �
   }
 });
 
-test("Общий потолок: 100 неверных попыток по разным логинам за 15 минут", async () => {
+test("Чужие неверные попытки не закрывают вход остальным и «Первый вход» приглашённому", async () => {
   const s = await startServer(3122);
   try {
     const logins = await withAccounts(s);
@@ -157,8 +157,27 @@ test("Общий потолок: 100 неверных попыток по раз
           .status,
         403,
       );
-    const r = await login(s, { login: logins.admin, password: ADMIN_PASSWORD });
-    assert.equal(r.status, 429);
+    let r = await login(s, { login: logins.admin, password: ADMIN_PASSWORD });
+    assert.equal(r.status, 200, "общего потолка нет");
+
+    // Приглашённый без пароля: неверные входы под его логином не мешают первому входу.
+    const db = s.db();
+    const invite = staffAccounts(db).issueInvite({
+      id: "t_test_2",
+      name: "Преподаватель Второй",
+    });
+    db.close();
+    for (let i = 0; i < 6; i++)
+      await login(s, { login: invite.login, password: "подбираю " + i });
+    r = await s.call("/api/first-login", {
+      method: "POST",
+      body: {
+        login: invite.login,
+        code: invite.code,
+        password: TEACHER_PASSWORD,
+      },
+    });
+    assert.equal(r.status, 200, await r.clone().text());
   } finally {
     await s.close();
   }

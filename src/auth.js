@@ -5,6 +5,7 @@ import { verifyPassword } from "./management-auth.js";
 import { managers } from "./office.js";
 import { findPerson } from "./staff-accounts.js";
 
+const SHARED_OFF = "Вход по общему паролю отключён. Войдите по личному логину";
 const token = () => randomBytes(32).toString("base64url"),
   hash = (s) => createHash("sha256").update(s).digest("hex");
 
@@ -222,11 +223,7 @@ export function registerAuth(
   );
   app.post("/api/select-login", (req, res) => {
     if (!selection) return res.sendStatus(404);
-    if (staff.personalOnly())
-      throw fail(
-        403,
-        "Вход по общему паролю отключён. Войдите по личному логину",
-      );
+    if (staff.personalOnly()) throw fail(403, SHARED_OFF);
     const { role, personId } = req.body;
     const person =
       role === "teacher"
@@ -240,17 +237,12 @@ export function registerAuth(
     session(res, { user, managementVersion });
     res.json({ user });
   });
-  // Неверные личные пароли по всем учётным записям за 15 минут: потолок
-  // против перебора одного пароля по многим логинам. По адресу не считаем –
-  // за туннелем адрес у всех посетителей один.
-  let personalFailures = [];
+  // Перебор ограничен блокировкой учётной записи (5 попыток за 15 минут).
+  // Общего потолка на все учётные записи нет: его одним скриптом без входа
+  // можно держать заполненным и закрыть вход всем (ревью 24.09.2026).
   app.post("/api/login", (req, res) => {
-    const now = Date.now();
-    personalFailures = personalFailures.filter((t) => t > now - 15 * 60000);
-    if (personalFailures.length >= 100)
-      throw fail(429, "Слишком много попыток. Повторите через 15 минут.");
     const { login, password, remember } = req.body;
-    const result = staff.checkPassword(login, password, now);
+    const result = staff.checkPassword(login, password);
     if (result.locked)
       throw fail(
         429,
@@ -258,10 +250,7 @@ export function registerAuth(
       );
     const person =
       result.account && findPerson(result.account.personId, roster);
-    if (!person) {
-      personalFailures.push(now);
-      throw fail(403, "Неверный логин или пароль");
-    }
+    if (!person) throw fail(403, "Неверный логин или пароль");
     // Запомнить на 30 дней можно только преподавателю: у офиса доступ к данным студентов.
     const lifetime =
       remember === true && person.role === "teacher"
@@ -326,11 +315,7 @@ export function registerAuth(
       session(res, { user, managementVersion });
       return res.json({ user });
     }
-    if (staff.personalOnly())
-      throw fail(
-        403,
-        "Вход по общему паролю отключён. Войдите по личному логину",
-      );
+    if (staff.personalOnly()) throw fail(403, SHARED_OFF);
     const teacher = roster.teachers.find((t) => t.id === req.body.teacherId);
     if (role !== "admin" && !teacher) throw fail(400, "Выберите преподавателя");
     if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);

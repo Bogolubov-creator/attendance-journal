@@ -94,7 +94,7 @@ test("Вход по логину и паролю: отправка с отмет
   assert.equal($("#forgot-text").hidden, true);
   $("#forgot-open").click();
   assert.equal($("#forgot-text").hidden, false);
-  assert.match($("#forgot-text").textContent, /менеджер вашей программы/);
+  assert.match($("#forgot-text").textContent, /менеджеру своей программы/);
   assert.match($("label.check").textContent, /только для преподавателей/);
 
   $("#personal-login-name").value = " ivanov.ii ";
@@ -232,7 +232,7 @@ test("Сотрудники: колонка «Доступ», фильтр «Бе
   rows()[0].querySelector('[data-action="access"]').click();
   await new Promise((r) => setTimeout(r, 10));
   assert.equal(asked.at(-1), "Сбросить пароль?");
-  let dialog = document.querySelector(".invite-dialog");
+  let dialog = document.querySelector("dialog.ask");
   assert.match(dialog.textContent, /Пароль сброшен/);
   assert.equal(
     dialog.querySelector("#invite-code").textContent,
@@ -248,7 +248,7 @@ test("Сотрудники: колонка «Доступ», фильтр «Бе
   );
   dialog.querySelector("#invite-close").click();
   assert.equal(
-    document.querySelector(".invite-dialog"),
+    document.querySelector("dialog.ask"),
     null,
     "код не остаётся на странице",
   );
@@ -263,7 +263,7 @@ test("Сотрудники: колонка «Доступ», фильтр «Бе
   assert.ok(
     calls.some((c) => c.path === "/api/admin/access/t9" && c.method === "POST"),
   );
-  dialog = document.querySelector(".invite-dialog");
+  dialog = document.querySelector("dialog.ask");
   assert.match(dialog.textContent, /Доступ выдан/);
 });
 

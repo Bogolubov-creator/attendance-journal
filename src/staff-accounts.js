@@ -13,6 +13,10 @@ export const INVITE_DAYS = 7;
 export const MIN_PASSWORD = 10;
 const LOCK_AFTER = 5,
   LOCK_MS = 15 * 60000;
+const TOO_MANY = {
+  status: 429,
+  error: "Слишком много попыток. Повторите через 15 минут.",
+};
 
 export function ensureStaffAccounts(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS staff_accounts(
@@ -180,7 +184,7 @@ export function staffAccounts(db) {
     return { login: byPerson(person.id).login, code, expires };
   }
   const locked = (a, now) => a.lockedUntil > now;
-  function fail(a, now) {
+  function recordFailure(a, now) {
     const failures = a.failures + 1;
     run(
       "UPDATE staff_accounts SET failures=?, lockedUntil=? WHERE personId=?",
@@ -193,15 +197,11 @@ export function staffAccounts(db) {
   // Возвращает { account } или { error, status }.
   function redeemInvite(login, code, password, now = Date.now()) {
     const a = byLogin(login);
-    if (a && locked(a, now))
-      return {
-        status: 429,
-        error: "Слишком много попыток. Повторите через 15 минут.",
-      };
+    if (a && locked(a, now)) return TOO_MANY;
     const valid =
       a?.inviteHash && a.inviteExpires > now && codeMatches(code, a.inviteHash);
     if (!valid) {
-      if (a) fail(a, now);
+      if (a) recordFailure(a, now);
       return {
         status: 403,
         error:
@@ -220,14 +220,16 @@ export function staffAccounts(db) {
   }
   // Вход по логину и паролю. Несуществующий логин проверяется против
   // пустышки, чтобы время ответа не выдавало, есть ли такой логин.
-  // Возвращает { account }, { locked: true } или { wrong: true }.
+  // Возвращает { account }, { locked: true } или {} при неверной паре.
   function checkPassword(login, password, now = Date.now()) {
     const a = byLogin(login);
     if (a && locked(a, now)) return { locked: true };
     const ok = verifyPassword(password, a?.passwordHash || DUMMY_HASH);
     if (!a?.passwordHash || !ok) {
-      if (a) fail(a, now);
-      return { wrong: true };
+      // У приглашённого без пароля неверные входы не считаем: иначе любой
+      // закрыл бы ему «Первый вход», зная предсказуемый логин.
+      if (a?.passwordHash) recordFailure(a, now);
+      return {};
     }
     run(
       "UPDATE staff_accounts SET failures=0, lockedUntil=0, lastLoginAt=? WHERE personId=?",
@@ -241,13 +243,9 @@ export function staffAccounts(db) {
   function changePassword(personId, current, next, now = Date.now()) {
     const a = byPerson(personId);
     if (!a?.passwordHash) return { status: 403, error: "Нет личного пароля" };
-    if (locked(a, now))
-      return {
-        status: 429,
-        error: "Слишком много попыток. Повторите через 15 минут.",
-      };
+    if (locked(a, now)) return TOO_MANY;
     if (!verifyPassword(current, a.passwordHash)) {
-      fail(a, now);
+      recordFailure(a, now);
       return { status: 403, error: "Текущий пароль указан неверно" };
     }
     const problem = passwordProblem(next);

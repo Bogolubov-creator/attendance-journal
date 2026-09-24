@@ -1,9 +1,20 @@
 // Личные пароли сотрудников на экране входа: вход по логину и паролю
 // и «Первый вход» по коду приглашения.
 const MIN_PASSWORD = 10;
+// Проверки, которые форма делает до запроса; остальное проверяет сервер.
+const localProblem = (password, repeat) =>
+  password !== repeat
+    ? "Пароли не совпадают"
+    : password.length < MIN_PASSWORD
+      ? `Пароль должен быть не короче ${MIN_PASSWORD} символов`
+      : "";
+const errorShower = (el) => (message) => {
+  el.textContent = message;
+  el.hidden = !message;
+};
 
 export const personalLoginHtml = () =>
-  `<form id="personal-login" class="access-form"><label for="personal-login-name">Логин</label><input id="personal-login-name" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="100" required><label for="personal-login-password">Пароль</label><input id="personal-login-password" type="password" autocomplete="current-password" maxlength="256" required><label class="check"><input id="personal-login-remember" type="checkbox"> Запомнить на этом устройстве (30 дней, только для преподавателей)</label><small class="muted">Не отмечайте на общих компьютерах.</small><p id="personal-login-error" class="notice warn" role="alert" hidden></p><button class="btn primary">Войти →</button><button type="button" class="button-link" id="forgot-open" aria-expanded="false" aria-controls="forgot-text">Забыли пароль?</button><p id="forgot-text" class="muted" hidden>Сбросить пароль может менеджер вашей программы или администратор журнала. Они выдадут новый код для первого входа.</p></form>`;
+  `<form id="personal-login" class="access-form"><label for="personal-login-name">Логин</label><input id="personal-login-name" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="100" required><label for="personal-login-password">Пароль</label><input id="personal-login-password" type="password" autocomplete="current-password" maxlength="256" required><label class="check"><input id="personal-login-remember" type="checkbox"> Запомнить на этом устройстве (30 дней, только для преподавателей)</label><small class="muted">Не отмечайте на общих компьютерах.</small><p id="personal-login-error" class="notice warn" role="alert" hidden></p><button class="btn primary">Войти →</button><button type="button" class="button-link" id="forgot-open" aria-expanded="false" aria-controls="forgot-text">Забыли пароль?</button><p id="forgot-text" class="muted" hidden>Обратитесь к менеджеру своей программы или к администратору журнала: пароль сбросит администратор и выдаст новый код для первого входа.</p></form>`;
 
 export function wirePersonalLogin({ api, onLogin }) {
   const $ = (s) => document.querySelector(s);
@@ -40,7 +51,7 @@ export function wirePersonalLogin({ api, onLogin }) {
 }
 
 export const firstLoginHtml = () =>
-  `<div class="login-links"><button type="button" class="button-link" id="first-login-open" aria-expanded="false" aria-controls="first-login">Первый вход по коду приглашения</button></div><form id="first-login" class="access-form" hidden><h2>Первый вход</h2><p class="muted">Введите логин и код из приглашения и придумайте пароль не короче ${MIN_PASSWORD} символов.</p><label for="first-login-name">Логин</label><input id="first-login-name" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="100" required><label for="first-login-code">Код приглашения</label><input id="first-login-code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="40" required><label for="first-login-password">Новый пароль</label><input id="first-login-password" type="password" autocomplete="new-password" minlength="${MIN_PASSWORD}" maxlength="256" required><label for="first-login-repeat">Повторите пароль</label><input id="first-login-repeat" type="password" autocomplete="new-password" maxlength="256" required><p id="first-login-error" class="notice warn" role="alert" hidden></p><button class="btn primary">Задать пароль и войти →</button></form>`;
+  `<div class="login-links"><button type="button" class="button-link" id="first-login-open" aria-expanded="false" aria-controls="first-login">Первый вход по коду приглашения</button></div><form id="first-login" class="access-form" hidden><div class="eyebrow">Первый вход</div><p class="muted">Введите логин и код из приглашения и придумайте пароль не короче ${MIN_PASSWORD} символов.</p><label for="first-login-name">Логин</label><input id="first-login-name" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="100" required><label for="first-login-code">Код приглашения</label><input id="first-login-code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="40" required><label for="first-login-password">Новый пароль</label><input id="first-login-password" type="password" autocomplete="new-password" minlength="${MIN_PASSWORD}" maxlength="256" required><label for="first-login-repeat">Повторите пароль</label><input id="first-login-repeat" type="password" autocomplete="new-password" maxlength="256" required><p id="first-login-error" class="notice warn" role="alert" hidden></p><button class="btn primary">Задать пароль и войти →</button></form>`;
 
 // onLogin(user) вызывается после успешного входа; ошибки показываются в форме.
 export function wireFirstLogin({ api, onLogin }) {
@@ -53,18 +64,12 @@ export function wireFirstLogin({ api, onLogin }) {
     opener.setAttribute("aria-expanded", String(!form.hidden));
     if (!form.hidden) $("#first-login-name").focus();
   };
-  const showError = (message) => {
-    const el = $("#first-login-error");
-    el.textContent = message;
-    el.hidden = !message;
-  };
+  const showError = errorShower($("#first-login-error"));
   form.onsubmit = async (e) => {
     e.preventDefault();
     const password = $("#first-login-password").value;
-    if (password !== $("#first-login-repeat").value)
-      return showError("Пароли не совпадают");
-    if (password.length < MIN_PASSWORD)
-      return showError(`Пароль должен быть не короче ${MIN_PASSWORD} символов`);
+    const problem = localProblem(password, $("#first-login-repeat").value);
+    if (problem) return showError(problem);
     showError("");
     const button = form.querySelector("button");
     button.disabled = true;
@@ -86,8 +91,25 @@ export function wireFirstLogin({ api, onLogin }) {
   };
 }
 
-const shortDate = (ms) =>
-  new Date(ms).toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+const shortDate = (ms, month = "long") =>
+  new Date(ms).toLocaleDateString("ru-RU", { day: "numeric", month });
+// Окно на общем компоненте подтверждения (dialog.ask): закрывается и удаляется
+// целиком, чтобы код приглашения не оставался в разметке.
+function modal(html, labelledBy) {
+  const dialog = document.createElement("dialog");
+  dialog.className = "ask";
+  dialog.setAttribute("aria-labelledby", labelledBy);
+  dialog.innerHTML = html;
+  document.body.append(dialog);
+  const close = () => {
+    dialog.close?.();
+    dialog.remove();
+  };
+  dialog.addEventListener("cancel", close);
+  if (dialog.showModal) dialog.showModal();
+  else dialog.setAttribute("open", "");
+  return { dialog, close };
+}
 
 // Строка состояния доступа для страницы «Сотрудники».
 export function accessLabel(access) {
@@ -95,11 +117,7 @@ export function accessLabel(access) {
     return (
       "Активен" +
       (access.lastLoginAt
-        ? ", вход " +
-          new Date(access.lastLoginAt).toLocaleDateString("ru-RU", {
-            day: "numeric",
-            month: "short",
-          })
+        ? ", вход " + shortDate(Date.parse(access.lastLoginAt), "short")
         : "")
     );
   if (access.state === "invited")
@@ -112,18 +130,12 @@ export const inviteLetter = ({ name, login, code, expires }, origin) =>
 
 // Окно с логином и кодом: код показывается один раз и после закрытия не восстанавливается.
 export function showInvite(invite, { esc, origin = location.origin }) {
-  const dialog = document.createElement("dialog");
-  dialog.className = "invite-dialog";
-  dialog.setAttribute("aria-labelledby", "invite-title");
   const letter = inviteLetter(invite, origin);
-  dialog.innerHTML = `<h2 id="invite-title">${invite.reset ? "Пароль сброшен" : "Доступ выдан"}</h2><p>${esc(invite.name)}</p><dl class="invite-code"><dt>Логин</dt><dd id="invite-login">${esc(invite.login)}</dd><dt>Код приглашения</dt><dd id="invite-code">${esc(invite.code)}</dd><dt>Действует до</dt><dd>${esc(shortDate(invite.expires))}</dd></dl><p class="notice warn">Код показывается один раз. После закрытия окна получить его снова нельзя – только выдать новый.</p><label for="invite-letter">Текст письма</label><textarea id="invite-letter" rows="8" readonly>${esc(letter)}</textarea><div class="dialog-actions"><button type="button" class="btn" id="invite-copy">Скопировать письмо</button><button type="button" class="btn primary" id="invite-close">Закрыть</button></div>`;
-  document.body.append(dialog);
-  const close = () => {
-    dialog.close?.();
-    dialog.remove();
-  };
+  const { dialog, close } = modal(
+    `<h3 id="invite-title">${invite.reset ? "Пароль сброшен" : "Доступ выдан"}</h3><p>${esc(invite.name)}</p><dl class="invite-code"><dt>Логин</dt><dd id="invite-login">${esc(invite.login)}</dd><dt>Код приглашения</dt><dd id="invite-code">${esc(invite.code)}</dd><dt>Действует до</dt><dd>${esc(shortDate(invite.expires))}</dd></dl><p class="notice warn">Код показывается один раз. После закрытия окна получить его снова нельзя – только выдать новый.</p><label for="invite-letter">Текст письма</label><textarea id="invite-letter" rows="8" readonly>${esc(letter)}</textarea><div class="ask-actions"><button type="button" class="btn" id="invite-copy">Скопировать письмо</button><button type="button" class="btn primary" id="invite-close">Закрыть</button></div>`,
+    "invite-title",
+  );
   dialog.querySelector("#invite-close").onclick = close;
-  dialog.addEventListener("cancel", close);
   dialog.querySelector("#invite-copy").onclick = async () => {
     const button = dialog.querySelector("#invite-copy");
     try {
@@ -135,8 +147,6 @@ export function showInvite(invite, { esc, origin = location.origin }) {
       button.textContent = "Выделено – нажмите Ctrl+C";
     }
   };
-  if (dialog.showModal) dialog.showModal();
-  else dialog.setAttribute("open", "");
   return dialog;
 }
 
@@ -169,29 +179,18 @@ export async function exportInvites({ ask }) {
 
 // Смена своего пароля: окно с текущим, новым паролем и повтором.
 export function openChangePassword({ api, toast }) {
-  const dialog = document.createElement("dialog");
-  dialog.className = "invite-dialog";
-  dialog.setAttribute("aria-labelledby", "password-title");
-  dialog.innerHTML = `<form id="change-password-form" class="access-form"><h2 id="password-title">Смена пароля</h2><label for="password-current">Текущий пароль</label><input id="password-current" type="password" autocomplete="current-password" maxlength="256" required><label for="password-next">Новый пароль</label><input id="password-next" type="password" autocomplete="new-password" minlength="${MIN_PASSWORD}" maxlength="256" required><label for="password-repeat">Повторите новый пароль</label><input id="password-repeat" type="password" autocomplete="new-password" maxlength="256" required><p class="muted">После смены журнал закроется на остальных ваших устройствах.</p><p id="password-error" class="notice warn" role="alert" hidden></p><div class="dialog-actions"><button type="button" class="btn" id="password-cancel">Отмена</button><button class="btn primary">Сменить пароль</button></div></form>`;
-  document.body.append(dialog);
+  const { dialog, close } = modal(
+    `<form id="change-password-form" class="access-form"><h3 id="password-title">Смена пароля</h3><label for="password-current">Текущий пароль</label><input id="password-current" type="password" autocomplete="current-password" maxlength="256" required><label for="password-next">Новый пароль</label><input id="password-next" type="password" autocomplete="new-password" minlength="${MIN_PASSWORD}" maxlength="256" required><label for="password-repeat">Повторите новый пароль</label><input id="password-repeat" type="password" autocomplete="new-password" maxlength="256" required><p>После смены журнал закроется на остальных ваших устройствах.</p><p id="password-error" class="notice warn" role="alert" hidden></p><div class="ask-actions"><button type="button" class="btn" id="password-cancel">Отмена</button><button class="btn primary">Сменить пароль</button></div></form>`,
+    "password-title",
+  );
   const $ = (s) => dialog.querySelector(s);
-  const close = () => {
-    dialog.close?.();
-    dialog.remove();
-  };
-  const showError = (message) => {
-    $("#password-error").textContent = message;
-    $("#password-error").hidden = !message;
-  };
+  const showError = errorShower($("#password-error"));
   $("#password-cancel").onclick = close;
-  dialog.addEventListener("cancel", close);
   $("#change-password-form").onsubmit = async (e) => {
     e.preventDefault();
     const next = $("#password-next").value;
-    if (next !== $("#password-repeat").value)
-      return showError("Пароли не совпадают");
-    if (next.length < MIN_PASSWORD)
-      return showError(`Пароль должен быть не короче ${MIN_PASSWORD} символов`);
+    const problem = localProblem(next, $("#password-repeat").value);
+    if (problem) return showError(problem);
     showError("");
     try {
       await api("/api/account/password", {
@@ -204,8 +203,6 @@ export function openChangePassword({ api, toast }) {
       showError(err.message);
     }
   };
-  if (dialog.showModal) dialog.showModal();
-  else dialog.setAttribute("open", "");
   return dialog;
 }
 

@@ -15,7 +15,7 @@ export function registerAccess(
         .filter((s) => canSeeStudent(user, studentProfile(s.id)))
         .map((s) => s.id),
     );
-  // Полный доступ – любому сотруднику; менеджер – только преподавателям,
+  // Полный доступ – любому сотруднику; менеджер – первый код преподавателям,
   // у которых есть хотя бы один студент его программ и курсов.
   function manageableTeachers(user) {
     if (user.role === "admin") return null;
@@ -26,17 +26,24 @@ export function registerAccess(
         .map((e) => e.teacherId),
     );
   }
+  // Сбрасывать действующий пароль и перевыдавать действующий код может только
+  // полный доступ: иначе менеджер, сам привязав любого преподавателя к своему
+  // студенту, мог бы сбросить ему пароль и войти под ним (ревью 24.09.2026).
   function canManage(user, person, allowed = manageableTeachers(user)) {
     if (user.role === "admin") return true;
     return (
       user.role === "office" &&
       person.role === "teacher" &&
-      allowed.has(person.id)
+      allowed.has(person.id) &&
+      staff.accessState(person.id).state === "none"
     );
   }
-  app.get("/api/admin/staff-access", (req, res) => {
+  const adminOnly = (req) => {
     if (req.session.user.role !== "admin")
-      throw fail(403, "Доступ сотрудников офиса ведёт полный доступ");
+      throw fail(403, "Это действие доступно только полному доступу");
+  };
+  app.get("/api/admin/staff-access", (req, res) => {
+    adminOnly(req);
     res.json(
       managers.map((m) => ({
         id: m.id,
@@ -52,7 +59,7 @@ export function registerAccess(
     if (!canManage(req.session.user, person))
       throw fail(
         403,
-        "Выдать доступ этому сотруднику может только полный доступ",
+        "Сбросить пароль или выдать доступ этому сотруднику может только полный доступ",
       );
     const reset = !!staff.byPerson(person.id)?.passwordHash;
     if (reset) staff.resetPassword(person.id);
@@ -76,10 +83,6 @@ export function registerAccess(
         .map((t) => findPerson(t.id, roster)),
     ].filter((p) => !staff.byPerson(p.id)?.passwordHash);
   }
-  const adminOnly = (req) => {
-    if (req.session.user.role !== "admin")
-      throw fail(403, "Режим входа меняет полный доступ");
-  };
   // День X: предпросмотр и включение режима «только личные пароли».
   app.get("/api/admin/personal-only", (req, res) => {
     adminOnly(req);
@@ -106,8 +109,7 @@ export function registerAccess(
   // Массовая выгрузка для первой раздачи: преподаватели со студентами и сотрудники
   // офиса без пароля. Каждому – новый код, прежние неиспользованные гаснут.
   app.post("/api/admin/access-export", (req, res) => {
-    if (req.session.user.role !== "admin")
-      throw fail(403, "Выгрузку кодов делает полный доступ");
+    adminOnly(req);
     const people = withoutPassword();
     staff.expireInvites();
     const roles = {

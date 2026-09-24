@@ -712,9 +712,6 @@ small {
 .login-links {
   margin-top: 18px;
 }
-.login-box .access-form h2 {
-  font-size: 20px;
-}
 .login-footer {
   font-size: 11px;
   color: var(--muted);
@@ -1891,31 +1888,22 @@ dialog::backdrop {
   font-size: 12px;
 }
 
-.invite-dialog {
-  max-width: 460px;
-  width: calc(100% - 32px);
-}
+/* Код приглашения в окне выдачи доступа (dialog.ask). */
 .invite-code {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 6px 14px;
   margin: 14px 0;
+  font-size: 13px;
 }
 .invite-code dd {
   margin: 0;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-weight: 600;
   overflow-wrap: anywhere;
 }
-.invite-dialog textarea {
+.ask textarea {
   width: 100%;
   font: inherit;
   font-size: 12px;
-}
-.invite-dialog .dialog-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  margin-top: 14px;
-  flex-wrap: wrap;
 }

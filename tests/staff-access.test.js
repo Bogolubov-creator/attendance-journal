@@ -92,10 +92,14 @@ test("Права: полный доступ – всем, менеджер – �
     const manager = await s.selectLogin("office", "akhmyatzhanov");
     const teacher = await s.selectLogin("teacher", "t_test_1");
 
-    const list = await teachers(s, manager);
+    let list = await teachers(s, manager);
     assert.equal(list.find((t) => t.id === "t_test_1").canManageAccess, true);
     assert.equal(list.find((t) => t.id === "t_test_2").canManageAccess, false);
     assert.equal((await grant(s, manager, "t_test_1")).status, 200);
+    // Перевыдать действующий код или сбросить пароль менеджер не может.
+    assert.equal((await grant(s, manager, "t_test_1")).status, 403);
+    list = await teachers(s, manager);
+    assert.equal(list.find((t) => t.id === "t_test_1").canManageAccess, false);
     assert.equal((await grant(s, manager, "t_test_2")).status, 403);
     assert.equal((await grant(s, manager, "chinkova")).status, 403);
     assert.equal((await grant(s, manager, "smirnova")).status, 403);
@@ -210,6 +214,31 @@ test("Переименование не меняет логин, удалени�
       body: { login: fresh.login, password: PASSWORD },
     });
     assert.equal(r.status, 403);
+  } finally {
+    await s.close();
+  }
+});
+
+test("Менеджер не захватывает учётную запись преподавателя, привязав его к своему студенту", async () => {
+  const s = await startServer(3123);
+  try {
+    const admin = await setup(s);
+    const invite = await (await grant(s, admin, "t_test_2")).json();
+    const teacherSession = await activate(s, invite);
+    const manager = await s.selectLogin("office", "akhmyatzhanov");
+    let r = await s.call("/api/admin/enrollments", {
+      method: "POST",
+      cookie: manager,
+      body: { studentId: "s_test_1", teacherId: "t_test_2", course: "Логика" },
+    });
+    assert.equal(r.status, 200, "связь со своим студентом – законное право");
+    r = await grant(s, manager, "t_test_2");
+    assert.equal(r.status, 403);
+    assert.equal(
+      (await s.call("/api/daily", { cookie: teacherSession })).status,
+      200,
+      "сессия преподавателя не тронута",
+    );
   } finally {
     await s.close();
   }
