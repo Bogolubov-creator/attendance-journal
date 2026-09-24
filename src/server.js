@@ -2,7 +2,7 @@ import { csvCell } from "./csv.js";
 import { registerDaily, attendanceRecords } from "./daily.js";
 import { registerStudent } from "./student.js";
 import { attachmentPath, attachmentLabel } from "./attachments.js";
-import { verifyPassword } from "./management-auth.js";
+import { loadAccounts, registerAuth } from "./auth.js";
 import { parseRoster, planImport, applyImport } from "./roster-import.js";
 import express from "express";
 import {
@@ -22,9 +22,8 @@ import {
   studentFieldsValid,
 } from "./office.js";
 import { openDatabase } from "./db.js";
-import { readFileSync, rmSync } from "node:fs";
-import { randomBytes, createHash } from "node:crypto";
-import * as oidc from "openid-client";
+import { rmSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { startBackups } from "./backup.js";
 import { moscowDate, ruCompare, studentMetrics, studentId } from "./domain.js";
 const app = express(),
@@ -42,8 +41,6 @@ const roster = { students: [], teachers: [], enrollments: [], quality: {} };
 const { db, get, all, run, addEnrollment } = openDatabase({ demo, roster });
 // Куда складываются сканы студентов; читается один раз здесь, маршруты получают путь готовым.
 const uploadDir = process.env.UPLOAD_DIR || "data/uploads";
-const token = () => randomBytes(32).toString("base64url"),
-  hash = (s) => createHash("sha256").update(s).digest("hex");
 const audit = (u, action, entity, label = "") =>
   run(
     "INSERT INTO audit(actor,role,action,entity,label,at) VALUES(?,?,?,?,?,?)",
@@ -73,29 +70,7 @@ const registryActions = [
   "attachment.view",
   "attachment.delete",
 ];
-let accounts = [];
-try {
-  accounts = JSON.parse(readFileSync("data/accounts.json", "utf8"));
-} catch {}
-if (!selection && (!demo || process.env.REQUIRE_AUTH_CONFIG === "true")) {
-  if (
-    !process.env.OIDC_ISSUER?.startsWith("https://") ||
-    !process.env.OIDC_CLIENT_ID ||
-    !process.env.OIDC_CLIENT_SECRET
-  )
-    throw Error(
-      "Заполните параметры университетской авторизации до запуска сервера",
-    );
-  if (
-    !accounts.some(
-      (a) =>
-        a.role === "admin" && a.subject && /^[^\s@]+@hse\.ru$/.test(a.email),
-    )
-  )
-    throw Error(
-      "Укажите подтверждённую административную учётку в data/accounts.json",
-    );
-}
+const accounts = loadAccounts({ demo, selection });
 const fail = (code, message) =>
   Object.assign(new Error(message), { status: code });
 app.disable("x-powered-by");
@@ -121,280 +96,22 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.json({ limit: "256kb" }));
-const managementHash = process.env.MANAGEMENT_PASSWORD_HASH || "";
-const managementVersion = hash(managementHash);
-const loginAttempts = new Map();
-// Время неверных попыток со всех адресов за последние 15 минут (не больше 30).
-let passwordFailures = [];
-function checkManagementPassword(req) {
-  if (!managementHash) throw fail(503, "Пароль ещё не настроен");
-  const now = Date.now();
-  for (const [key, value] of loginAttempts)
-    if (value.until <= now) loginAttempts.delete(key);
-  passwordFailures = passwordFailures.filter((t) => t > now - 15 * 60000);
-  const key = req.ip;
-  const attempt = loginAttempts.get(key) || {
-    count: 0,
-    until: now + 15 * 60000,
-  };
-  if (attempt.count >= 5 || passwordFailures.length >= 30)
-    throw fail(429, "Слишком много попыток. Повторите через 15 минут.");
-  if (!verifyPassword(req.body.password, managementHash)) {
-    attempt.count++;
-    passwordFailures.push(now);
-    loginAttempts.set(key, attempt);
-    throw fail(403, "Неверный пароль");
-  }
-  loginAttempts.delete(key);
-}
-app.use((req, res, next) => {
-  const id = req.headers.cookie
-    ?.split("; ")
-    .find((x) => x.startsWith("journal="))
-    ?.slice(8);
-  const row =
-    id &&
-    get(
-      "SELECT * FROM sessions WHERE id=? AND expires>?",
-      hash(id),
-      Date.now(),
-    );
-  req.session = row ? JSON.parse(row.data) : null;
-  req.sessionKey = row?.id;
-  // Любая сессия, кроме университетского входа, выдана по общему паролю
-  // и закрывается при его смене.
-  if (
-    req.session?.user &&
-    !["oidc", "explicit"].includes(req.session.user.source) &&
-    (!managementHash || req.session.managementVersion !== managementVersion)
-  ) {
-    run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-    req.session = null;
-  }
-
-  if (req.session?.user?.role === "student") {
-    const u = req.session.user;
-    const valid =
-      cabinetOpen(u.studentId) &&
-      (u.source === "demo"
-        ? demoStudentLogin
-        : studentByExternalId(u.subject) === u.studentId);
-    if (!valid) {
-      run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-      req.session = null;
-    }
-  } else if (selection && req.session?.user?.source === "selection") {
-    const u = req.session.user;
-    const valid =
-      u.role === "teacher"
-        ? roster.teachers.some((t) => t.id === u.id)
-        : managers.some((m) => m.id === u.id && m.role === u.role);
-    if (!valid) {
-      run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-      req.session = null;
-    }
-  } else if (!demo && req.session?.user) {
-    const u = req.session.user;
-    const valid = accounts.some(
-      (a) =>
-        a.subject === u.subject &&
-        a.email.toLowerCase() === u.email &&
-        a.role === u.role &&
-        (u.role === "admin" || a.teacherId === u.id),
-    );
-    if (!valid) {
-      run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-      req.session = null;
-    }
-  }
-  next();
+const { auth, admin } = registerAuth(app, {
+  get,
+  run,
+  roster,
+  demo,
+  demoStudentLogin,
+  selection,
+  origin,
+  accounts,
+  fail,
+  cabinetOpen,
+  studentByExternalId,
 });
-function session(res, data) {
-  const id = token();
-  run("DELETE FROM sessions WHERE expires<?", Date.now());
-  run(
-    "INSERT INTO sessions VALUES(?,?,?)",
-    hash(id),
-    JSON.stringify(data),
-    Date.now() + 8 * 3600000,
-  );
-  res.cookie("journal", id, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: !demo,
-    maxAge: 8 * 3600000,
-    path: "/",
-  });
-}
-const auth = (req, res, next) =>
-  req.session?.user
-    ? next()
-    : res.status(401).json({ error: "Войдите в свой кабинет" });
-const admin = (req, res, next) =>
-  ["admin", "office"].includes(req.session?.user?.role)
-    ? next()
-    : res.status(403).json({ error: "Доступ только для учебного офиса" });
 app.get("/healthz", (req, res) => {
   get("SELECT 1");
   res.json({ ok: true });
-});
-app.get("/api/session", (req, res) =>
-  res.json({
-    user: req.session?.user || null,
-    demo: demo && process.env.DATA_MODE !== "live",
-    demoStudents: demoStudentLogin ? roster.students : [],
-    selection,
-    teachers: selection ? roster.teachers : [],
-    managers: selection ? managers : [],
-  }),
-);
-app.post("/api/select-login", (req, res) => {
-  if (!selection) return res.sendStatus(404);
-  const { role, personId } = req.body;
-  const person =
-    role === "teacher"
-      ? roster.teachers.find((t) => t.id === personId)
-      : managers.find((m) => m.id === personId && m.role === role);
-  if (!person || !["teacher", "office", "admin"].includes(role))
-    throw fail(400, "Выберите роль и сотрудника из списка");
-  checkManagementPassword(req);
-  if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-  const user = { ...person, role, source: "selection" };
-  session(res, { user, managementVersion });
-  res.json({ user });
-});
-app.post("/api/demo-login", (req, res) => {
-  if (!demo) return res.sendStatus(404);
-  const role = req.body.role;
-  checkManagementPassword(req);
-  if (role === "student") {
-    if (!demoStudentLogin) throw fail(403, "Демо-вход студентом отключён");
-    const student = roster.students.find((s) => s.id === req.body.studentId);
-    if (!student) throw fail(400, "Выберите студента");
-    if (!cabinetOpen(student.id))
-      throw fail(403, "Личный кабинет закрыт: обучение завершено");
-    if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-    const user = {
-      id: student.id,
-      name: student.name,
-      role: "student",
-      studentId: student.id,
-      source: "demo",
-    };
-    session(res, { user, managementVersion });
-    return res.json({ user });
-  }
-  const teacher = roster.teachers.find((t) => t.id === req.body.teacherId);
-  if (role !== "admin" && !teacher) throw fail(400, "Выберите преподавателя");
-  if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-  const user =
-    role === "admin"
-      ? { id: "demo_admin", name: "Полный доступ", role: "admin" }
-      : { ...teacher, role: "teacher" };
-  session(res, { user, managementVersion });
-  res.json({ user });
-});
-app.post("/api/logout", (req, res) => {
-  if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-  res.clearCookie("journal", { path: "/" });
-  res.json({ ok: true });
-});
-let oidcConfig;
-async function config() {
-  if (!process.env.OIDC_ISSUER || !process.env.OIDC_CLIENT_ID)
-    throw fail(
-      503,
-      "Вход ВШЭ ещё не подключён. Учебному офису необходимо зарегистрировать приложение у провайдера авторизации.",
-    );
-  return (oidcConfig ??= await oidc.discovery(
-    new URL(process.env.OIDC_ISSUER),
-    process.env.OIDC_CLIENT_ID,
-    process.env.OIDC_CLIENT_SECRET,
-  ));
-}
-app.get("/auth/login", async (req, res) => {
-  if (selection) return res.redirect("/");
-  const c = await config(),
-    verifier = oidc.randomPKCECodeVerifier(),
-    state = oidc.randomState(),
-    nonce = oidc.randomNonce();
-  session(res, { verifier, state, nonce, created: Date.now() });
-  res.redirect(
-    oidc.buildAuthorizationUrl(c, {
-      redirect_uri: origin + "/auth/callback",
-      scope: "openid email profile",
-      code_challenge: await oidc.calculatePKCECodeChallenge(verifier),
-      code_challenge_method: "S256",
-      state,
-      nonce,
-    }).href,
-  );
-});
-app.get("/auth/callback", async (req, res) => {
-  const s = req.session;
-  if (!s?.verifier || Date.now() - s.created > 600000)
-    throw fail(401, "Время входа истекло. Повторите вход.");
-  run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-  const t = await oidc.authorizationCodeGrant(
-    await config(),
-    new URL(req.originalUrl, origin),
-    {
-      pkceCodeVerifier: s.verifier,
-      expectedState: s.state,
-      expectedNonce: s.nonce,
-      idTokenExpected: true,
-    },
-  );
-  const claims = t.claims();
-  const email = String(claims.email || "").toLowerCase();
-  const account = accounts.find(
-    (a) => a.email.toLowerCase() === email && a.subject === claims.sub,
-  );
-  if (!account) {
-    // Студенты входят по @edu.hse.ru – проверка домена почты им не требуется.
-    const studentId = studentByExternalId(claims.sub);
-    const student =
-      studentId && roster.students.find((s) => s.id === studentId);
-    // Студент попадает на экран входа с объяснением, а не на голый JSON.
-    if (!student) return res.redirect("/?error=unlinked");
-    if (!cabinetOpen(studentId)) return res.redirect("/?error=closed");
-    session(res, {
-      user: {
-        id: studentId,
-        name: student.name,
-        role: "student",
-        studentId,
-        source: "oidc",
-        subject: claims.sub,
-      },
-    });
-    return res.redirect("/");
-  }
-  if (
-    claims.email_verified !== true ||
-    !email.endsWith("@hse.ru") ||
-    !["admin", "teacher"].includes(account.role)
-  )
-    throw fail(
-      403,
-      "Учётная запись не подключена к журналу. Обратитесь в учебный офис.",
-    );
-  if (
-    account.role === "teacher" &&
-    !roster.teachers.some((t) => t.id === account.teacherId)
-  )
-    throw fail(403, "Преподаватель не сопоставлен с базой");
-  session(res, {
-    user: {
-      id: account.teacherId || account.subject,
-      name: account.name,
-      email,
-      role: account.role,
-      source: "explicit",
-      subject: claims.sub,
-    },
-  });
-  res.redirect("/");
 });
 app.use("/api", auth);
 registerDaily(app, { db, roster, auth, admin, studentProfile, audit });
