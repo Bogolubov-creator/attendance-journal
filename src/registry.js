@@ -18,7 +18,18 @@ import { studentId } from "./domain.js";
 // «студент – преподаватель – дисциплина», список студентов без учётной записи ВШЭ.
 export function registerRegistry(
   app,
-  { db, get, all, run, roster, addEnrollment, audit, fail, studentProfile },
+  {
+    staff,
+    db,
+    get,
+    all,
+    run,
+    roster,
+    addEnrollment,
+    audit,
+    fail,
+    studentProfile,
+  },
 ) {
   app.get("/api/admin/directory", (req, res) =>
     res.json({ managers, programs, source: directorySource }),
@@ -291,6 +302,8 @@ export function registerRegistry(
         "У преподавателя есть студенты или отметки. Удалить можно только запись без связей и истории",
       );
     run("DELETE FROM roster_teachers WHERE id=?", id);
+    // Вместе с записью уходит и личный доступ: по логину удалённого не войти.
+    staff.remove(id);
     audit(req.session.user, "teacher.delete", id, name);
     roster.teachers = roster.teachers.filter((t) => t.id !== id);
     res.json({ ok: true });

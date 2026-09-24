@@ -217,6 +217,11 @@ small {
 .identity small {
   font-size: 11px;
 }
+.identity .button-link {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+}
 .logout {
   border: 0;
   background: none;
@@ -684,6 +689,28 @@ small {
   border-radius: 5px;
   background: #fff;
   color: var(--ink);
+}
+.legacy-login {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.legacy-login summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+}
+.login-box label.check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 4px 0 0;
+}
+.login-box label.check input {
+  width: auto;
+}
+.login-links {
+  margin-top: 18px;
 }
 .login-footer {
   font-size: 11px;
@@ -1416,6 +1443,15 @@ dialog::backdrop {
   padding: 20px 0;
   border-bottom: 1px solid var(--line);
 }
+/* Колонка «Доступ» на странице «Сотрудники»; имя занимает остаток строки. */
+#staff-access .daily-row > span:first-child,
+#teacher-rows .daily-row > span:first-child {
+  flex: 1;
+}
+.access-cell {
+  flex: 0 0 210px;
+  font-size: 12px;
+}
 /* Переключатель отметки: три сегмента в одну строку, на телефоне – во всю ширину. */
 .daily-options {
   display: inline-flex;
@@ -1517,6 +1553,12 @@ dialog::backdrop {
     flex-direction: column;
     gap: 10px;
     padding: 14px 0;
+  }
+  .access-cell {
+    flex: none;
+  }
+  #staff-access .daily-options {
+    grid-template-columns: 1fr;
   }
   .daily-options {
     display: grid;
@@ -1647,8 +1689,11 @@ dialog::backdrop {
 .procedure-item[open] .proc-edit {
   color: var(--muted);
 }
-.group-code {
+.group-code,
+.invite-code dd {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.group-code {
   font-size: 11px;
 }
 /* Окно подтверждения. */
@@ -1857,6 +1902,25 @@ dialog::backdrop {
 .upload-row input[type="file"] {
   display: block;
   margin-top: 6px;
+  font: inherit;
+  font-size: 12px;
+}
+
+/* Код приглашения в окне выдачи доступа (dialog.ask). */
+.invite-code {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  margin: 14px 0;
+  font-size: 13px;
+}
+.invite-code dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.ask textarea {
+  width: 100%;
   font: inherit;
   font-size: 12px;
 }
