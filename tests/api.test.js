@@ -193,6 +193,13 @@ test("API: изоляция, сохранение, редактирование 
         (s) => s.id === e.studentId,
       );
       assert.equal("records" in listedRow, false);
+      // Из менеджера обзору нужны только id и имя, группы интерфейс реестра не читает.
+      for (const s of (await (await request("/api/admin/overview")).json())
+        .students) {
+        assert.equal("groups" in s, false);
+        if (s.manager !== null)
+          assert.deepEqual(Object.keys(s.manager).sort(), ["id", "name"]);
+      }
       const card = await (
         await request("/api/admin/students/" + e.studentId)
       ).json();

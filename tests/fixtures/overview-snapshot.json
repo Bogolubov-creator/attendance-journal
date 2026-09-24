@@ -11,19 +11,11 @@
           "foreignStatus": "confirmed",
           "manager": {
             "id": "smirnova",
-            "name": "Смирнова Екатерина Дмитриевна",
-            "role": "office",
-            "scopes": [
-              {
-                "program": "Юриспруденция",
-                "year": 2
-              }
-            ]
+            "name": "Смирнова Екатерина Дмитриевна"
           },
           "procedureOverdue": 0,
           "procedureUnknown": 5,
           "procedureReview": 0,
-          "groups": ["Г-1", "Г-2", "Г-3"],
           "teacherIds": ["t_1", "t_2"],
           "lastVisit": "2026-09-06",
           "days": 0,
@@ -45,19 +37,11 @@
           "foreignStatus": "confirmed",
           "manager": {
             "id": "smirnova",
-            "name": "Смирнова Екатерина Дмитриевна",
-            "role": "office",
-            "scopes": [
-              {
-                "program": "Юриспруденция",
-                "year": 2
-              }
-            ]
+            "name": "Смирнова Екатерина Дмитриевна"
           },
           "procedureOverdue": 0,
           "procedureUnknown": 5,
           "procedureReview": 0,
-          "groups": ["Г-1"],
           "teacherIds": ["t_1"],
           "lastVisit": "2026-09-02",
           "days": 11,
@@ -79,20 +63,11 @@
           "foreignStatus": "confirmed",
           "manager": {
             "id": "gadzhieva",
-            "name": "Гаджиева Альбина Омаровна",
-            "role": "admin",
-            "title": "Администратор журнала",
-            "scopes": [
-              {
-                "program": "Право",
-                "year": 4
-              }
-            ]
+            "name": "Гаджиева Альбина Омаровна"
           },
           "procedureOverdue": 0,
           "procedureUnknown": 5,
           "procedureReview": 0,
-          "groups": ["Г-2"],
           "teacherIds": ["t_2"],
           "lastVisit": "2026-09-04",
           "days": 0,
@@ -112,7 +87,6 @@
           "procedureOverdue": 0,
           "procedureUnknown": 5,
           "procedureReview": 0,
-          "groups": ["Г-4", ""],
           "teacherIds": ["t_3", "t_1"],
           "lastVisit": "2026-08-30",
           "days": 0,
@@ -134,19 +108,11 @@
           "foreignStatus": "confirmed",
           "manager": {
             "id": "smirnova",
-            "name": "Смирнова Екатерина Дмитриевна",
-            "role": "office",
-            "scopes": [
-              {
-                "program": "Юриспруденция",
-                "year": 2
-              }
-            ]
+            "name": "Смирнова Екатерина Дмитриевна"
           },
           "procedureOverdue": 0,
           "procedureUnknown": 5,
           "procedureReview": 0,
-          "groups": ["Г-4"],
           "teacherIds": ["t_3"],
           "lastVisit": null,
           "days": 3,
@@ -166,7 +132,6 @@
           "procedureOverdue": 0,
           "procedureUnknown": 5,
           "procedureReview": 0,
-          "groups": ["Г-1", "Г-9"],
           "teacherIds": ["t_1", "t_3"],
           "lastVisit": null,
           "days": 0,
@@ -1393,19 +1358,11 @@
           "foreignStatus": "confirmed",
           "manager": {
             "id": "smirnova",
-            "name": "Смирнова Екатерина Дмитриевна",
-            "role": "office",
-            "scopes": [
-              {
-                "program": "Юриспруденция",
-                "year": 2
-              }
-            ]
+            "name": "Смирнова Екатерина Дмитриевна"
           },
           "procedureOverdue": 0,
           "procedureUnknown": 5,
           "procedureReview": 0,
-          "groups": ["Г-1", "Г-2", "Г-3"],
           "teacherIds": ["t_1", "t_2"],
           "lastVisit": "2026-09-06",
           "days": 0,
@@ -1427,19 +1384,11 @@
           "foreignStatus": "confirmed",
           "manager": {
             "id": "smirnova",
-            "name": "Смирнова Екатерина Дмитриевна",
-            "role": "office",
-            "scopes": [
-              {
-                "program": "Юриспруденция",
-                "year": 2
-              }
-            ]
+            "name": "Смирнова Екатерина Дмитриевна"
           },
           "procedureOverdue": 0,
           "procedureUnknown": 5,
           "procedureReview": 0,
-          "groups": ["Г-1"],
           "teacherIds": ["t_1"],
           "lastVisit": "2026-09-02",
           "days": 11,
@@ -1461,19 +1410,11 @@
           "foreignStatus": "confirmed",
           "manager": {
             "id": "smirnova",
-            "name": "Смирнова Екатерина Дмитриевна",
-            "role": "office",
-            "scopes": [
-              {
-                "program": "Юриспруденция",
-                "year": 2
-              }
-            ]
+            "name": "Смирнова Екатерина Дмитриевна"
           },
           "procedureOverdue": 0,
           "procedureUnknown": 5,
           "procedureReview": 0,
-          "groups": ["Г-4"],
           "teacherIds": ["t_3"],
           "lastVisit": null,
           "days": 3,

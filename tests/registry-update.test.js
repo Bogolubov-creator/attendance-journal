@@ -88,16 +88,15 @@ test("Обновление реестра из Excel, преподаватели
     assert.equal(preview.quality.unresolved, 1);
     // План ничего не записал.
     assert.equal((await (await req("/api/admin/teachers")).json()).length, 2);
+    // Группы студента показывает карточка (обзор реестра их не отдаёт).
     const groupsOf = async (id) =>
-      (await (await req("/api/admin/overview")).json()).students.find(
-        (s) => s.id === id,
-      ).groups;
+      (await (await req("/api/admin/students/" + id)).json()).student.groups;
     assert.deepEqual(await groupsOf("s_test_1"), ["Г-1", ""]);
     const applied = await (await upload("?apply=1")).json();
     assert.equal(applied.preview, false);
     assert.equal(applied.enrollments.added, 4);
     const teachers = await (await req("/api/admin/teachers")).json();
-    // Связи из импорта сразу видны в списке преподавателей и в обзоре.
+    // Связи из импорта сразу видны в списке преподавателей и в карточке.
     assert.deepEqual(
       teachers.map(({ name, courses, students }) => [name, courses, students]),
       [

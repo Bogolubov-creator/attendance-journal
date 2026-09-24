@@ -487,8 +487,10 @@ app.get("/api/admin/overview", (req, res) => {
     canSeeStudent(req.session.user, s),
   );
   res.json({
-    students: students.map((s) => ({
+    // Реестру из менеджера нужны id и имя, группы он не читает – без них ответ легче.
+    students: students.map(({ groups, ...s }) => ({
       ...s,
+      manager: s.manager && { id: s.manager.id, name: s.manager.name },
       canEdit: canEditStudent(req.session.user, s),
     })),
     faculty: {
