@@ -10,6 +10,13 @@ function page(html) {
   globalThis.document = dom.window.document;
   globalThis.location = dom.window.location;
   globalThis.FormData = dom.window.FormData;
+  // В jsdom нет модальных окон: достаточно отметки open.
+  dom.window.HTMLDialogElement.prototype.showModal = function () {
+    this.open = true;
+  };
+  dom.window.HTMLDialogElement.prototype.close = function () {
+    this.open = false;
+  };
   return dom;
 }
 const submit = (form) =>

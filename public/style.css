@@ -1688,8 +1688,11 @@ dialog::backdrop {
 .procedure-item[open] .proc-edit {
   color: var(--muted);
 }
-.group-code {
+.group-code,
+.invite-code dd {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.group-code {
   font-size: 11px;
 }
 /* Окно подтверждения. */
@@ -1912,7 +1915,6 @@ dialog::backdrop {
 }
 .invite-code dd {
   margin: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-weight: 600;
   overflow-wrap: anywhere;
 }

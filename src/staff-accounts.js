@@ -17,9 +17,10 @@ import { promisify } from "node:util";
 import { managers } from "./office.js";
 
 export const INVITE_DAYS = 7;
-export const MIN_PASSWORD = 10;
+const MIN_PASSWORD = 10;
+export const LOCK_MINUTES = 15;
 const LOCK_AFTER = 5,
-  LOCK_MS = 15 * 60000;
+  LOCK_MS = LOCK_MINUTES * 60000;
 const BAD_CODE = {
   status: 403,
   error:
@@ -27,10 +28,10 @@ const BAD_CODE = {
 };
 const TOO_MANY = {
   status: 429,
-  error: "Слишком много попыток. Повторите через 15 минут.",
+  error: `Слишком много попыток. Повторите через ${LOCK_MINUTES} минут.`,
 };
 
-export function ensureStaffAccounts(db) {
+function ensureStaffAccounts(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS staff_accounts(
     personId TEXT PRIMARY KEY,
     login TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -404,7 +405,6 @@ export function staffAccounts(db) {
     run("DELETE FROM staff_devices WHERE personId=?", personId);
   };
   return {
-    byLogin,
     byPerson,
     issueInvite,
     redeemInvite,

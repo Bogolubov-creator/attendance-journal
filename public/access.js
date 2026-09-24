@@ -25,10 +25,10 @@ export function wirePersonalLogin({ api, onLogin }) {
     text.hidden = !text.hidden;
     $("#forgot-open").setAttribute("aria-expanded", String(!text.hidden));
   };
-  const error = $("#personal-login-error");
+  const showError = errorShower($("#personal-login-error"));
   form.onsubmit = async (e) => {
     e.preventDefault();
-    error.hidden = true;
+    showError("");
     const button = form.querySelector("button.btn");
     button.disabled = true;
     try {
@@ -42,8 +42,7 @@ export function wirePersonalLogin({ api, onLogin }) {
       });
       await onLogin(r.user);
     } catch (err) {
-      error.textContent = err.message;
-      error.hidden = false;
+      showError(err.message);
     } finally {
       button.disabled = false;
     }
@@ -102,12 +101,11 @@ function modal(html, labelledBy) {
   dialog.innerHTML = html;
   document.body.append(dialog);
   const close = () => {
-    dialog.close?.();
+    dialog.close();
     dialog.remove();
   };
   dialog.addEventListener("cancel", close);
-  if (dialog.showModal) dialog.showModal();
-  else dialog.setAttribute("open", "");
+  dialog.showModal();
   return { dialog, close };
 }
 
@@ -206,7 +204,7 @@ export function openChangePassword({ api, toast }) {
   return dialog;
 }
 
-// День X: кнопка включения режима «только личные пароли» с предпросмотром.
+// День переключения: кнопка режима «только личные пароли» с предпросмотром.
 export async function enablePersonalOnly({ api, ask }) {
   const { enabled, withoutPassword } = await api("/api/admin/personal-only");
   if (enabled) return false;

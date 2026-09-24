@@ -83,7 +83,7 @@ export function registerAccess(
         .map((t) => findPerson(t.id, roster)),
     ].filter((p) => !staff.byPerson(p.id)?.passwordHash);
   }
-  // День X: предпросмотр и включение режима «только личные пароли».
+  // День переключения: предпросмотр и включение режима «только личные пароли».
   app.get("/api/admin/personal-only", (req, res) => {
     adminOnly(req);
     res.json({

@@ -3,8 +3,10 @@ import { randomBytes, createHash } from "node:crypto";
 import * as oidc from "openid-client";
 import { verifyPassword } from "./management-auth.js";
 import { managers } from "./office.js";
-import { findPerson } from "./staff-accounts.js";
+import { findPerson, LOCK_MINUTES } from "./staff-accounts.js";
 
+// Источники входа, которые подтверждают сотрудника сами, а не общим паролем.
+const OWN_SIGN_IN = ["oidc", "explicit", "personal"];
 const SHARED_OFF = "Вход по общему паролю отключён. Войдите по личному логину";
 const token = () => randomBytes(32).toString("base64url"),
   hash = (s) => createHash("sha256").update(s).digest("hex");
@@ -103,7 +105,7 @@ export function registerAuth(
     // и закрывается при его смене.
     if (
       req.session?.user &&
-      !["oidc", "explicit", "personal"].includes(req.session.user.source) &&
+      !OWN_SIGN_IN.includes(req.session.user.source) &&
       (!managementHash || req.session.managementVersion !== managementVersion)
     ) {
       run("DELETE FROM sessions WHERE id=?", req.sessionKey);
@@ -115,7 +117,7 @@ export function registerAuth(
     if (
       req.session?.user &&
       req.session.user.role !== "student" &&
-      !["personal", "oidc", "explicit"].includes(req.session.user.source) &&
+      !OWN_SIGN_IN.includes(req.session.user.source) &&
       staff.personalOnly()
     ) {
       run("DELETE FROM sessions WHERE id=?", req.sessionKey);
@@ -234,7 +236,7 @@ export function registerAuth(
       demo: demo && process.env.DATA_MODE !== "live",
       demoStudents: demoStudentLogin ? roster.students : [],
       selection,
-      // После дня X список сотрудников до входа не отдаётся никому.
+      // После дня переключения список сотрудников до входа не отдаётся никому.
       personalOnly: staff.personalOnly(),
       teachers: selection && !staff.personalOnly() ? roster.teachers : [],
       managers: selection && !staff.personalOnly() ? managers : [],
@@ -269,7 +271,7 @@ export function registerAuth(
     if (result.locked)
       throw fail(
         429,
-        "Вход в эту учётную запись закрыт на 15 минут после неверных попыток",
+        `Вход в эту учётную запись закрыт на ${LOCK_MINUTES} минут после неверных попыток`,
       );
     const person =
       result.account && findPerson(result.account.personId, roster);
