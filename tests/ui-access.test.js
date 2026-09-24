@@ -8,6 +8,8 @@ function page(html) {
   });
   globalThis.window = dom.window;
   globalThis.document = dom.window.document;
+  globalThis.location = dom.window.location;
+  globalThis.FormData = dom.window.FormData;
   return dom;
 }
 const submit = (form) =>
@@ -116,4 +118,149 @@ test("Вход по логину и паролю: отправка с отмет
   });
   assert.equal(entered.id, "t1");
   assert.equal($("#personal-login-error").hidden, true);
+});
+
+test("Сотрудники: колонка «Доступ», фильтр «Без доступа», блок офиса, окно с кодом и предложение после добавления", async () => {
+  page('<main id="content"></main>');
+  const { registryView } = await import("../public/registry.js");
+  const now = Date.now();
+  let list = [
+    {
+      id: "t1",
+      name: "Иванов Иван Иванович",
+      courses: ["Право"],
+      students: 3,
+      lastMark: null,
+      access: {
+        state: "active",
+        login: "ivanov.ii",
+        lastLoginAt: new Date(now).toISOString(),
+      },
+      canManageAccess: true,
+    },
+    {
+      id: "t2",
+      name: "Петров Пётр Петрович",
+      courses: ["Логика"],
+      students: 1,
+      lastMark: null,
+      access: {
+        state: "invited",
+        login: "petrov.pp",
+        expires: now + 5 * 86400000,
+      },
+      canManageAccess: false,
+    },
+    {
+      id: "t3",
+      name: "Сидоров Сидор Сидорович",
+      courses: [],
+      students: 0,
+      lastMark: null,
+      access: { state: "none", login: null },
+      canManageAccess: true,
+    },
+  ];
+  const staff = [
+    {
+      id: "chinkova",
+      name: "Чинкова Алиса Павловна",
+      role: "admin",
+      access: { state: "none", login: null },
+    },
+  ];
+  const calls = [];
+  const asked = [];
+  const api = async (path, options = {}) => {
+    calls.push({ path, method: options.method || "GET" });
+    if (path === "/api/admin/teachers" && !options.method) return list;
+    if (path === "/api/admin/staff-access") return staff;
+    if (path.startsWith("/api/admin/access/"))
+      return {
+        name: "Кто-то",
+        login: "some.one",
+        code: "ABCD-EFGH-JKMN",
+        expires: now + 7 * 86400000,
+        reset: path.endsWith("t1"),
+      };
+    if (path === "/api/admin/teachers" && options.method === "POST")
+      return { id: "t9", name: "Новиков Николай Николаевич" };
+  };
+  const ctx = {
+    api,
+    esc: (s) => String(s),
+    toast: () => {},
+    ask: async (q) => (asked.push(q.title), true),
+    plural: (n) => String(n),
+    fmtDate: (d) => d,
+    admin: true,
+    openStudents: () => {},
+  };
+  await registryView(ctx);
+  const $ = (s) => document.querySelector(s);
+  const rows = () => [
+    ...document.querySelectorAll("#teacher-rows [data-teacher]"),
+  ];
+  assert.match(rows()[0].textContent, /Доступ: Активен, вход/);
+  assert.match(rows()[1].textContent, /Доступ: Приглашён до/);
+  assert.match(rows()[2].textContent, /Доступ: Нет доступа/);
+  assert.equal(
+    rows()[0].querySelector('[data-action="access"]').textContent,
+    "Сбросить пароль",
+  );
+  assert.equal(
+    rows()[1].querySelector('[data-action="access"]'),
+    null,
+    "без права – без кнопки",
+  );
+  assert.equal(
+    rows()[2].querySelector('[data-action="access"]').textContent,
+    "Выдать доступ",
+  );
+  assert.match($("#staff-access").textContent, /Чинкова Алиса Павловна/);
+
+  $("#teacher-no-access").click();
+  assert.deepEqual(
+    rows().map((r) => r.dataset.teacher),
+    ["t2", "t3"],
+  );
+  $("#teacher-no-access").click();
+
+  // Сброс спрашивает подтверждение и показывает код один раз.
+  rows()[0].querySelector('[data-action="access"]').click();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(asked.at(-1), "Сбросить пароль?");
+  let dialog = document.querySelector(".invite-dialog");
+  assert.match(dialog.textContent, /Пароль сброшен/);
+  assert.equal(
+    dialog.querySelector("#invite-code").textContent,
+    "ABCD-EFGH-JKMN",
+  );
+  assert.match(
+    dialog.querySelector("#invite-letter").value,
+    /Логин: some\.one/,
+  );
+  assert.match(
+    dialog.querySelector("#invite-letter").value,
+    /Первый вход по коду приглашения/,
+  );
+  dialog.querySelector("#invite-close").click();
+  assert.equal(
+    document.querySelector(".invite-dialog"),
+    null,
+    "код не остаётся на странице",
+  );
+
+  // После добавления преподавателя – предложение выдать доступ.
+  $("#teacher-add input").value = "Новиков Николай Николаевич";
+  $("#teacher-add").dispatchEvent(
+    new window.Event("submit", { cancelable: true }),
+  );
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(asked.at(-1), "Выдать доступ новому преподавателю?");
+  assert.ok(
+    calls.some((c) => c.path === "/api/admin/access/t9" && c.method === "POST"),
+  );
+  dialog = document.querySelector(".invite-dialog");
+  assert.match(dialog.textContent, /Доступ выдан/);
 });

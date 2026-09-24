@@ -215,5 +215,32 @@ export function staffAccounts(db) {
     );
     return { account: byPerson(a.personId) };
   }
-  return { byLogin, byPerson, issueInvite, redeemInvite, checkPassword };
+  // Сброс: прежний пароль гаснет, версия растёт – все сессии человека закрываются.
+  function resetPassword(personId) {
+    run(
+      "UPDATE staff_accounts SET passwordHash=NULL, failures=0, lockedUntil=0, passwordVersion=passwordVersion+1 WHERE personId=?",
+      personId,
+    );
+  }
+  // Состояние для страницы «Сотрудники»: без хешей.
+  function accessState(personId, now = Date.now()) {
+    const a = byPerson(personId);
+    if (a?.passwordHash)
+      return { state: "active", login: a.login, lastLoginAt: a.lastLoginAt };
+    if (a?.inviteHash && a.inviteExpires > now)
+      return { state: "invited", login: a.login, expires: a.inviteExpires };
+    return { state: "none", login: a?.login || null };
+  }
+  const remove = (personId) =>
+    run("DELETE FROM staff_accounts WHERE personId=?", personId);
+  return {
+    byLogin,
+    byPerson,
+    issueInvite,
+    redeemInvite,
+    checkPassword,
+    resetPassword,
+    accessState,
+    remove,
+  };
 }

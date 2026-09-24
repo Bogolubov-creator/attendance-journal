@@ -22,6 +22,7 @@ import {
 } from "./office.js";
 import { openDatabase } from "./db.js";
 import { staffAccounts } from "./staff-accounts.js";
+import { registerAccess } from "./access.js";
 import { rmSync } from "node:fs";
 import { startBackups } from "./backup.js";
 import { moscowDate, ruCompare, studentMetrics } from "./domain.js";
@@ -68,6 +69,9 @@ const registryActions = [
   "attachment.add",
   "attachment.view",
   "attachment.delete",
+  "access.invite",
+  "access.reset",
+  "access.first-login",
 ];
 const accounts = loadAccounts({ demo, selection });
 const staff = staffAccounts(db);
@@ -175,6 +179,7 @@ function editable(req, id) {
   return student;
 }
 registerRegistry(app, {
+  staff,
   db,
   get,
   all,
@@ -185,7 +190,15 @@ registerRegistry(app, {
   fail,
   studentProfile,
 });
+const accessFor = registerAccess(app, {
+  staff,
+  roster,
+  audit,
+  fail,
+  studentProfile,
+});
 app.get("/api/admin/teachers", (req, res) => {
+  const access = accessFor(req.session.user);
   // Дата последней отметки у каждого преподавателя: по ней видно, кто не ведёт журнал.
   const lastMarks = new Map(
     all(
@@ -196,6 +209,7 @@ app.get("/api/admin/teachers", (req, res) => {
     roster.teachers
       .map((t) => ({
         ...t,
+        ...access(t),
         lastMark: lastMarks.get(t.id) || null,
         courses: [
           ...new Set(enrollmentsOf("teacherId", t.id).map((e) => e.course)),

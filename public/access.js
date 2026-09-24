@@ -85,3 +85,57 @@ export function wireFirstLogin({ api, onLogin }) {
     }
   };
 }
+
+const shortDate = (ms) =>
+  new Date(ms).toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+
+// Строка состояния доступа для страницы «Сотрудники».
+export function accessLabel(access) {
+  if (access.state === "active")
+    return (
+      "Активен" +
+      (access.lastLoginAt
+        ? ", вход " +
+          new Date(access.lastLoginAt).toLocaleDateString("ru-RU", {
+            day: "numeric",
+            month: "short",
+          })
+        : "")
+    );
+  if (access.state === "invited")
+    return "Приглашён до " + shortDate(access.expires);
+  return "Нет доступа";
+}
+
+export const inviteLetter = ({ name, login, code, expires }, origin) =>
+  `Здравствуйте, ${name}!\n\nВам открыт доступ к журналу посещаемости иностранных студентов факультета права.\nАдрес: ${origin}\nЛогин: ${login}\nКод для первого входа: ${code} (действует до ${shortDate(expires)})\n\nНа экране входа выберите «Первый вход по коду приглашения» и придумайте пароль не короче ${MIN_PASSWORD} символов.`;
+
+// Окно с логином и кодом: код показывается один раз и после закрытия не восстанавливается.
+export function showInvite(invite, { esc, origin = location.origin }) {
+  const dialog = document.createElement("dialog");
+  dialog.className = "invite-dialog";
+  dialog.setAttribute("aria-labelledby", "invite-title");
+  const letter = inviteLetter(invite, origin);
+  dialog.innerHTML = `<h2 id="invite-title">${invite.reset ? "Пароль сброшен" : "Доступ выдан"}</h2><p>${esc(invite.name)}</p><dl class="invite-code"><dt>Логин</dt><dd id="invite-login">${esc(invite.login)}</dd><dt>Код приглашения</dt><dd id="invite-code">${esc(invite.code)}</dd><dt>Действует до</dt><dd>${esc(shortDate(invite.expires))}</dd></dl><p class="notice warn">Код показывается один раз. После закрытия окна получить его снова нельзя – только выдать новый.</p><label for="invite-letter">Текст письма</label><textarea id="invite-letter" rows="8" readonly>${esc(letter)}</textarea><div class="dialog-actions"><button type="button" class="btn" id="invite-copy">Скопировать письмо</button><button type="button" class="btn primary" id="invite-close">Закрыть</button></div>`;
+  document.body.append(dialog);
+  const close = () => {
+    dialog.close?.();
+    dialog.remove();
+  };
+  dialog.querySelector("#invite-close").onclick = close;
+  dialog.addEventListener("cancel", close);
+  dialog.querySelector("#invite-copy").onclick = async () => {
+    const button = dialog.querySelector("#invite-copy");
+    try {
+      await navigator.clipboard.writeText(letter);
+      button.textContent = "Скопировано";
+    } catch {
+      // Без доступа к буферу – выделить текст, чтобы скопировать вручную.
+      dialog.querySelector("#invite-letter").select();
+      button.textContent = "Выделено – нажмите Ctrl+C";
+    }
+  };
+  if (dialog.showModal) dialog.showModal();
+  else dialog.setAttribute("open", "");
+  return dialog;
+}
