@@ -220,6 +220,11 @@ test("Сотрудники: колонка «Доступ», фильтр «Бе
     "Выдать доступ",
   );
   assert.match($("#staff-access").textContent, /Чинкова Алиса Павловна/);
+  // «Доступ» – отдельная ячейка строки, а не текст под именем.
+  const cell = rows()[0].querySelector(".access-cell");
+  assert.equal(cell.parentElement, rows()[0]);
+  assert.match(cell.textContent, /ivanov\.ii/);
+  assert.ok(!rows()[0].firstElementChild.textContent.includes("Доступ"));
 
   $("#teacher-no-access").click();
   assert.deepEqual(

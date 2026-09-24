@@ -20,6 +20,11 @@ export const INVITE_DAYS = 7;
 export const MIN_PASSWORD = 10;
 const LOCK_AFTER = 5,
   LOCK_MS = 15 * 60000;
+const BAD_CODE = {
+  status: 403,
+  error:
+    "Код не подходит или истёк – попросите новый у менеджера своей программы",
+};
 const TOO_MANY = {
   status: 429,
   error: "Слишком много попыток. Повторите через 15 минут.",
@@ -170,16 +175,26 @@ export async function hashGate(fn) {
   }
 }
 
+// Распространённые пароли не короче 10 символов (короче и так не пройдут):
+// последовательности цифр и клавиш, «password», годы, имя вуза и журнала.
 const common = new Set(
-  `1234567890 0123456789 0987654321 1234512345 1111111111 0000000000 1212121212
-  qwertyuiop qwertyuiop1 qwerty1234 qwerty12345 1q2w3e4r5t 1qaz2wsx3edc zaq12wsx
-  asdfghjkl1 asdfghjkl; zxcvbnm123 password12 password123 password1! passw0rd12
-  iloveyou12 abc1234567 abcdefghij aaaaaaaaaa 123qweasdzxc 123123123123
-  йцукенгшщз йцукенгшщзх пароль1234 пароль12345 1234567890q q1234567890
-  hse1234567 hsehsehse1 vyshkavyshka vshe123456 vshe2026vshe administrator
-  welcome123 welcome2026 letmein123 sunshine12 football12 princess12 monkey1234
-  dragon1234 master1234 superman12 baseball12 trustno1trustno1 changeme12
-  pravo12345 pravopravo journal123 zhurnal123 student123 teacher123 prepod1234`
+  `1234567890 0123456789 0987654321 1234512345 1111111111 0000000000
+  1212121212 1122334455 9876543210 1234567891 12345678910 123456789a
+  a123456789 1234567890a 1q2w3e4r5t 1q2w3e4r5t6y 1qaz2wsx3edc 123qweasdzxc
+  qwertyuiop qwertyuiop1 qwerty1234 qwerty12345 qwerty123456 qwertyqwerty
+  asdfghjkl1 asdfghjkl12 zxcvbnm123 zxcvbnm1234 qazwsxedcrfv 1qazxsw23edc
+  password12 password123 password1! passw0rd12 password2024 password2025
+  password2026 passwordpassword iloveyou12 iloveyou123 abc1234567 abcdefghij
+  abcdefg123 aaaaaaaaaa zzzzzzzzzz 123123123123 123321123321 111222333444
+  welcome123 welcome2025 welcome2026 letmein123 sunshine12 football12
+  football123 princess12 monkey1234 dragon1234 master1234 superman12
+  baseball12 trustno1trustno1 changeme12 administrator admin12345 admin123456
+  qwerty2025 qwerty2026 йцукенгшщз йцукенгшщзх пароль1234 пароль12345
+  парольпароль 1234567890q q1234567890 hse1234567 hsehsehse1 vshe123456
+  vshe2026vshe vyshkavyshka vysshayashkola pravo12345 pravopravo pravohse2026
+  journal123 zhurnal123 zhurnal2026 student123 student2026 teacher123
+  teacher2026 prepod1234 prepodavatel moskva2026 moscow2026 russia2026
+  rossiya2026 september2026 sentyabr2026 1234qwerasdf asdf1234asdf`
     .split(/\s+/)
     .filter(Boolean),
 );
@@ -246,20 +261,14 @@ export function staffAccounts(db) {
   // Первый вход по коду: задаёт пароль, гасит код, увеличивает версию пароля.
   // Возвращает { account } или { error, status }.
   async function redeemInvite(login, code, password, now = Date.now()) {
+    // Неверный код в счётчик блокировки не идёт: код около 59 бит онлайн не
+    // подобрать, а счётчик позволил бы любому закрыть вход по чужому логину.
     const a = byLogin(login);
-    if (a && locked(a, now)) return TOO_MANY;
     const valid =
       a?.inviteHash &&
       a.inviteExpires > now &&
       (await hashGate(() => codeMatches(code, a.inviteHash)));
-    if (!valid) {
-      if (a) recordFailure(a.personId, now);
-      return {
-        status: 403,
-        error:
-          "Код не подходит или истёк – попросите новый у менеджера своей программы",
-      };
-    }
+    if (!valid) return BAD_CODE;
     const problem = passwordProblem(password);
     if (problem) return { status: 400, error: problem };
     const hash = await hashGate(() => passwordHashAsync(password));
@@ -272,12 +281,7 @@ export function staffAccounts(db) {
       a.personId,
       a.inviteHash,
     );
-    if (!changes)
-      return {
-        status: 403,
-        error:
-          "Код не подходит или истёк – попросите новый у менеджера своей программы",
-      };
+    if (!changes) return BAD_CODE;
     return { account: byPerson(a.personId) };
   }
   const deviceHash = (token) =>

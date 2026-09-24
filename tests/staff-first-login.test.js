@@ -21,6 +21,13 @@ test("Пароль: не короче 10 символов и не из расп�
   assert.match(passwordProblem("короткий"), /не короче 10/);
   assert.match(passwordProblem("Qwertyuiop"), /распространён/);
   assert.match(passwordProblem("1234567890"), /распространён/);
+  for (const common of [
+    "password2026",
+    "1q2w3e4r5t",
+    "йцукенгшщз",
+    "zhurnal2026",
+  ])
+    assert.match(passwordProblem(common), /распространён/, common);
   assert.equal(passwordProblem("зелёный кит в тумане"), null);
 });
 
@@ -172,6 +179,30 @@ test("Код приглашения хранится хешем scrypt с соб
       });
     assert.equal((await redeem(first)).status, 200);
     assert.equal((await redeem(second)).status, 403);
+  } finally {
+    await s.close();
+  }
+});
+
+test("Неверные коды приглашения не закрывают ни первый вход, ни вход по паролю", async () => {
+  const s = await startServer(3121);
+  try {
+    const invite = s.inviteAdmin("chinkova");
+    const first = (code, password = "длинный пароль журнала") =>
+      s.call("/api/first-login", {
+        method: "POST",
+        body: { login: invite.login, code, password },
+      });
+    for (let i = 0; i < 6; i++)
+      assert.equal((await first("AAAA-BBBB-CCC" + (i + 2))).status, 403);
+    assert.equal((await first(invite.code)).status, 200);
+    // У активной учётной записи ложные коды тоже не блокируют вход по паролю.
+    for (let i = 0; i < 6; i++) await first("AAAA-BBBB-CCC" + (i + 2));
+    const r = await s.call("/api/login", {
+      method: "POST",
+      body: { login: invite.login, password: "длинный пароль журнала" },
+    });
+    assert.equal(r.status, 200);
   } finally {
     await s.close();
   }

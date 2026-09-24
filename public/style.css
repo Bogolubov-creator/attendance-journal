@@ -1443,6 +1443,14 @@ dialog::backdrop {
   padding: 20px 0;
   border-bottom: 1px solid var(--line);
 }
+/* Колонка «Доступ» на странице «Сотрудники»; имя занимает остаток строки. */
+.daily-row > span:first-child {
+  flex: 1;
+}
+.access-cell {
+  flex: 0 0 210px;
+  font-size: 12px;
+}
 /* Переключатель отметки: три сегмента в одну строку, на телефоне – во всю ширину. */
 .daily-options {
   display: inline-flex;
@@ -1544,6 +1552,12 @@ dialog::backdrop {
     flex-direction: column;
     gap: 10px;
     padding: 14px 0;
+  }
+  .access-cell {
+    flex: none;
+  }
+  #staff-access .daily-options {
+    grid-template-columns: 1fr;
   }
   .daily-options {
     display: grid;
