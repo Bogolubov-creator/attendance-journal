@@ -194,6 +194,7 @@ export const residenceValues = [
   "residence_permit",
   "other",
 ];
+export const foreignStatuses = ["unknown", "confirmed", "excluded"];
 export const enrollmentStatuses = ["active", "leave", "graduated", "withdrawn"];
 // Выпуск и отчисление закрывают кабинет; академический отпуск – нет.
 export const closedEnrollmentStatuses = ["graduated", "withdrawn"];

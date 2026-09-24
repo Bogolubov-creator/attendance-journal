@@ -9,6 +9,7 @@ import {
   canEditStudent,
   canSeeStudent,
   studentFieldsValid,
+  foreignStatuses,
 } from "./office.js";
 import { studentId } from "./domain.js";
 
@@ -137,7 +138,7 @@ export function registerRegistry(
       !Number.isInteger(year) ||
       year < 0 ||
       year > 6 ||
-      !["unknown", "confirmed", "excluded"].includes(foreignStatus) ||
+      !foreignStatuses.includes(foreignStatus) ||
       !studentFieldsValid({ citizenship })
     )
       throw fail(400, "Проверьте ФИО, программу, курс и гражданство");

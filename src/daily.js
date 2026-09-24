@@ -38,7 +38,7 @@ export function summarizeAttendance(
 // Все ответы преподавателей: дневные отметки и исторические отметки по занятиям.
 // С studentId – только этого студента: чтение всей таблицы отметок дорого.
 // brief – без времени правки: реестру оно не нужно, а чтение заметно быстрее.
-export function attendanceRecords(db, studentId, brief = false) {
+export function attendanceRecords(db, { studentId, brief = false } = {}) {
   const one = studentId !== undefined,
     args = one ? [studentId] : [];
   const records = db

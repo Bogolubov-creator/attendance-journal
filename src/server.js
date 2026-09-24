@@ -18,6 +18,7 @@ import {
   closedEnrollmentStatuses,
   studentFieldsError,
   studentFieldsValid,
+  foreignStatuses,
 } from "./office.js";
 import { openDatabase } from "./db.js";
 import { rmSync } from "node:fs";
@@ -273,7 +274,7 @@ app.put("/api/admin/students/:id/profile", (req, res) => {
     !Number.isInteger(year) ||
     year < 0 ||
     year > 6 ||
-    !["unknown", "confirmed", "excluded"].includes(foreignStatus) ||
+    !foreignStatuses.includes(foreignStatus) ||
     !enrollmentStatuses.includes(enrollmentStatus)
   )
     throw fail(400, "Проверьте программу, курс и данные студента");
@@ -433,7 +434,10 @@ function enrollmentsOf(field, id) {
 }
 // Без аргумента – все студенты реестра, с id – только этот (для карточки).
 function studentRows(only) {
-  const records = groupBy(attendanceRecords(db, only, true), "studentId"),
+  const records = groupBy(
+      attendanceRecords(db, { studentId: only, brief: true }),
+      "studentId",
+    ),
     debts = groupBy(all("SELECT * FROM debts"), "studentId", only),
     teacherNames = new Map(roster.teachers.map((t) => [t.id, t.name]));
   const students =

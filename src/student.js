@@ -103,7 +103,7 @@ export function registerStudent(
       to = req.query.to || moscowDate();
     if (![from, to].every(validDate) || from > to)
       throw fail(400, "Проверьте период");
-    const own = attendanceRecords(db, req.studentId);
+    const own = attendanceRecords(db, { studentId: req.studentId });
     const [summary] = summarizeAttendance(
       [studentProfile(req.studentId)],
       own,
