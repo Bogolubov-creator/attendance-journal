@@ -183,6 +183,11 @@
       {
         "id": "t_4",
         "name": "Вак_Без Связей",
+        "access": {
+          "state": "none",
+          "login": null
+        },
+        "canManageAccess": true,
         "lastMark": null,
         "courses": [],
         "students": 0
@@ -190,6 +195,11 @@
       {
         "id": "t_2",
         "name": "Ёжиков Лев",
+        "access": {
+          "state": "none",
+          "login": null
+        },
+        "canManageAccess": true,
         "lastMark": "2026-09-06",
         "courses": ["Арбитраж", "Ёмкость", "Экономика"],
         "students": 2
@@ -197,6 +207,11 @@
       {
         "id": "t_3",
         "name": "Ежов Глеб",
+        "access": {
+          "state": "none",
+          "login": null
+        },
+        "canManageAccess": true,
         "lastMark": "2026-09-05",
         "courses": ["Ёмкость", "История"],
         "students": 3
@@ -204,6 +219,11 @@
       {
         "id": "t_1",
         "name": "Щукин Борис",
+        "access": {
+          "state": "none",
+          "login": null
+        },
+        "canManageAccess": true,
         "lastMark": "2026-09-16",
         "courses": ["право", "Право"],
         "students": 4
