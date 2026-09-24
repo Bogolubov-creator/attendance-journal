@@ -3,11 +3,16 @@ import { randomBytes, createHash } from "node:crypto";
 import * as oidc from "openid-client";
 import { verifyPassword } from "./management-auth.js";
 import { managers } from "./office.js";
-import { findPerson, LOCK_MINUTES } from "./staff-accounts.js";
+import { findPerson, LOCK_MINUTES, isDeviceToken } from "./staff-accounts.js";
 
 // Источники входа, которые подтверждают сотрудника сами, а не общим паролем.
 const OWN_SIGN_IN = ["oidc", "explicit", "personal"];
 const SHARED_OFF = "Вход по общему паролю отключён. Войдите по личному логину";
+const cookieValue = (req, name) =>
+  req.headers.cookie
+    ?.split("; ")
+    .find((x) => x.startsWith(name + "="))
+    ?.slice(name.length + 1);
 const token = () => randomBytes(32).toString("base64url"),
   hash = (s) => createHash("sha256").update(s).digest("hex");
 
@@ -88,10 +93,7 @@ export function registerAuth(
     loginAttempts.delete(key);
   }
   app.use((req, res, next) => {
-    const id = req.headers.cookie
-      ?.split("; ")
-      .find((x) => x.startsWith("journal="))
-      ?.slice(8);
+    const id = cookieValue(req, "journal");
     const row =
       id &&
       get(
@@ -192,14 +194,10 @@ export function registerAuth(
   }
   // Отметка знакомого устройства: случайный токен в отдельной долгой cookie,
   // в базе – только его хеш вместе с сотрудником.
-  const deviceCookie = (req) =>
-    req.headers.cookie
-      ?.split("; ")
-      .find((x) => x.startsWith("journal_device="))
-      ?.slice(15);
+  const deviceCookie = (req) => cookieValue(req, "journal_device");
   function rememberDevice(req, res, personId) {
     let device = deviceCookie(req);
-    if (!/^[A-Za-z0-9_-]{43}$/.test(device || "")) device = token();
+    if (!isDeviceToken(device)) device = token();
     staff.rememberDevice(device, personId);
     res.cookie("journal_device", device, {
       httpOnly: true,

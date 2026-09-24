@@ -4,21 +4,22 @@ import {
   randomInt,
   randomBytes,
   createHash,
-  scrypt,
   scryptSync,
   timingSafeEqual,
 } from "node:crypto";
 import {
-  passwordHash,
   passwordHashAsync,
   verifyPasswordAsync,
+  scryptAsync,
 } from "./management-auth.js";
-import { promisify } from "node:util";
 import { managers } from "./office.js";
 
 export const INVITE_DAYS = 7;
 const MIN_PASSWORD = 10;
 export const LOCK_MINUTES = 15;
+// Отметка устройства – 32 случайных байта в base64url.
+export const isDeviceToken = (token) =>
+  typeof token === "string" && /^[A-Za-z0-9_-]{43}$/.test(token);
 const LOCK_AFTER = 5,
   LOCK_MS = LOCK_MINUTES * 60000;
 const BAD_CODE = {
@@ -137,7 +138,6 @@ const codeHash = (code) => {
   const key = scryptSync(normalizeCode(code), salt, 32, { N: CODE_COST });
   return `s${CODE_COST}:${salt.toString("hex")}:${key.toString("hex")}`;
 };
-const scryptAsync = promisify(scrypt);
 const codeMatches = async (code, hash) => {
   const m = /^s1024:([a-f0-9]{32}):([a-f0-9]{64})$/.exec(hash || "");
   if (!m) return false;
@@ -150,31 +150,38 @@ const codeMatches = async (code, hash) => {
   return timingSafeEqual(key, Buffer.from(m[2], "hex"));
 };
 
-// Проверки паролей и кодов без входа: не больше 4 одновременно (по числу
-// потоков пула) и не больше 16 в очереди, остальным сразу «сервер занят».
-// Иначе поток запросов на вход с любыми логинами занял бы сервер целиком.
-const GATE_RUNNING = 4,
-  GATE_WAITING = 16;
-let running = 0;
-const waiting = [];
-export async function hashGate(fn) {
-  if (running >= GATE_RUNNING) {
-    if (waiting.length >= GATE_WAITING)
-      throw Object.assign(
-        new Error("Сервер занят, повторите вход через минуту"),
-        { status: 429 },
-      );
-    // Место передаётся из finally напрямую, счётчик running не меняется.
-    await new Promise((resolve) => waiting.push(resolve));
-  } else running++;
-  try {
-    return await fn();
-  } finally {
-    const next = waiting.shift();
-    if (next) next();
-    else running--;
-  }
+// Проверки без входа идут через ворота: не больше N одновременно и 16 в очереди,
+// остальным сразу «сервер занят». Пароли и коды приглашения – в разных
+// воротах, чтобы поток ложных кодов не закрывал вход по паролю.
+function makeGate(limit, queue = 16) {
+  let running = 0;
+  const waiting = [];
+  return async function gate(fn) {
+    if (running >= limit) {
+      if (waiting.length >= queue)
+        throw Object.assign(
+          new Error("Сервер занят, повторите вход через минуту"),
+          { status: 429 },
+        );
+      // Место передаётся из finally напрямую, счётчик running не меняется.
+      await new Promise((resolve) => waiting.push(resolve));
+    } else running++;
+    try {
+      return await fn();
+    } finally {
+      const next = waiting.shift();
+      if (next) next();
+      else running--;
+    }
+  };
 }
+export const hashGate = makeGate(4);
+const codeGate = makeGate(2);
+// Для логина без пароля хеш не считается вовсе – ответ приходит после паузы
+// такой же длины, как у scrypt, чтобы время не выдавало, есть ли логин.
+// Так поток входов с выдуманными логинами не занимает ни ворота, ни процессор.
+const pause = () =>
+  new Promise((resolve) => setTimeout(resolve, 60 + randomInt(60)));
 
 // Распространённые пароли не короче 10 символов (короче и так не пройдут):
 // последовательности цифр и клавиш, «password», годы, имя вуза и журнала.
@@ -210,8 +217,6 @@ export function passwordProblem(password) {
   return null;
 }
 
-const DUMMY_HASH = passwordHash("нет такой учётной записи");
-
 export function staffAccounts(db) {
   ensureStaffAccounts(db);
   const get = (sql, ...a) => db.prepare(sql).get(...a),
@@ -244,7 +249,22 @@ export function staffAccounts(db) {
       );
     return { login: byPerson(person.id).login, code, expires };
   }
-  const locked = (a, now) => a.lockedUntil > now;
+  // Попытки, чей хеш ещё считается, входят в счётчик: пачка одновременных
+  // запросов не проскакивает блокировку.
+  const pending = new Map();
+  const locked = (a, now) =>
+    a.lockedUntil > now ||
+    a.failures + (pending.get(a.personId) || 0) >= LOCK_AFTER;
+  async function counted(personId, fn) {
+    pending.set(personId, (pending.get(personId) || 0) + 1);
+    try {
+      return await fn();
+    } finally {
+      const left = pending.get(personId) - 1;
+      if (left) pending.set(personId, left);
+      else pending.delete(personId);
+    }
+  }
   // Счётчик читается из базы после ожидания хеша: параллельные неверные
   // попытки считаются все.
   function recordFailure(personId, now) {
@@ -265,11 +285,12 @@ export function staffAccounts(db) {
     // Неверный код в счётчик блокировки не идёт: код около 59 бит онлайн не
     // подобрать, а счётчик позволил бы любому закрыть вход по чужому логину.
     const a = byLogin(login);
-    const valid =
-      a?.inviteHash &&
-      a.inviteExpires > now &&
-      (await hashGate(() => codeMatches(code, a.inviteHash)));
-    if (!valid) return BAD_CODE;
+    if (!a?.inviteHash || !(a.inviteExpires > now)) {
+      await pause();
+      return BAD_CODE;
+    }
+    if (!(await codeGate(() => codeMatches(code, a.inviteHash))))
+      return BAD_CODE;
     const problem = passwordProblem(password);
     if (problem) return { status: 400, error: problem };
     const hash = await hashGate(() => passwordHashAsync(password));
@@ -288,7 +309,7 @@ export function staffAccounts(db) {
   const deviceHash = (token) =>
     createHash("sha256").update(token).digest("hex");
   const deviceOf = (token, personId) =>
-    typeof token === "string" && /^[A-Za-z0-9_-]{43}$/.test(token)
+    isDeviceToken(token)
       ? get(
           "SELECT * FROM staff_devices WHERE tokenHash=? AND personId=?",
           deviceHash(token),
@@ -326,16 +347,20 @@ export function staffAccounts(db) {
   // Возвращает { account }, { locked: true } или {} при неверной паре.
   async function checkPassword(login, password, device, now = Date.now()) {
     const a = byLogin(login);
-    const known = a && deviceOf(device, a.personId);
-    if (a && !known && locked(a, now)) return { locked: true };
-    const ok = await hashGate(() =>
-      verifyPasswordAsync(password, a?.passwordHash || DUMMY_HASH),
+    // Нет логина или пароль ещё не задан (приглашённый): не считаем ни хеш,
+    // ни ошибку – иначе любой закрыл бы приглашённому «Первый вход».
+    if (!a?.passwordHash) {
+      await pause();
+      return {};
+    }
+    const known = deviceOf(device, a.personId);
+    if (!known && locked(a, now)) return { locked: true };
+    const ok = await counted(a.personId, () =>
+      hashGate(() => verifyPasswordAsync(password, a.passwordHash)),
     );
-    if (!a?.passwordHash || !ok) {
-      // У приглашённого без пароля неверные входы не считаем: иначе любой
-      // закрыл бы ему «Первый вход», зная предсказуемый логин.
+    if (!ok) {
       if (known) deviceFailure(known);
-      else if (a?.passwordHash) recordFailure(a.personId, now);
+      else recordFailure(a.personId, now);
       return {};
     }
     run(
@@ -351,7 +376,10 @@ export function staffAccounts(db) {
     const a = byPerson(personId);
     if (!a?.passwordHash) return { status: 403, error: "Нет личного пароля" };
     if (locked(a, now)) return TOO_MANY;
-    if (!(await hashGate(() => verifyPasswordAsync(current, a.passwordHash)))) {
+    const ok = await counted(personId, () =>
+      hashGate(() => verifyPasswordAsync(current, a.passwordHash)),
+    );
+    if (!ok) {
       recordFailure(personId, now);
       return { status: 403, error: "Текущий пароль указан неверно" };
     }

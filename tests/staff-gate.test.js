@@ -39,10 +39,10 @@ test("Очередь проверок: не больше 4 одновремен�
   assert.equal(peak, 4);
 });
 
-test("Поток входов с любыми логинами не останавливает сервер, лишним – «Сервер занят»", async () => {
+test("Поток входов с выдуманными логинами не занимает ворота и не останавливает сервер", async () => {
   const s = await startServer(3130);
   try {
-    const burst = Array.from({ length: 40 }, (_, i) =>
+    const burst = Array.from({ length: 60 }, (_, i) =>
       s.call("/api/login", {
         method: "POST",
         body: { login: "nobody" + i, password: "x".repeat(256) },
@@ -57,15 +57,44 @@ test("Поток входов с любыми логинами не остана
     assert.equal(health.status, 200);
     assert.ok(healthMs < 500, `/healthz ответил за ${healthMs} мс`);
     const statuses = await Promise.all(
-      burst.map(async (r) => {
-        const res = await r;
-        return [res.status, (await res.json()).error];
-      }),
+      burst.map(async (r) => (await r).status),
     );
-    const busy = statuses.filter(([code]) => code === 429);
-    assert.ok(busy.length > 0, "лишние входы получили 429");
-    assert.match(busy[0][1], /Сервер занят/);
-    assert.ok(statuses.some(([code]) => code === 403));
+    assert.deepEqual(
+      [...new Set(statuses)],
+      [403],
+      "все получили «неверный логин или пароль», никто – «сервер занят»",
+    );
+  } finally {
+    await s.close();
+  }
+});
+
+test("Пачка одновременных неверных паролей к одному логину не проскакивает блокировку", async () => {
+  const s = await startServer(3130);
+  try {
+    const db = s.db();
+    const invite = staffAccounts(db).issueInvite({
+      id: "t_test_1",
+      name: "Преподаватель Первый",
+    });
+    db.close();
+    await s.call("/api/first-login", {
+      method: "POST",
+      body: { login: invite.login, code: invite.code, password: PASSWORD },
+    });
+    const statuses = await Promise.all(
+      Array.from({ length: 20 }, (_, i) =>
+        s.call("/api/login", {
+          method: "POST",
+          body: { login: invite.login, password: "догадка " + i },
+        }),
+      ),
+    ).then((rs) => rs.map((r) => r.status));
+    assert.ok(
+      statuses.filter((c) => c === 403).length <= 5,
+      "проверено не больше пяти догадок: " + statuses.join(","),
+    );
+    assert.ok(statuses.includes(429));
   } finally {
     await s.close();
   }

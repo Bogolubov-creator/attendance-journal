@@ -1444,7 +1444,8 @@ dialog::backdrop {
   border-bottom: 1px solid var(--line);
 }
 /* Колонка «Доступ» на странице «Сотрудники»; имя занимает остаток строки. */
-.daily-row > span:first-child {
+#staff-access .daily-row > span:first-child,
+#teacher-rows .daily-row > span:first-child {
   flex: 1;
 }
 .access-cell {
