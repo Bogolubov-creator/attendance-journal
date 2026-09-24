@@ -240,9 +240,9 @@ export function registerAuth(
   // Перебор ограничен блокировкой учётной записи (5 попыток за 15 минут).
   // Общего потолка на все учётные записи нет: его одним скриптом без входа
   // можно держать заполненным и закрыть вход всем (ревью 24.09.2026).
-  app.post("/api/login", (req, res) => {
+  app.post("/api/login", async (req, res) => {
     const { login, password, remember } = req.body;
-    const result = staff.checkPassword(login, password);
+    const result = await staff.checkPassword(login, password);
     if (result.locked)
       throw fail(
         429,
@@ -262,12 +262,12 @@ export function registerAuth(
   });
   // Смена своего пароля. Остальные сессии гаснут вместе с прежней версией пароля,
   // текущему устройству выдаётся новая сессия на оставшийся срок.
-  app.post("/api/account/password", (req, res) => {
+  app.post("/api/account/password", async (req, res) => {
     const u = req.session?.user;
     if (u?.source !== "personal")
       throw fail(403, "Смена пароля – для входа по личному паролю");
     const { current, next } = req.body;
-    const result = staff.changePassword(u.id, current, next);
+    const result = await staff.changePassword(u.id, current, next);
     if (result.error) throw fail(result.status, result.error);
     const expires = get(
       "SELECT expires FROM sessions WHERE id=?",
@@ -283,9 +283,9 @@ export function registerAuth(
     res.json({ ok: true });
   });
   // Первый вход по коду приглашения: сотрудник сам задаёт пароль.
-  app.post("/api/first-login", (req, res) => {
+  app.post("/api/first-login", async (req, res) => {
     const { login, code, password } = req.body;
-    const result = staff.redeemInvite(login, code, password);
+    const result = await staff.redeemInvite(login, code, password);
     if (result.error) throw fail(result.status, result.error);
     if (!findPerson(result.account.personId, roster))
       throw fail(403, "Учётная запись не относится к сотрудникам журнала");

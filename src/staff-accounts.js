@@ -3,10 +3,16 @@
 import {
   randomInt,
   randomBytes,
+  scrypt,
   scryptSync,
   timingSafeEqual,
 } from "node:crypto";
-import { passwordHash, verifyPassword } from "./management-auth.js";
+import {
+  passwordHash,
+  passwordHashAsync,
+  verifyPasswordAsync,
+} from "./management-auth.js";
+import { promisify } from "node:util";
 import { managers } from "./office.js";
 
 export const INVITE_DAYS = 7;
@@ -116,14 +122,44 @@ const codeHash = (code) => {
   const key = scryptSync(normalizeCode(code), salt, 32, { N: CODE_COST });
   return `s${CODE_COST}:${salt.toString("hex")}:${key.toString("hex")}`;
 };
-const codeMatches = (code, hash) => {
+const scryptAsync = promisify(scrypt);
+const codeMatches = async (code, hash) => {
   const m = /^s1024:([a-f0-9]{32}):([a-f0-9]{64})$/.exec(hash || "");
   if (!m) return false;
-  const key = scryptSync(normalizeCode(code), Buffer.from(m[1], "hex"), 32, {
-    N: CODE_COST,
-  });
+  const key = await scryptAsync(
+    normalizeCode(code),
+    Buffer.from(m[1], "hex"),
+    32,
+    { N: CODE_COST },
+  );
   return timingSafeEqual(key, Buffer.from(m[2], "hex"));
 };
+
+// Проверки паролей и кодов без входа: не больше 4 одновременно (по числу
+// потоков пула) и не больше 16 в очереди, остальным сразу «сервер занят».
+// Иначе поток запросов на вход с любыми логинами занял бы сервер целиком.
+const GATE_RUNNING = 4,
+  GATE_WAITING = 16;
+let running = 0;
+const waiting = [];
+export async function hashGate(fn) {
+  if (running >= GATE_RUNNING) {
+    if (waiting.length >= GATE_WAITING)
+      throw Object.assign(
+        new Error("Сервер занят, повторите вход через минуту"),
+        { status: 429 },
+      );
+    // Место передаётся из finally напрямую, счётчик running не меняется.
+    await new Promise((resolve) => waiting.push(resolve));
+  } else running++;
+  try {
+    return await fn();
+  } finally {
+    const next = waiting.shift();
+    if (next) next();
+    else running--;
+  }
+}
 
 const common = new Set(
   `1234567890 0123456789 0987654321 1234512345 1111111111 0000000000 1212121212
@@ -184,24 +220,31 @@ export function staffAccounts(db) {
     return { login: byPerson(person.id).login, code, expires };
   }
   const locked = (a, now) => a.lockedUntil > now;
-  function recordFailure(a, now) {
-    const failures = a.failures + 1;
+  // Счётчик читается из базы после ожидания хеша: параллельные неверные
+  // попытки считаются все.
+  function recordFailure(personId, now) {
     run(
-      "UPDATE staff_accounts SET failures=?, lockedUntil=? WHERE personId=?",
-      failures >= LOCK_AFTER ? 0 : failures,
-      failures >= LOCK_AFTER ? now + LOCK_MS : a.lockedUntil,
-      a.personId,
+      "UPDATE staff_accounts SET failures=failures+1 WHERE personId=?",
+      personId,
     );
+    if (byPerson(personId).failures >= LOCK_AFTER)
+      run(
+        "UPDATE staff_accounts SET failures=0, lockedUntil=? WHERE personId=?",
+        now + LOCK_MS,
+        personId,
+      );
   }
   // Первый вход по коду: задаёт пароль, гасит код, увеличивает версию пароля.
   // Возвращает { account } или { error, status }.
-  function redeemInvite(login, code, password, now = Date.now()) {
+  async function redeemInvite(login, code, password, now = Date.now()) {
     const a = byLogin(login);
     if (a && locked(a, now)) return TOO_MANY;
     const valid =
-      a?.inviteHash && a.inviteExpires > now && codeMatches(code, a.inviteHash);
+      a?.inviteHash &&
+      a.inviteExpires > now &&
+      (await hashGate(() => codeMatches(code, a.inviteHash)));
     if (!valid) {
-      if (a) recordFailure(a, now);
+      if (a) recordFailure(a.personId, now);
       return {
         status: 403,
         error:
@@ -210,25 +253,37 @@ export function staffAccounts(db) {
     }
     const problem = passwordProblem(password);
     if (problem) return { status: 400, error: problem };
-    run(
-      "UPDATE staff_accounts SET passwordHash=?, inviteHash=NULL, inviteExpires=NULL, failures=0, lockedUntil=0, lastLoginAt=?, passwordVersion=passwordVersion+1 WHERE personId=?",
-      passwordHash(password),
+    const hash = await hashGate(() => passwordHashAsync(password));
+    // Код гасится условием на прежний хеш: два одновременных запроса
+    // с одним кодом зададут пароль только один раз.
+    const { changes } = run(
+      "UPDATE staff_accounts SET passwordHash=?, inviteHash=NULL, inviteExpires=NULL, failures=0, lockedUntil=0, lastLoginAt=?, passwordVersion=passwordVersion+1 WHERE personId=? AND inviteHash=?",
+      hash,
       new Date(now).toISOString(),
       a.personId,
+      a.inviteHash,
     );
+    if (!changes)
+      return {
+        status: 403,
+        error:
+          "Код не подходит или истёк – попросите новый у менеджера своей программы",
+      };
     return { account: byPerson(a.personId) };
   }
   // Вход по логину и паролю. Несуществующий логин проверяется против
   // пустышки, чтобы время ответа не выдавало, есть ли такой логин.
   // Возвращает { account }, { locked: true } или {} при неверной паре.
-  function checkPassword(login, password, now = Date.now()) {
+  async function checkPassword(login, password, now = Date.now()) {
     const a = byLogin(login);
     if (a && locked(a, now)) return { locked: true };
-    const ok = verifyPassword(password, a?.passwordHash || DUMMY_HASH);
+    const ok = await hashGate(() =>
+      verifyPasswordAsync(password, a?.passwordHash || DUMMY_HASH),
+    );
     if (!a?.passwordHash || !ok) {
       // У приглашённого без пароля неверные входы не считаем: иначе любой
       // закрыл бы ему «Первый вход», зная предсказуемый логин.
-      if (a?.passwordHash) recordFailure(a, now);
+      if (a?.passwordHash) recordFailure(a.personId, now);
       return {};
     }
     run(
@@ -240,21 +295,25 @@ export function staffAccounts(db) {
   }
   // Смена своего пароля: неверный текущий пароль идёт в счётчик блокировки.
   // Возвращает { account } или { error, status }.
-  function changePassword(personId, current, next, now = Date.now()) {
+  async function changePassword(personId, current, next, now = Date.now()) {
     const a = byPerson(personId);
     if (!a?.passwordHash) return { status: 403, error: "Нет личного пароля" };
     if (locked(a, now)) return TOO_MANY;
-    if (!verifyPassword(current, a.passwordHash)) {
-      recordFailure(a, now);
+    if (!(await hashGate(() => verifyPasswordAsync(current, a.passwordHash)))) {
+      recordFailure(personId, now);
       return { status: 403, error: "Текущий пароль указан неверно" };
     }
     const problem = passwordProblem(next);
     if (problem) return { status: 400, error: problem };
-    run(
-      "UPDATE staff_accounts SET passwordHash=?, failures=0, lockedUntil=0, passwordVersion=passwordVersion+1 WHERE personId=?",
-      passwordHash(next),
+    const hash = await hashGate(() => passwordHashAsync(next));
+    const { changes } = run(
+      "UPDATE staff_accounts SET passwordHash=?, failures=0, lockedUntil=0, passwordVersion=passwordVersion+1 WHERE personId=? AND passwordVersion=?",
+      hash,
       personId,
+      a.passwordVersion,
     );
+    if (!changes)
+      return { status: 409, error: "Пароль уже изменён. Войдите заново" };
     return { account: byPerson(personId) };
   }
   // Сброс: прежний пароль гаснет, версия растёт – все сессии человека закрываются.
