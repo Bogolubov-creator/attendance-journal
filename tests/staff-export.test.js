@@ -36,11 +36,14 @@ test("Массовая выгрузка: сотрудники офиса и пр
     });
     const activeSession = s.cookieOf(r);
     const pending = await grant("t_test_2");
-    await s.call("/api/admin/teachers", {
-      method: "POST",
-      cookie: admin,
-      body: { name: "Без Студентов Иванович" },
-    });
+    const lonely = await (
+      await s.call("/api/admin/teachers", {
+        method: "POST",
+        cookie: admin,
+        body: { name: "Без Студентов Иванович" },
+      })
+    ).json();
+    const lonelyInvite = await grant(lonely.id);
 
     const manager = await s.selectLogin("office", "akhmyatzhanov");
     const teacher = await s.selectLogin("teacher", "t_test_1");
@@ -92,6 +95,16 @@ test("Массовая выгрузка: сотрудники офиса и пр
         body: { login: pending.login, code, password: PASSWORD },
       });
     assert.equal((await first(pending.code)).status, 403);
+    // Поштучный код того, кто в файл не попал, тоже погашен.
+    r = await s.call("/api/first-login", {
+      method: "POST",
+      body: {
+        login: lonelyInvite.login,
+        code: lonelyInvite.code,
+        password: PASSWORD,
+      },
+    });
+    assert.equal(r.status, 403);
     assert.equal((await first(second[3])).status, 200);
     assert.equal(
       (await s.call("/api/daily", { cookie: activeSession })).status,

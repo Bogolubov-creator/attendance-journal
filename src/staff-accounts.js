@@ -269,6 +269,12 @@ export function staffAccounts(db) {
       "INSERT OR REPLACE INTO service_state VALUES('personalOnly',?)",
       JSON.stringify({ at: new Date().toISOString(), by }),
     );
+  // Перед массовой выгрузкой: гаснут все неиспользованные коды, в том числе
+  // у тех, кто в новый файл не попадёт.
+  const expireInvites = () =>
+    run(
+      "UPDATE staff_accounts SET inviteHash=NULL, inviteExpires=NULL WHERE passwordHash IS NULL",
+    );
   const remove = (personId) =>
     run("DELETE FROM staff_accounts WHERE personId=?", personId);
   return {
@@ -280,6 +286,7 @@ export function staffAccounts(db) {
     changePassword,
     resetPassword,
     accessState,
+    expireInvites,
     remove,
     personalOnly,
     enablePersonalOnly,

@@ -109,6 +109,7 @@ export function registerAccess(
     if (req.session.user.role !== "admin")
       throw fail(403, "Выгрузку кодов делает полный доступ");
     const people = withoutPassword();
+    staff.expireInvites();
     const roles = {
       admin: "Полный доступ",
       office: "Менеджер",
