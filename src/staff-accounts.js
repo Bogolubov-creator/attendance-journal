@@ -221,6 +221,29 @@ export function staffAccounts(db) {
     );
     return { account: byPerson(a.personId) };
   }
+  // Смена своего пароля: неверный текущий пароль идёт в счётчик блокировки.
+  // Возвращает { account } или { error, status }.
+  function changePassword(personId, current, next, now = Date.now()) {
+    const a = byPerson(personId);
+    if (!a?.passwordHash) return { status: 403, error: "Нет личного пароля" };
+    if (locked(a, now))
+      return {
+        status: 429,
+        error: "Слишком много попыток. Повторите через 15 минут.",
+      };
+    if (!verifyPassword(current, a.passwordHash)) {
+      fail(a, now);
+      return { status: 403, error: "Текущий пароль указан неверно" };
+    }
+    const problem = passwordProblem(next);
+    if (problem) return { status: 400, error: problem };
+    run(
+      "UPDATE staff_accounts SET passwordHash=?, failures=0, lockedUntil=0, passwordVersion=passwordVersion+1 WHERE personId=?",
+      passwordHash(next),
+      personId,
+    );
+    return { account: byPerson(personId) };
+  }
   // Сброс: прежний пароль гаснет, версия растёт – все сессии человека закрываются.
   function resetPassword(personId) {
     run(
@@ -245,6 +268,7 @@ export function staffAccounts(db) {
     issueInvite,
     redeemInvite,
     checkPassword,
+    changePassword,
     resetPassword,
     accessState,
     remove,

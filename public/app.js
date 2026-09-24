@@ -12,6 +12,7 @@ import {
   wireFirstLogin,
   personalLoginHtml,
   wirePersonalLogin,
+  openChangePassword,
 } from "./access.js";
 import {
   esc,
@@ -226,7 +227,7 @@ async function enterApp(u) {
   await showApp();
 }
 function shell() {
-  root.innerHTML = `<div class="layout"><aside class="sidebar">${brand}<div class="section-label">${roleLabel(user.role)}</div><nav class="nav" aria-label="Основная навигация">${user.role !== "teacher" ? `<button data-page="dashboard" class="${page === "dashboard" ? "active" : ""}">${icon("overview")}Обзор</button><button data-page="students" class="${page === "students" ? "active" : ""}">${icon("students")}Студенты</button><button data-page="registry" class="${page === "registry" ? "active" : ""}">${icon("staff")}Сотрудники</button>` : `<button data-page="journal" class="active">${icon("journal")}Мой журнал</button>`}</nav><div class="side-bottom"><div class="side-note">${user.role !== "teacher" ? "Посещаемость и документы студентов." : "Выберите дату, отметьте студентов и нажмите «Сохранить»."}</div><div class="identity"><span class="avatar">${initials(user.name)}</span><div><strong>${esc(user.name.split(" ").slice(0, 2).join(" "))}</strong><small>${roleLabel(user.role)}</small></div></div><button id="logout" class="logout" aria-label="Выйти"><span>Выйти</span>${icon("logout")}</button></div></aside><main class="main"><header class="topbar"><span class="crumb">Учебный процесс <b>/ ${{ dashboard: "Обзор", students: "Студенты", registry: "Сотрудники" }[page] || "Посещаемость"}</b></span>${session.demo ? '<span class="demo-tag">Локальный просмотр · тестовые отметки</span>' : ""}</header><div class="content" id="content"></div></main></div>`;
+  root.innerHTML = `<div class="layout"><aside class="sidebar">${brand}<div class="section-label">${roleLabel(user.role)}</div><nav class="nav" aria-label="Основная навигация">${user.role !== "teacher" ? `<button data-page="dashboard" class="${page === "dashboard" ? "active" : ""}">${icon("overview")}Обзор</button><button data-page="students" class="${page === "students" ? "active" : ""}">${icon("students")}Студенты</button><button data-page="registry" class="${page === "registry" ? "active" : ""}">${icon("staff")}Сотрудники</button>` : `<button data-page="journal" class="active">${icon("journal")}Мой журнал</button>`}</nav><div class="side-bottom"><div class="side-note">${user.role !== "teacher" ? "Посещаемость и документы студентов." : "Выберите дату, отметьте студентов и нажмите «Сохранить»."}</div><div class="identity"><span class="avatar">${initials(user.name)}</span><div><strong>${esc(user.name.split(" ").slice(0, 2).join(" "))}</strong><small>${roleLabel(user.role)}</small>${user.source === "personal" ? '<button type="button" class="button-link" id="change-password">Сменить пароль</button>' : ""}</div></div><button id="logout" class="logout" aria-label="Выйти"><span>Выйти</span>${icon("logout")}</button></div></aside><main class="main"><header class="topbar"><span class="crumb">Учебный процесс <b>/ ${{ dashboard: "Обзор", students: "Студенты", registry: "Сотрудники" }[page] || "Посещаемость"}</b></span>${session.demo ? '<span class="demo-tag">Локальный просмотр · тестовые отметки</span>' : ""}</header><div class="content" id="content"></div></main></div>`;
   $$("[data-page]").forEach(
     (b) =>
       (b.onclick = () =>
@@ -242,6 +243,8 @@ function shell() {
           await showApp();
         })),
   );
+  if ($("#change-password"))
+    $("#change-password").onclick = () => openChangePassword({ api, toast });
   $("#logout").onclick = () =>
     safe(async () => {
       if (isDailySaving()) {

@@ -217,6 +217,11 @@ small {
 .identity small {
   font-size: 11px;
 }
+.identity .button-link {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+}
 .logout {
   border: 0;
   background: none;

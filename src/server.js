@@ -73,6 +73,7 @@ const registryActions = [
   "access.reset",
   "access.first-login",
   "access.export",
+  "access.password",
 ];
 const accounts = loadAccounts({ demo, selection });
 const staff = staffAccounts(db);

@@ -295,3 +295,43 @@ test("Выгрузка кодов: сначала предупреждение, 
     globalThis.fetch = realFetch;
   }
 });
+
+test("Смена пароля: окно проверяет повтор, показывает ошибку сервера и закрывается после успеха", async () => {
+  page("");
+  const { openChangePassword } = await import("../public/access.js");
+  let reply = new Error("Текущий пароль указан неверно");
+  const requests = [],
+    toasts = [];
+  const api = async (path, options) => {
+    requests.push({ path, body: JSON.parse(options.body) });
+    if (reply instanceof Error) throw reply;
+    return reply;
+  };
+  const dialog = openChangePassword({ api, toast: (m) => toasts.push(m) });
+  const $ = (s) => dialog.querySelector(s);
+  $("#password-current").value = "старый пароль";
+  $("#password-next").value = "новый пароль журнала";
+  $("#password-repeat").value = "другой";
+  submit($("#change-password-form"));
+  await tick();
+  assert.equal($("#password-error").textContent, "Пароли не совпадают");
+  assert.equal(requests.length, 0);
+
+  $("#password-repeat").value = "новый пароль журнала";
+  submit($("#change-password-form"));
+  await tick();
+  assert.equal(
+    $("#password-error").textContent,
+    "Текущий пароль указан неверно",
+  );
+
+  reply = { ok: true };
+  submit($("#change-password-form"));
+  await tick();
+  assert.deepEqual(requests.at(-1), {
+    path: "/api/account/password",
+    body: { current: "старый пароль", next: "новый пароль журнала" },
+  });
+  assert.equal(document.querySelector("#change-password-form"), null);
+  assert.deepEqual(toasts, ["Пароль изменён"]);
+});

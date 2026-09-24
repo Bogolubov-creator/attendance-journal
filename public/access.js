@@ -166,3 +166,45 @@ export async function exportInvites({ ask }) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   return true;
 }
+
+// Смена своего пароля: окно с текущим, новым паролем и повтором.
+export function openChangePassword({ api, toast }) {
+  const dialog = document.createElement("dialog");
+  dialog.className = "invite-dialog";
+  dialog.setAttribute("aria-labelledby", "password-title");
+  dialog.innerHTML = `<form id="change-password-form" class="access-form"><h2 id="password-title">Смена пароля</h2><label for="password-current">Текущий пароль</label><input id="password-current" type="password" autocomplete="current-password" maxlength="256" required><label for="password-next">Новый пароль</label><input id="password-next" type="password" autocomplete="new-password" minlength="${MIN_PASSWORD}" maxlength="256" required><label for="password-repeat">Повторите новый пароль</label><input id="password-repeat" type="password" autocomplete="new-password" maxlength="256" required><p class="muted">После смены журнал закроется на остальных ваших устройствах.</p><p id="password-error" class="notice warn" role="alert" hidden></p><div class="dialog-actions"><button type="button" class="btn" id="password-cancel">Отмена</button><button class="btn primary">Сменить пароль</button></div></form>`;
+  document.body.append(dialog);
+  const $ = (s) => dialog.querySelector(s);
+  const close = () => {
+    dialog.close?.();
+    dialog.remove();
+  };
+  const showError = (message) => {
+    $("#password-error").textContent = message;
+    $("#password-error").hidden = !message;
+  };
+  $("#password-cancel").onclick = close;
+  dialog.addEventListener("cancel", close);
+  $("#change-password-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const next = $("#password-next").value;
+    if (next !== $("#password-repeat").value)
+      return showError("Пароли не совпадают");
+    if (next.length < MIN_PASSWORD)
+      return showError(`Пароль должен быть не короче ${MIN_PASSWORD} символов`);
+    showError("");
+    try {
+      await api("/api/account/password", {
+        method: "POST",
+        body: JSON.stringify({ current: $("#password-current").value, next }),
+      });
+      close();
+      toast("Пароль изменён");
+    } catch (err) {
+      showError(err.message);
+    }
+  };
+  if (dialog.showModal) dialog.showModal();
+  else dialog.setAttribute("open", "");
+  return dialog;
+}

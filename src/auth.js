@@ -253,6 +253,28 @@ export function registerAuth(
     audit(user, "access.login", user.id, user.name);
     res.json({ user });
   });
+  // Смена своего пароля. Остальные сессии гаснут вместе с прежней версией пароля,
+  // текущему устройству выдаётся новая сессия на оставшийся срок.
+  app.post("/api/account/password", (req, res) => {
+    const u = req.session?.user;
+    if (u?.source !== "personal")
+      throw fail(403, "Смена пароля – для входа по личному паролю");
+    const { current, next } = req.body;
+    const result = staff.changePassword(u.id, current, next);
+    if (result.error) throw fail(result.status, result.error);
+    const expires = get(
+      "SELECT expires FROM sessions WHERE id=?",
+      req.sessionKey,
+    )?.expires;
+    const user = personalSession(
+      req,
+      res,
+      result.account,
+      Math.max(expires - Date.now(), 60000) || undefined,
+    );
+    audit(user, "access.password", user.id, user.name);
+    res.json({ ok: true });
+  });
   // Первый вход по коду приглашения: сотрудник сам задаёт пароль.
   app.post("/api/first-login", (req, res) => {
     const { login, code, password } = req.body;
