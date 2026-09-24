@@ -3,6 +3,7 @@
 import {
   randomInt,
   randomBytes,
+  createHash,
   scrypt,
   scryptSync,
   timingSafeEqual,
@@ -35,6 +36,14 @@ export function ensureStaffAccounts(db) {
     lockedUntil INTEGER NOT NULL DEFAULT 0,
     lastLoginAt TEXT,
     passwordVersion INTEGER NOT NULL DEFAULT 0)`);
+  // Знакомые устройства (подход OWASP device cookie): где сотрудник уже
+  // успешно входил, чужая блокировка учётной записи его не останавливает.
+  db.exec(`CREATE TABLE IF NOT EXISTS staff_devices(
+    tokenHash TEXT NOT NULL,
+    personId TEXT NOT NULL,
+    failures INTEGER NOT NULL DEFAULT 0,
+    createdAt TEXT NOT NULL,
+    PRIMARY KEY(tokenHash, personId))`);
 }
 
 // Сотрудник по ID: сначала справочник учебного офиса, затем реестр преподавателей.
@@ -271,19 +280,57 @@ export function staffAccounts(db) {
       };
     return { account: byPerson(a.personId) };
   }
+  const deviceHash = (token) =>
+    createHash("sha256").update(token).digest("hex");
+  const deviceOf = (token, personId) =>
+    typeof token === "string" && /^[A-Za-z0-9_-]{43}$/.test(token)
+      ? get(
+          "SELECT * FROM staff_devices WHERE tokenHash=? AND personId=?",
+          deviceHash(token),
+          personId,
+        )
+      : undefined;
+  // Запомнить устройство после успешного входа; счётчик его ошибок обнуляется.
+  function rememberDevice(token, personId, now = Date.now()) {
+    run(
+      "INSERT INTO staff_devices VALUES(?,?,0,?) ON CONFLICT(tokenHash, personId) DO UPDATE SET failures=0",
+      deviceHash(token),
+      personId,
+      new Date(now).toISOString(),
+    );
+  }
+  // Ошибка со знакомого устройства идёт в его собственный счётчик:
+  // после 5 подряд отметка перестаёт действовать.
+  function deviceFailure(device) {
+    run(
+      "UPDATE staff_devices SET failures=failures+1 WHERE tokenHash=? AND personId=?",
+      device.tokenHash,
+      device.personId,
+    );
+    run(
+      "DELETE FROM staff_devices WHERE tokenHash=? AND personId=? AND failures>=?",
+      device.tokenHash,
+      device.personId,
+      LOCK_AFTER,
+    );
+  }
   // Вход по логину и паролю. Несуществующий логин проверяется против
   // пустышки, чтобы время ответа не выдавало, есть ли такой логин.
+  // С устройства, где сотрудник уже входил, блокировка учётной записи не
+  // действует, а ошибки идут в счётчик устройства.
   // Возвращает { account }, { locked: true } или {} при неверной паре.
-  async function checkPassword(login, password, now = Date.now()) {
+  async function checkPassword(login, password, device, now = Date.now()) {
     const a = byLogin(login);
-    if (a && locked(a, now)) return { locked: true };
+    const known = a && deviceOf(device, a.personId);
+    if (a && !known && locked(a, now)) return { locked: true };
     const ok = await hashGate(() =>
       verifyPasswordAsync(password, a?.passwordHash || DUMMY_HASH),
     );
     if (!a?.passwordHash || !ok) {
       // У приглашённого без пароля неверные входы не считаем: иначе любой
       // закрыл бы ему «Первый вход», зная предсказуемый логин.
-      if (a?.passwordHash) recordFailure(a.personId, now);
+      if (known) deviceFailure(known);
+      else if (a?.passwordHash) recordFailure(a.personId, now);
       return {};
     }
     run(
@@ -322,6 +369,7 @@ export function staffAccounts(db) {
       "UPDATE staff_accounts SET passwordHash=NULL, failures=0, lockedUntil=0, passwordVersion=passwordVersion+1 WHERE personId=?",
       personId,
     );
+    run("DELETE FROM staff_devices WHERE personId=?", personId);
   }
   // Состояние для страницы «Сотрудники»: без хешей.
   function accessState(personId, now = Date.now()) {
@@ -347,14 +395,17 @@ export function staffAccounts(db) {
     run(
       "UPDATE staff_accounts SET inviteHash=NULL, inviteExpires=NULL WHERE passwordHash IS NULL",
     );
-  const remove = (personId) =>
+  const remove = (personId) => {
     run("DELETE FROM staff_accounts WHERE personId=?", personId);
+    run("DELETE FROM staff_devices WHERE personId=?", personId);
+  };
   return {
     byLogin,
     byPerson,
     issueInvite,
     redeemInvite,
     checkPassword,
+    rememberDevice,
     changePassword,
     resetPassword,
     accessState,

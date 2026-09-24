@@ -188,6 +188,25 @@ export function registerAuth(
       path: "/",
     });
   }
+  // Отметка знакомого устройства: случайный токен в отдельной долгой cookie,
+  // в базе – только его хеш вместе с сотрудником.
+  const deviceCookie = (req) =>
+    req.headers.cookie
+      ?.split("; ")
+      .find((x) => x.startsWith("journal_device="))
+      ?.slice(15);
+  function rememberDevice(req, res, personId) {
+    let device = deviceCookie(req);
+    if (!/^[A-Za-z0-9_-]{43}$/.test(device || "")) device = token();
+    staff.rememberDevice(device, personId);
+    res.cookie("journal_device", device, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: !demo,
+      maxAge: 365 * 86400000,
+      path: "/",
+    });
+  }
   // Сессия по личному паролю: версия пароля нужна прослойке для отзыва.
   function personalSession(req, res, account, lifetime) {
     const person = findPerson(account.personId, roster);
@@ -242,7 +261,11 @@ export function registerAuth(
   // можно держать заполненным и закрыть вход всем (ревью 24.09.2026).
   app.post("/api/login", async (req, res) => {
     const { login, password, remember } = req.body;
-    const result = await staff.checkPassword(login, password);
+    const result = await staff.checkPassword(
+      login,
+      password,
+      deviceCookie(req),
+    );
     if (result.locked)
       throw fail(
         429,
@@ -257,6 +280,7 @@ export function registerAuth(
         ? 30 * 86400000
         : 8 * 3600000;
     const user = personalSession(req, res, result.account, lifetime);
+    rememberDevice(req, res, user.id);
     audit(user, "access.login", user.id, user.name);
     res.json({ user });
   });
@@ -290,6 +314,7 @@ export function registerAuth(
     if (!findPerson(result.account.personId, roster))
       throw fail(403, "Учётная запись не относится к сотрудникам журнала");
     const user = personalSession(req, res, result.account);
+    rememberDevice(req, res, user.id);
     audit(user, "access.first-login", user.id, user.name);
     res.json({ user });
   });
