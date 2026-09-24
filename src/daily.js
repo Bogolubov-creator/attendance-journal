@@ -37,13 +37,14 @@ export function summarizeAttendance(
 
 // Все ответы преподавателей: дневные отметки и исторические отметки по занятиям.
 // С studentId – только этого студента: чтение всей таблицы отметок дорого.
-// brief – без времени правки: реестру оно не нужно, а чтение заметно быстрее.
+// brief – только студент, дата и статус: обзору реестра хватает их для метрик,
+// а чтение двух лишних строковых столбцов на всех отметках вдвое медленнее.
 export function attendanceRecords(db, { studentId, brief = false } = {}) {
   const one = studentId !== undefined,
     args = one ? [studentId] : [];
   const records = db
     .prepare(
-      `SELECT ${brief ? "teacherId,date,course,studentId,status" : "*"} FROM daily_marks` +
+      `SELECT ${brief ? "studentId,date,status" : "*"} FROM daily_marks` +
         (one ? " WHERE studentId=?" : ""),
     )
     .all(...args);

@@ -435,7 +435,7 @@ function enrollmentsOf(field, id) {
 // Без аргумента – все студенты реестра, с id – только этот (для карточки).
 function studentRows(only) {
   const records = groupBy(
-      attendanceRecords(db, { studentId: only, brief: true }),
+      attendanceRecords(db, { studentId: only, brief: only === undefined }),
       "studentId",
     ),
     debts = groupBy(all("SELECT * FROM debts"), "studentId", only),
