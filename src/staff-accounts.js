@@ -122,6 +122,8 @@ export function passwordProblem(password) {
   return null;
 }
 
+const DUMMY_HASH = passwordHash("нет такой учётной записи");
+
 export function staffAccounts(db) {
   ensureStaffAccounts(db);
   const get = (sql, ...a) => db.prepare(sql).get(...a),
@@ -195,5 +197,23 @@ export function staffAccounts(db) {
     );
     return { account: byPerson(a.personId) };
   }
-  return { byLogin, byPerson, issueInvite, redeemInvite };
+  // Вход по логину и паролю. Несуществующий логин проверяется против
+  // пустышки, чтобы время ответа не выдавало, есть ли такой логин.
+  // Возвращает { account }, { locked: true } или { wrong: true }.
+  function checkPassword(login, password, now = Date.now()) {
+    const a = byLogin(login);
+    if (a && locked(a, now)) return { locked: true };
+    const ok = verifyPassword(password, a?.passwordHash || DUMMY_HASH);
+    if (!a?.passwordHash || !ok) {
+      if (a) fail(a, now);
+      return { wrong: true };
+    }
+    run(
+      "UPDATE staff_accounts SET failures=0, lockedUntil=0, lastLoginAt=? WHERE personId=?",
+      new Date(now).toISOString(),
+      a.personId,
+    );
+    return { account: byPerson(a.personId) };
+  }
+  return { byLogin, byPerson, issueInvite, redeemInvite, checkPassword };
 }

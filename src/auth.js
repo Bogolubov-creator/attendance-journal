@@ -222,6 +222,37 @@ export function registerAuth(
     session(res, { user, managementVersion });
     res.json({ user });
   });
+  // Неверные личные пароли по всем учётным записям за 15 минут: потолок
+  // против перебора одного пароля по многим логинам. По адресу не считаем –
+  // за туннелем адрес у всех посетителей один.
+  let personalFailures = [];
+  app.post("/api/login", (req, res) => {
+    const now = Date.now();
+    personalFailures = personalFailures.filter((t) => t > now - 15 * 60000);
+    if (personalFailures.length >= 100)
+      throw fail(429, "Слишком много попыток. Повторите через 15 минут.");
+    const { login, password, remember } = req.body;
+    const result = staff.checkPassword(login, password, now);
+    if (result.locked)
+      throw fail(
+        429,
+        "Вход в эту учётную запись закрыт на 15 минут после неверных попыток",
+      );
+    const person =
+      result.account && findPerson(result.account.personId, roster);
+    if (!person) {
+      personalFailures.push(now);
+      throw fail(403, "Неверный логин или пароль");
+    }
+    // Запомнить на 30 дней можно только преподавателю: у офиса доступ к данным студентов.
+    const lifetime =
+      remember === true && person.role === "teacher"
+        ? 30 * 86400000
+        : 8 * 3600000;
+    const user = personalSession(req, res, result.account, lifetime);
+    audit(user, "access.login", user.id, user.name);
+    res.json({ user });
+  });
   // Первый вход по коду приглашения: сотрудник сам задаёт пароль.
   app.post("/api/first-login", (req, res) => {
     const { login, code, password } = req.body;

@@ -685,6 +685,25 @@ small {
   background: #fff;
   color: var(--ink);
 }
+.legacy-login {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.legacy-login summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+}
+.login-box label.check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 4px 0 0;
+}
+.login-box label.check input {
+  width: auto;
+}
 .login-links {
   margin-top: 18px;
 }

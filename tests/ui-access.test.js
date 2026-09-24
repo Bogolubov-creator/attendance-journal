@@ -74,3 +74,46 @@ test("Первый вход: форма раскрывается, проверя
   assert.equal(entered.id, "gadzhieva");
   assert.equal($("#first-login-error").hidden, true);
 });
+
+test("Вход по логину и паролю: отправка с отметкой «Запомнить», ошибка в форме, подсказка «Забыли пароль?»", async () => {
+  const { personalLoginHtml, wirePersonalLogin } =
+    await import("../public/access.js");
+  page(personalLoginHtml());
+  const requests = [];
+  let entered = null,
+    reply = new Error("Неверный логин или пароль");
+  const api = async (path, options) => {
+    requests.push({ path, body: JSON.parse(options.body) });
+    if (reply instanceof Error) throw reply;
+    return reply;
+  };
+  wirePersonalLogin({ api, onLogin: (u) => (entered = u) });
+  const $ = (s) => document.querySelector(s);
+  assert.equal($("#forgot-text").hidden, true);
+  $("#forgot-open").click();
+  assert.equal($("#forgot-text").hidden, false);
+  assert.match($("#forgot-text").textContent, /менеджер вашей программы/);
+  assert.match($("label.check").textContent, /только для преподавателей/);
+
+  $("#personal-login-name").value = " ivanov.ii ";
+  $("#personal-login-password").value = "пароль журнала";
+  $("#personal-login-remember").checked = true;
+  submit($("#personal-login"));
+  await tick();
+  assert.equal($("#personal-login-error").hidden, false);
+  assert.equal(
+    $("#personal-login-error").textContent,
+    "Неверный логин или пароль",
+  );
+  assert.equal(entered, null);
+
+  reply = { user: { id: "t1", role: "teacher" } };
+  submit($("#personal-login"));
+  await tick();
+  assert.deepEqual(requests.at(-1), {
+    path: "/api/login",
+    body: { login: "ivanov.ii", password: "пароль журнала", remember: true },
+  });
+  assert.equal(entered.id, "t1");
+  assert.equal($("#personal-login-error").hidden, true);
+});
