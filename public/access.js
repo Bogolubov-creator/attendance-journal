@@ -90,8 +90,14 @@ export function wireFirstLogin({ api, onLogin }) {
   };
 }
 
-const shortDate = (ms, month = "long") =>
-  new Date(ms).toLocaleDateString("ru-RU", { day: "numeric", month });
+const shortDate = (ms) =>
+  new Date(ms).toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+// ДД.ММ – для колонки «Доступ».
+const dayMonth = (ms) =>
+  new Date(ms).toLocaleDateString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+  });
 // Окно на общем компоненте подтверждения (dialog.ask): закрывается и удаляется
 // целиком, чтобы код приглашения не оставался в разметке.
 function modal(html, labelledBy) {
@@ -115,11 +121,11 @@ export function accessLabel(access) {
     return (
       "Активен" +
       (access.lastLoginAt
-        ? ", вход " + shortDate(Date.parse(access.lastLoginAt), "short")
+        ? ", вход " + dayMonth(Date.parse(access.lastLoginAt))
         : "")
     );
   if (access.state === "invited")
-    return "Приглашён до " + shortDate(access.expires);
+    return "Приглашён до " + dayMonth(access.expires);
   return "Нет доступа";
 }
 
