@@ -1,6 +1,11 @@
 // Личные учётные записи сотрудников: логин, пароль, код приглашения.
-// Пароли хранятся хешами scrypt, как общий пароль; коды – хешами SHA-256.
-import { randomInt, createHash, timingSafeEqual } from "node:crypto";
+// Пароли и коды приглашения хранятся только хешами scrypt с солью.
+import {
+  randomInt,
+  randomBytes,
+  scryptSync,
+  timingSafeEqual,
+} from "node:crypto";
 import { passwordHash, verifyPassword } from "./management-auth.js";
 import { managers } from "./office.js";
 
@@ -97,14 +102,24 @@ const normalizeCode = (code) =>
   String(code || "")
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "");
-// Код случайный (12 знаков из 31, около 59 бит) и живёт 7 дней, поэтому ему
-// хватает SHA-256, как токену сессии; scrypt на сотни кодов разом остановил бы
-// сервер на десятки секунд. Пароли по-прежнему хешируются scrypt.
-const codeHash = (code) =>
-  createHash("sha256").update(normalizeCode(code)).digest("hex");
-const codeMatches = (code, hash) =>
-  /^[a-f0-9]{64}$/.test(hash || "") &&
-  timingSafeEqual(Buffer.from(codeHash(code), "hex"), Buffer.from(hash, "hex"));
+// Код случайный (12 знаков из 31, около 59 бит) и живёт 7 дней. Хеш – scrypt
+// с собственной солью, но с малой ценой (N=1024, около 7 мс): соль не даёт
+// перебирать по копии базы все коды разом, а выгрузка сотен кодов не
+// останавливает сервер. Пароли хешируются с полной ценой (management-auth.js).
+const CODE_COST = 1024;
+const codeHash = (code) => {
+  const salt = randomBytes(16);
+  const key = scryptSync(normalizeCode(code), salt, 32, { N: CODE_COST });
+  return `s${CODE_COST}:${salt.toString("hex")}:${key.toString("hex")}`;
+};
+const codeMatches = (code, hash) => {
+  const m = /^s1024:([a-f0-9]{32}):([a-f0-9]{64})$/.exec(hash || "");
+  if (!m) return false;
+  const key = scryptSync(normalizeCode(code), Buffer.from(m[1], "hex"), 32, {
+    N: CODE_COST,
+  });
+  return timingSafeEqual(key, Buffer.from(m[2], "hex"));
+};
 
 const common = new Set(
   `1234567890 0123456789 0987654321 1234512345 1111111111 0000000000 1212121212

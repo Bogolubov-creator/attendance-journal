@@ -142,3 +142,37 @@ test("Истёкший код не принимается, новый код з�
     await s.close();
   }
 });
+
+test("Код приглашения хранится хешем scrypt с собственной солью", async () => {
+  const s = await startServer(3121);
+  try {
+    const first = s.inviteAdmin("chinkova");
+    const second = s.inviteAdmin("gadzhieva");
+    const db = s.db();
+    const hashes = db
+      .prepare("SELECT inviteHash FROM staff_accounts")
+      .all()
+      .map((r) => r.inviteHash);
+    // Коду со старым хешем SHA-256 журнал не верит – такие коды выдаются заново.
+    db.prepare(
+      "UPDATE staff_accounts SET inviteHash=? WHERE personId='gadzhieva'",
+    ).run("a".repeat(64));
+    db.close();
+    for (const h of hashes)
+      assert.match(h, /^s1024:[a-f0-9]{32}:[a-f0-9]{64}$/);
+    assert.notEqual(hashes[0].split(":")[1], hashes[1].split(":")[1]);
+    const redeem = (invite) =>
+      s.call("/api/first-login", {
+        method: "POST",
+        body: {
+          login: invite.login,
+          code: invite.code,
+          password: "длинный пароль журнала",
+        },
+      });
+    assert.equal((await redeem(first)).status, 200);
+    assert.equal((await redeem(second)).status, 403);
+  } finally {
+    await s.close();
+  }
+});
