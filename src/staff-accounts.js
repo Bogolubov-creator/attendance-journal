@@ -1,6 +1,6 @@
 // Личные учётные записи сотрудников: логин, пароль, код приглашения.
-// Пароли и коды хранятся только хешами scrypt – тем же способом, что общий пароль.
-import { randomInt } from "node:crypto";
+// Пароли хранятся хешами scrypt, как общий пароль; коды – хешами SHA-256.
+import { randomInt, createHash, timingSafeEqual } from "node:crypto";
 import { passwordHash, verifyPassword } from "./management-auth.js";
 import { managers } from "./office.js";
 
@@ -97,6 +97,14 @@ const normalizeCode = (code) =>
   String(code || "")
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "");
+// Код случайный (12 знаков из 31, около 59 бит) и живёт 7 дней, поэтому ему
+// хватает SHA-256, как токену сессии; scrypt на сотни кодов разом остановил бы
+// сервер на десятки секунд. Пароли по-прежнему хешируются scrypt.
+const codeHash = (code) =>
+  createHash("sha256").update(normalizeCode(code)).digest("hex");
+const codeMatches = (code, hash) =>
+  /^[a-f0-9]{64}$/.test(hash || "") &&
+  timingSafeEqual(Buffer.from(codeHash(code), "hex"), Buffer.from(hash, "hex"));
 
 const common = new Set(
   `1234567890 0123456789 0987654321 1234512345 1111111111 0000000000 1212121212
@@ -142,7 +150,7 @@ export function staffAccounts(db) {
     if (existing)
       run(
         "UPDATE staff_accounts SET inviteHash=?, inviteExpires=? WHERE personId=?",
-        passwordHash(normalizeCode(code)),
+        codeHash(code),
         expires,
         person.id,
       );
@@ -151,7 +159,7 @@ export function staffAccounts(db) {
         "INSERT INTO staff_accounts(personId,login,inviteHash,inviteExpires) VALUES(?,?,?,?)",
         person.id,
         makeLogin(person.name, (l) => !!byLogin(l)),
-        passwordHash(normalizeCode(code)),
+        codeHash(code),
         expires,
       );
     return { login: byPerson(person.id).login, code, expires };
@@ -176,9 +184,7 @@ export function staffAccounts(db) {
         error: "Слишком много попыток. Повторите через 15 минут.",
       };
     const valid =
-      a?.inviteHash &&
-      a.inviteExpires > now &&
-      verifyPassword(normalizeCode(code), a.inviteHash);
+      a?.inviteHash && a.inviteExpires > now && codeMatches(code, a.inviteHash);
     if (!valid) {
       if (a) fail(a, now);
       return {

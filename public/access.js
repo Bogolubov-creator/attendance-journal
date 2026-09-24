@@ -139,3 +139,30 @@ export function showInvite(invite, { esc, origin = location.origin }) {
   else dialog.setAttribute("open", "");
   return dialog;
 }
+
+// Массовая выгрузка кодов: CSV приходит в ответ на POST, поэтому скачивается через blob.
+export async function exportInvites({ ask }) {
+  const confirmed = await ask({
+    title: "Выгрузить коды приглашения?",
+    text: "Каждому сотруднику без пароля будет выдан новый код, прежние неиспользованные коды перестанут действовать. Файл содержит действующие коды: удалите его сразу после рассылки.",
+    ok: "Выгрузить",
+  });
+  if (!confirmed) return false;
+  const r = await fetch("/api/admin/access-export", {
+    method: "POST",
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!r.ok) {
+    const data = await r.json().catch(() => ({}));
+    throw Error(data.error || "Не удалось выгрузить коды");
+  }
+  const url = URL.createObjectURL(await r.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "invite-codes.csv";
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return true;
+}

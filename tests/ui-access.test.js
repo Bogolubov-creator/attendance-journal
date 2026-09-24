@@ -264,3 +264,34 @@ test("Сотрудники: колонка «Доступ», фильтр «Бе
   dialog = document.querySelector(".invite-dialog");
   assert.match(dialog.textContent, /Доступ выдан/);
 });
+
+test("Выгрузка кодов: сначала предупреждение, без согласия запроса нет", async () => {
+  page("");
+  const { exportInvites } = await import("../public/access.js");
+  const realFetch = globalThis.fetch;
+  const fetched = [];
+  let clicked = 0;
+  globalThis.fetch = async (path, options) => {
+    fetched.push({ path, method: options.method });
+    return new Response("\uFEFFФИО", { status: 200 });
+  };
+  globalThis.URL.createObjectURL = () => "blob:codes";
+  globalThis.URL.revokeObjectURL = () => {};
+  window.HTMLAnchorElement.prototype.click = () => clicked++;
+  try {
+    const titles = [];
+    let answer = false;
+    const ask = async (q) => (titles.push(q), answer);
+    assert.equal(await exportInvites({ ask }), false);
+    assert.equal(fetched.length, 0);
+    assert.match(titles[0].text, /удалите его сразу после рассылки/);
+    answer = true;
+    assert.equal(await exportInvites({ ask }), true);
+    assert.deepEqual(fetched, [
+      { path: "/api/admin/access-export", method: "POST" },
+    ]);
+    assert.equal(clicked, 1);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

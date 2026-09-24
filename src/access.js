@@ -1,6 +1,7 @@
 // Выдача и сброс личного доступа сотрудникам со страницы «Сотрудники».
 import { managers, canSeeStudent } from "./office.js";
 import { findPerson } from "./staff-accounts.js";
+import { csvCell } from "./csv.js";
 
 export function registerAccess(
   app,
@@ -63,6 +64,52 @@ export function registerAccess(
       person.name,
     );
     res.json({ ...invite, name: person.name, reset });
+  });
+  // Массовая выгрузка для первой раздачи: преподаватели со студентами и сотрудники
+  // офиса без пароля. Каждому – новый код, прежние неиспользованные гаснут.
+  app.post("/api/admin/access-export", (req, res) => {
+    if (req.session.user.role !== "admin")
+      throw fail(403, "Выгрузку кодов делает полный доступ");
+    const withStudents = new Set(roster.enrollments.map((e) => e.teacherId));
+    const people = [
+      ...managers.map((m) => findPerson(m.id, roster)),
+      ...roster.teachers
+        .filter((t) => withStudents.has(t.id))
+        .map((t) => findPerson(t.id, roster)),
+    ].filter((p) => !staff.byPerson(p.id)?.passwordHash);
+    const roles = {
+      admin: "Полный доступ",
+      office: "Менеджер",
+      teacher: "Преподаватель",
+    };
+    const until = (ms) =>
+      new Date(ms).toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" });
+    const rows = people.map((p) => {
+      const invite = staff.issueInvite(p);
+      return [
+        p.name,
+        roles[p.role],
+        invite.login,
+        invite.code,
+        until(invite.expires),
+      ];
+    });
+    audit(
+      req.session.user,
+      "access.export",
+      "access",
+      `кодов приглашения: ${rows.length}`,
+    );
+    res.set({
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="invite-codes.csv"',
+    });
+    res.send(
+      "\uFEFF" +
+        [["ФИО", "Роль", "Логин", "Код приглашения", "Действует до"], ...rows]
+          .map((r) => r.map(csvCell).join(";"))
+          .join("\r\n"),
+    );
   });
   // Для списка преподавателей: состояние доступа и право менеджера на выдачу.
   return function accessFor(user) {

@@ -1,5 +1,5 @@
 // Страница «Реестр»: руководство ведёт список преподавателей прямо на сайте.
-import { accessLabel, showInvite } from "./access.js";
+import { accessLabel, showInvite, exportInvites } from "./access.js";
 export async function registryView({
   api,
   esc,
@@ -41,7 +41,7 @@ export async function registryView({
     return d.toISOString().slice(0, 10);
   })();
   const silent = (t) => t.students > 0 && (!t.lastMark || t.lastMark < weekAgo);
-  root.innerHTML = `<div class="page-heading"><div><div class="eyebrow">Факультет права</div><h1>Сотрудники</h1><p>${admin ? "Добавляйте преподавателей и меняйте их ФИО." : "Добавляйте преподавателей, которых нет в списке."} Дисциплины назначаются в карточке студента.</p></div></div><form class="daily-toolbar panel daily-panel" id="teacher-add"><label>ФИО нового преподавателя<input name="name" required minlength="3" maxlength="150" autocomplete="off"></label><button class="btn primary">+ Добавить преподавателя</button></form>${admin ? `<section class="panel daily-panel" id="staff-access"><h2>Учебный офис</h2>${staffAccess.map((m) => `<div class="daily-row" data-person="${esc(m.id)}"><span><strong>${esc(m.name)}</strong><br>${accessLine(m)}</span><span class="daily-options">${accessButton(m)}</span></div>`).join("")}</section>` : ""}<section class="panel daily-panel"><div class="daily-toolbar"><input type="search" id="teacher-search" placeholder="Найти преподавателя" aria-label="Найти преподавателя"><button type="button" class="btn small" id="teacher-silent" aria-pressed="${silentOnly}">Без отметок за 7 дней <span class="count">${teachers.filter(silent).length}</span></button><button type="button" class="btn small" id="teacher-no-access" aria-pressed="false">Без доступа <span class="count">${teachers.filter(withoutAccess).length}</span></button><span class="muted">Всего: ${teachers.length}</span></div><div id="teacher-rows"></div><div class="daily-toolbar"><button class="btn" id="teacher-more" hidden>Показать ещё</button><span class="muted" id="teacher-count"></span></div></section>`;
+  root.innerHTML = `<div class="page-heading"><div><div class="eyebrow">Факультет права</div><h1>Сотрудники</h1><p>${admin ? "Добавляйте преподавателей и меняйте их ФИО." : "Добавляйте преподавателей, которых нет в списке."} Дисциплины назначаются в карточке студента.</p></div></div><form class="daily-toolbar panel daily-panel" id="teacher-add"><label>ФИО нового преподавателя<input name="name" required minlength="3" maxlength="150" autocomplete="off"></label><button class="btn primary">+ Добавить преподавателя</button></form>${admin ? `<section class="panel daily-panel" id="staff-access"><div class="daily-toolbar"><h2>Учебный офис</h2><button type="button" class="btn small" id="invite-export">Выгрузить коды приглашения</button></div>${staffAccess.map((m) => `<div class="daily-row" data-person="${esc(m.id)}"><span><strong>${esc(m.name)}</strong><br>${accessLine(m)}</span><span class="daily-options">${accessButton(m)}</span></div>`).join("")}</section>` : ""}<section class="panel daily-panel"><div class="daily-toolbar"><input type="search" id="teacher-search" placeholder="Найти преподавателя" aria-label="Найти преподавателя"><button type="button" class="btn small" id="teacher-silent" aria-pressed="${silentOnly}">Без отметок за 7 дней <span class="count">${teachers.filter(silent).length}</span></button><button type="button" class="btn small" id="teacher-no-access" aria-pressed="false">Без доступа <span class="count">${teachers.filter(withoutAccess).length}</span></button><span class="muted">Всего: ${teachers.length}</span></div><div id="teacher-rows"></div><div class="daily-toolbar"><button class="btn" id="teacher-more" hidden>Показать ещё</button><span class="muted" id="teacher-count"></span></div></section>`;
   // Список из сотен преподавателей показывается порциями по 50.
   const PAGE = 50;
   let limit = PAGE;
@@ -114,6 +114,16 @@ export async function registryView({
     showInvite(invite, { esc });
     return true;
   }
+  root.querySelector("#invite-export")?.addEventListener("click", async () => {
+    try {
+      if (await exportInvites({ ask })) {
+        toast("Файл с кодами скачан. Удалите его после рассылки");
+        await again();
+      }
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
   root.querySelector("#staff-access")?.addEventListener("click", async (e) => {
     const id = e.target.closest("[data-person]")?.dataset.person,
       person = staffAccess.find((m) => m.id === id);
