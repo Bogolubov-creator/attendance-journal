@@ -21,6 +21,7 @@ import {
   foreignStatuses,
 } from "./office.js";
 import { openDatabase } from "./db.js";
+import { staffAccounts } from "./staff-accounts.js";
 import { rmSync } from "node:fs";
 import { startBackups } from "./backup.js";
 import { moscowDate, ruCompare, studentMetrics } from "./domain.js";
@@ -69,6 +70,7 @@ const registryActions = [
   "attachment.delete",
 ];
 const accounts = loadAccounts({ demo, selection });
+const staff = staffAccounts(db);
 const fail = (code, message) =>
   Object.assign(new Error(message), { status: code });
 app.disable("x-powered-by");
@@ -106,6 +108,8 @@ const { auth, admin } = registerAuth(app, {
   fail,
   cabinetOpen,
   studentByExternalId,
+  staff,
+  audit,
 });
 app.get("/healthz", (req, res) => {
   get("SELECT 1");

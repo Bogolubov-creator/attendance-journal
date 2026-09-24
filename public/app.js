@@ -7,6 +7,7 @@ import {
   isDailySaving,
 } from "./daily.js";
 import { registryView } from "./registry.js";
+import { firstLoginHtml, wireFirstLogin } from "./access.js";
 import {
   esc,
   fmtSize,
@@ -92,7 +93,7 @@ const brand =
 const search = (id, placeholder, value = "") =>
   `<div class="search"><input id="${id}" type="search" placeholder="${placeholder}" aria-label="${placeholder}" value="${esc(value)}"></div>`;
 function loginView() {
-  root.innerHTML = `<div class="login"><section class="login-art">${brand}<div><h2 class="login-title">Журнал<br>посещаемости</h2><p>Факультет права НИУ ВШЭ</p></div><small>Посещаемость · Студенты · Документы</small></section><section class="login-main"><div class="login-box"><div class="eyebrow">Факультет права</div><h1>Вход в журнал</h1><p id="login-error" class="notice warn" hidden></p>${session.selection ? `<form id="select-login" class="access-form"><label for="login-role">Роль</label><select id="login-role"><option value="teacher">Преподаватель</option><option value="office">Менеджер</option><option value="admin">Полный доступ</option>${session.demoStudents?.length ? '<option value="student">Студент (демо-вход)</option>' : ""}</select><label for="person-search">Поиск сотрудника</label><input id="person-search" type="search" placeholder="Начните вводить фамилию"><label for="login-person">Сотрудник</label><select id="login-person" required></select><label for="management-password">Пароль</label><input id="management-password" type="password" autocomplete="current-password" maxlength="256" required><p id="person-scope" class="muted" aria-live="polite"></p><button class="btn primary">Открыть кабинет →</button></form><div class="login-footer">Вход по имени и паролю.${session.demo ? " Локальный просмотр: отметки сохраняются в тестовой базе." : ""}</div>` : '<a class="btn primary" href="/auth/login">Войти</a>'}</div></section></div>`;
+  root.innerHTML = `<div class="login"><section class="login-art">${brand}<div><h2 class="login-title">Журнал<br>посещаемости</h2><p>Факультет права НИУ ВШЭ</p></div><small>Посещаемость · Студенты · Документы</small></section><section class="login-main"><div class="login-box"><div class="eyebrow">Факультет права</div><h1>Вход в журнал</h1><p id="login-error" class="notice warn" hidden></p>${session.selection ? `<form id="select-login" class="access-form"><label for="login-role">Роль</label><select id="login-role"><option value="teacher">Преподаватель</option><option value="office">Менеджер</option><option value="admin">Полный доступ</option>${session.demoStudents?.length ? '<option value="student">Студент (демо-вход)</option>' : ""}</select><label for="person-search">Поиск сотрудника</label><input id="person-search" type="search" placeholder="Начните вводить фамилию"><label for="login-person">Сотрудник</label><select id="login-person" required></select><label for="management-password">Пароль</label><input id="management-password" type="password" autocomplete="current-password" maxlength="256" required><p id="person-scope" class="muted" aria-live="polite"></p><button class="btn primary">Открыть кабинет →</button></form>${firstLoginHtml()}<div class="login-footer">Вход по имени и паролю.${session.demo ? " Локальный просмотр: отметки сохраняются в тестовой базе." : ""}</div>` : '<a class="btn primary" href="/auth/login">Войти</a>'}</div></section></div>`;
   // Сервер возвращает сюда студента без привязки или с завершённым обучением.
   const loginError = {
     unlinked:
@@ -193,25 +194,30 @@ function loginView() {
             ),
           },
         );
-        user = r.user;
-        // Студент ведёт себя в своём кабинете, а не в этом приложении.
-        if (user.role === "student") return location.replace("/student.html");
-        resetDailySession();
-        officeScope = "all";
-        officeProgram = "";
-        officeYear = "";
-        noAccountOnly = false;
-        page = user.role === "teacher" ? "journal" : "dashboard";
-        filter = "all";
-        query = "";
-        tablePage = 0;
-        await showApp();
+        await enterApp(r.user);
       } finally {
         button.disabled = false;
       }
     });
   };
+  wireFirstLogin({ api, onLogin: enterApp });
   fill();
+}
+// Общий путь после любого входа: сброс состояния прежнего пользователя и первый экран роли.
+async function enterApp(u) {
+  user = u;
+  // Студент ведёт себя в своём кабинете, а не в этом приложении.
+  if (user.role === "student") return location.replace("/student.html");
+  resetDailySession();
+  officeScope = "all";
+  officeProgram = "";
+  officeYear = "";
+  noAccountOnly = false;
+  page = user.role === "teacher" ? "journal" : "dashboard";
+  filter = "all";
+  query = "";
+  tablePage = 0;
+  await showApp();
 }
 function shell() {
   root.innerHTML = `<div class="layout"><aside class="sidebar">${brand}<div class="section-label">${roleLabel(user.role)}</div><nav class="nav" aria-label="Основная навигация">${user.role !== "teacher" ? `<button data-page="dashboard" class="${page === "dashboard" ? "active" : ""}">${icon("overview")}Обзор</button><button data-page="students" class="${page === "students" ? "active" : ""}">${icon("students")}Студенты</button><button data-page="registry" class="${page === "registry" ? "active" : ""}">${icon("staff")}Сотрудники</button>` : `<button data-page="journal" class="active">${icon("journal")}Мой журнал</button>`}</nav><div class="side-bottom"><div class="side-note">${user.role !== "teacher" ? "Посещаемость и документы студентов." : "Выберите дату, отметьте студентов и нажмите «Сохранить»."}</div><div class="identity"><span class="avatar">${initials(user.name)}</span><div><strong>${esc(user.name.split(" ").slice(0, 2).join(" "))}</strong><small>${roleLabel(user.role)}</small></div></div><button id="logout" class="logout" aria-label="Выйти"><span>Выйти</span>${icon("logout")}</button></div></aside><main class="main"><header class="topbar"><span class="crumb">Учебный процесс <b>/ ${{ dashboard: "Обзор", students: "Студенты", registry: "Сотрудники" }[page] || "Посещаемость"}</b></span>${session.demo ? '<span class="demo-tag">Локальный просмотр · тестовые отметки</span>' : ""}</header><div class="content" id="content"></div></main></div>`;

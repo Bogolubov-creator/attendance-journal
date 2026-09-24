@@ -3,6 +3,7 @@ import { randomBytes, createHash } from "node:crypto";
 import * as oidc from "openid-client";
 import { verifyPassword } from "./management-auth.js";
 import { managers } from "./office.js";
+import { findPerson } from "./staff-accounts.js";
 
 const token = () => randomBytes(32).toString("base64url"),
   hash = (s) => createHash("sha256").update(s).digest("hex");
@@ -53,6 +54,8 @@ export function registerAuth(
     fail,
     cabinetOpen,
     studentByExternalId,
+    staff,
+    audit,
   },
 ) {
   const managementHash = process.env.MANAGEMENT_PASSWORD_HASH || "";
@@ -99,14 +102,27 @@ export function registerAuth(
     // и закрывается при его смене.
     if (
       req.session?.user &&
-      !["oidc", "explicit"].includes(req.session.user.source) &&
+      !["oidc", "explicit", "personal"].includes(req.session.user.source) &&
       (!managementHash || req.session.managementVersion !== managementVersion)
     ) {
       run("DELETE FROM sessions WHERE id=?", req.sessionKey);
       req.session = null;
     }
 
-    if (req.session?.user?.role === "student") {
+    if (req.session?.user?.source === "personal") {
+      // Личный пароль: сессия живёт, пока жива учётная запись, не сменилась
+      // версия пароля и человек остался в справочнике или реестре с той же ролью.
+      const u = req.session.user;
+      const account = staff.byPerson(u.id);
+      if (
+        !account?.passwordHash ||
+        account.passwordVersion !== u.passwordVersion ||
+        findPerson(u.id, roster)?.role !== u.role
+      ) {
+        run("DELETE FROM sessions WHERE id=?", req.sessionKey);
+        req.session = null;
+      }
+    } else if (req.session?.user?.role === "student") {
       const u = req.session.user;
       const valid =
         cabinetOpen(u.studentId) &&
@@ -143,22 +159,35 @@ export function registerAuth(
     }
     next();
   });
-  function session(res, data) {
+  function session(res, data, lifetime = 8 * 3600000) {
     const id = token();
     run("DELETE FROM sessions WHERE expires<?", Date.now());
     run(
       "INSERT INTO sessions VALUES(?,?,?)",
       hash(id),
       JSON.stringify(data),
-      Date.now() + 8 * 3600000,
+      Date.now() + lifetime,
     );
     res.cookie("journal", id, {
       httpOnly: true,
       sameSite: "lax",
       secure: !demo,
-      maxAge: 8 * 3600000,
+      maxAge: lifetime,
       path: "/",
     });
+  }
+  // Сессия по личному паролю: версия пароля нужна прослойке для отзыва.
+  function personalSession(req, res, account, lifetime) {
+    const person = findPerson(account.personId, roster);
+    if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
+    const user = {
+      ...person,
+      login: account.login,
+      source: "personal",
+      passwordVersion: account.passwordVersion,
+    };
+    session(res, { user }, lifetime);
+    return user;
   }
   const auth = (req, res, next) =>
     req.session?.user
@@ -191,6 +220,17 @@ export function registerAuth(
     if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
     const user = { ...person, role, source: "selection" };
     session(res, { user, managementVersion });
+    res.json({ user });
+  });
+  // Первый вход по коду приглашения: сотрудник сам задаёт пароль.
+  app.post("/api/first-login", (req, res) => {
+    const { login, code, password } = req.body;
+    const result = staff.redeemInvite(login, code, password);
+    if (result.error) throw fail(result.status, result.error);
+    if (!findPerson(result.account.personId, roster))
+      throw fail(403, "Учётная запись не относится к сотрудникам журнала");
+    const user = personalSession(req, res, result.account);
+    audit(user, "access.first-login", user.id, user.name);
     res.json({ user });
   });
   app.post("/api/demo-login", (req, res) => {

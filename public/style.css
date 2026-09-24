@@ -685,6 +685,12 @@ small {
   background: #fff;
   color: var(--ink);
 }
+.login-links {
+  margin-top: 18px;
+}
+.login-box .access-form h2 {
+  font-size: 20px;
+}
 .login-footer {
   font-size: 11px;
   color: var(--muted);
