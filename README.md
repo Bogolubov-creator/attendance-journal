@@ -14,7 +14,7 @@
 
 Node.js 24. Установить зависимости `npm ci`, затем `npm run dev`. Локальный адрес: http://127.0.0.1:3100. Тестовая база хранится отдельно в `data/demo.sqlite`.
 
-Для FirstVDS: [инструкция](deploy/FIRSTVDS.md) и [развёртывание](deploy/DEPLOY.md).
+Установка на сервер Linux или Windows, через Docker или без него – [INSTALL.md](INSTALL.md) и скрипты `scripts/install.sh`, `scripts/install.ps1`. Для FirstVDS: [инструкция](deploy/FIRSTVDS.md) и [развёртывание](deploy/DEPLOY.md).
 
 ## Вход и ответственность
 

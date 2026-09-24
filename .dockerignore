@@ -6,3 +6,5 @@
 !src/**
 !public/
 !public/**
+!scripts/invite-admin.mjs
+!scripts/allow-shared-password.mjs
