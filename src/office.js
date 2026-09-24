@@ -181,6 +181,47 @@ export const studentEditableFields = [
   "housing",
   "inRussia",
 ];
+// Допустимые значения полей карточки студента – единственный источник для
+// маршрута сотрудника (src/server.js) и кабинета студента (src/student.js).
+export const housingValues = ["", "dormitory", "private"];
+export const inRussiaValues = ["", "yes", "no"];
+export const residenceValues = [
+  "",
+  "visa",
+  "visa_free",
+  "rvp",
+  "rvpo",
+  "residence_permit",
+  "other",
+];
+export const foreignStatuses = ["unknown", "confirmed", "excluded"];
+export const enrollmentStatuses = ["active", "leave", "graduated", "withdrawn"];
+// Выпуск и отчисление закрывают кабинет; академический отпуск – нет.
+export const closedEnrollmentStatuses = ["graduated", "withdrawn"];
+const text = (max) => (v) => typeof v === "string" && v.length <= max;
+const oneOf = (values) => (v) => values.includes(v);
+const studentFieldChecks = {
+  citizenship: text(100),
+  nameLatin: text(200),
+  sendingCountry: text(200),
+  programVersion: text(200),
+  curator: text(200),
+  housing: oneOf(housingValues),
+  inRussia: oneOf(inRussiaValues),
+  residence: oneOf(residenceValues),
+  arrivalDate: validDate,
+  passportUntil: validDate,
+  migrationCardUntil: validDate,
+};
+export const studentFieldsError =
+  "Проверьте сведения о проживании и сроки документов";
+// Проверяет значения только присланных полей. Какие поля вправе менять
+// студент, решает отдельно studentEditableFields/pickStudentFields.
+export function studentFieldsValid(body) {
+  return Object.entries(studentFieldChecks).every(
+    ([field, ok]) => !(field in body) || ok(body[field]),
+  );
+}
 export function pickStudentFields(body, previous) {
   const result = { ...previous };
   for (const field of studentEditableFields)

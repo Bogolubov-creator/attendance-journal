@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { studentMetrics } from "../src/domain.js";
+import { studentMetrics, studentId } from "../src/domain.js";
 const absent = (date) => ({ date, status: "absent" }),
   present = (date) => ({ date, status: "present" });
 const seven = Array.from({ length: 7 }, (_, i) =>
@@ -50,3 +50,7 @@ test("Будущие отметки не влияют на показатели"
     studentMetrics([absent("2026-10-01")], [], "2026-09-16").days,
     0,
   ));
+test("Идентификатор студента по ФИО не меняется", () => {
+  // Та же формула, что в scripts/import_roster.py: «s_» + sha256(ФИО)[:16].
+  assert.equal(studentId("Иванов Иван Иванович"), "s_80b2a51a94a72152");
+});

@@ -6,19 +6,21 @@
 // По умолчанию используется настоящей страницей (boot/toast); render*-функции
 // экранируют строго через esc, который им передал вызывающий код – так же,
 // как dailyJournal({ api, esc, toast }) в public/daily.js.
-const defaultEsc = (s) =>
-  String(s ?? "").replace(
-    /[&<>"']/g,
-    (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        c
-      ],
-  );
+import {
+  esc,
+  esc as defaultEsc,
+  fmtSize,
+  createApi,
+  toast,
+  safe,
+  procedureLabels,
+  foreignStatusLabels,
+  enrollmentStatusLabels,
+  residenceLabels,
+  inRussiaLabels,
+  housingLabels,
+} from "./ui-core.js";
 const ruDate = (d) => (d ? d.slice(0, 10).split("-").reverse().join(".") : "");
-const fmtSize = (n) =>
-  n < 1024 * 1024
-    ? Math.round(n / 1024) + " КБ"
-    : (n / 1024 / 1024).toFixed(1) + " МБ";
 const todayMoscow = () =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Moscow",
@@ -26,50 +28,12 @@ const todayMoscow = () =>
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
-// Статусы требования – та же подпись, что и в карточке сотрудника (public/app.js).
-const procedureLabels = {
-  unknown: "Нет данных",
-  pending: "Не выполнено",
-  submitted: "На проверке",
-  confirmed: "Подтверждено",
-  exempt: "Не требуется",
-  overdue: "Просрочено",
-  expired: "Истёк срок действия",
-};
 const procDateText = (p) =>
   ["pending", "overdue", "submitted"].includes(p.status) && p.dueDate
     ? "до " + ruDate(p.dueDate)
     : ["confirmed", "expired"].includes(p.status) && p.validUntil
       ? "действует до " + ruDate(p.validUntil)
       : "";
-// Подписи перечислений карточки – слово в слово как в карточке сотрудника (public/app.js).
-const foreignStatusLabels = {
-  unknown: "Не проверено",
-  confirmed: "Подтверждён",
-  excluded: "Не входит",
-};
-const enrollmentStatusLabels = {
-  active: "Обучается",
-  leave: "Академический отпуск",
-  graduated: "Выпускник",
-  withdrawn: "Отчислен",
-};
-const residenceLabels = {
-  "": "Не указано",
-  visa: "Виза",
-  visa_free: "Безвизовый въезд",
-  rvp: "РВП",
-  rvpo: "РВПО",
-  residence_permit: "ВНЖ",
-  other: "Другое",
-};
-const inRussiaLabels = { "": "Не указано", yes: "Да", no: "Нет" };
-const housingLabels = {
-  "": "Не указано",
-  dormitory: "Общежитие",
-  private: "Частный адрес",
-};
-
 // Требование считается «закрытым» для правки, когда его подтвердил или
 // освободил сотрудник – студент видит только объяснение, без формы.
 // Истёкший срок действия снова открывает форму: документ нужно продлить
@@ -225,54 +189,7 @@ export async function renderAttendance({ api, esc = defaultEsc }) {
 }
 
 // --- Ниже – код настоящей страницы. Не выполняется при импорте модуля в тестах. ---
-const esc = defaultEsc;
-async function api(path, options = {}) {
-  const r = await fetch(path, {
-    signal: AbortSignal.timeout(25000),
-    ...options,
-    headers: { "Content-Type": "application/json", ...options.headers },
-  });
-  let data;
-  try {
-    data = await r.json();
-  } catch {
-    throw Error("Сервер недоступен. Повторите запрос.");
-  }
-  if (!r.ok) {
-    if (r.status === 401) location.replace("/");
-    throw Object.assign(Error(data.error || "Не удалось выполнить запрос"), {
-      status: r.status,
-    });
-  }
-  return data;
-}
-let toastTimer;
-function toast(message, error = false) {
-  const el = document.querySelector("#toast");
-  if (!el) return;
-  el.innerHTML =
-    `<span>${esc(message)}</span>` +
-    (error
-      ? '<button type="button" class="toast-close" aria-label="Закрыть уведомление">×</button>'
-      : "");
-  el.className = "show" + (error ? " error" : "");
-  el.setAttribute("role", error ? "alert" : "status");
-  const hide = () => {
-    el.className = "";
-    if (el.matches(":popover-open")) el.hidePopover();
-  };
-  if (el.showPopover && !el.matches(":popover-open")) el.showPopover();
-  clearTimeout(toastTimer);
-  if (error) el.querySelector(".toast-close").onclick = hide;
-  else toastTimer = setTimeout(hide, 5500);
-}
-async function safe(fn) {
-  try {
-    await fn();
-  } catch (e) {
-    toast(e.message, true);
-  }
-}
+const api = createApi(() => location.replace("/"));
 async function uploadScan(kind, file) {
   const r = await fetch(
     "/api/student/attachments/" + encodeURIComponent(kind),

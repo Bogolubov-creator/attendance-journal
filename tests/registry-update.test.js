@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { workbook } from "./fixtures/zip.js";
 
 test("Обновление реестра из Excel, преподаватели без отметок и перевод на следующий курс", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "attendance-update-")),
@@ -57,6 +58,15 @@ test("Обновление реестра из Excel, преподаватели
     await login("office", "smirnova");
     assert.equal((await upload()).status, 403);
     await login("admin", "gadzhieva");
+    // Zip-бомба: лист «База» распаковывается больше чем в 50 МБ.
+    const bomb = await fetch(origin + "/api/admin/import", {
+      method: "POST",
+      headers: { origin, "content-type": "application/octet-stream", cookie },
+      body: workbook({ База: 60 }),
+    });
+    assert.equal(bomb.status, 400);
+    assert.match((await bomb.json()).error, /50 МБ/);
+    assert.equal((await fetch(origin + "/healthz")).status, 200);
     // Ручная связь должна пережить обновление.
     assert.equal(
       (
@@ -78,10 +88,24 @@ test("Обновление реестра из Excel, преподаватели
     assert.equal(preview.quality.unresolved, 1);
     // План ничего не записал.
     assert.equal((await (await req("/api/admin/teachers")).json()).length, 2);
+    // Группы студента показывает карточка (обзор реестра их не отдаёт).
+    const groupsOf = async (id) =>
+      (await (await req("/api/admin/students/" + id)).json()).student.groups;
+    assert.deepEqual(await groupsOf("s_test_1"), ["Г-1", ""]);
     const applied = await (await upload("?apply=1")).json();
     assert.equal(applied.preview, false);
     assert.equal(applied.enrollments.added, 4);
     const teachers = await (await req("/api/admin/teachers")).json();
+    // Связи из импорта сразу видны в списке преподавателей и в карточке.
+    assert.deepEqual(
+      teachers.map(({ name, courses, students }) => [name, courses, students]),
+      [
+        ["Преподаватель Второй", ["История", "Ручная дисциплина"], 3],
+        ["Преподаватель Новый", ["Философия"], 1],
+        ["Преподаватель Первый", ["Право", "Экономика"], 2],
+      ],
+    );
+    assert.deepEqual(await groupsOf("s_test_1"), ["Г-1", "", "Г-3"]);
     assert.ok(teachers.some((t) => t.name === "Преподаватель Новый"));
     assert.ok(!teachers.some((t) => t.name.startsWith("Вак_")));
     assert.equal(teachers.length, 3); // «Вак_Преподаватель» сопоставлен с Преподавателем Вторым по дисциплине

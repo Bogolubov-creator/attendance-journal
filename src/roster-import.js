@@ -1,17 +1,15 @@
 // Обновление реестра из нового файла Excel «студенты – группы – преподаватели».
 // planImport ничего не пишет и показывает, что изменится; applyImport применяет план.
-import { createHash } from "node:crypto";
 import { readWorkbook } from "./xlsx.js";
+import { rosterId, studentId } from "./domain.js";
 
-const uid = (prefix, value) =>
-  prefix + createHash("sha256").update(value).digest("hex").slice(0, 16);
 const clean = (v) =>
   String(v ?? "")
     .trim()
     .replace(/\s+/g, " ");
 const norm = (n) => clean(n).toLocaleLowerCase("ru").replace(/ё/g, "е");
 const plain = (n) => (n.startsWith("Вак_") ? n.slice(4) : n);
-export const enrollmentKey = (e) =>
+const enrollmentKey = (e) =>
   [e.studentId, e.teacherId, e.group, e.course].join("\n");
 
 // Лист «База»: группа, преподаватель, студент, дисциплина, вид занятий. Строки без первых четырёх колонок пропускаются.
@@ -93,13 +91,14 @@ export function planImport(roster, { rows, quality }) {
       const t = bySurname(plain(name), fileCourses.get(raw) || new Set());
       if (t) return t;
     }
-    if (!newTeachers.has(k)) newTeachers.set(k, { id: uid("t_", name), name });
+    if (!newTeachers.has(k))
+      newTeachers.set(k, { id: rosterId("t_", name), name });
     return newTeachers.get(k);
   };
   const resolveStudent = (name) => {
     const k = norm(name);
     if (studentsByName.has(k)) return studentsByName.get(k);
-    if (!newStudents.has(k)) newStudents.set(k, { id: uid("s_", name), name });
+    if (!newStudents.has(k)) newStudents.set(k, { id: studentId(name), name });
     return newStudents.get(k);
   };
   const wanted = new Map(),

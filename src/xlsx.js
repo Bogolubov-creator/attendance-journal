@@ -2,6 +2,15 @@
 // XML листов – регулярными выражениями. Достаточно для файлов из Excel и openpyxl.
 import { inflateRawSync } from "node:zlib";
 
+// Предел распакованного содержимого: на одну запись и на все вместе (защита от zip-бомбы).
+const LIMIT = 50 * 1024 * 1024;
+const tooLarge = () =>
+  Object.assign(
+    new Error("Файл слишком большой после распаковки: больше 50 МБ"),
+    { status: 400 },
+  );
+
+// Возвращает функцию чтения записи по имени: распаковываются только запрошенные записи.
 function unzip(buffer) {
   const files = new Map();
   let eocd = buffer.length - 22;
@@ -24,10 +33,25 @@ function unzip(buffer) {
       buffer.readUInt16LE(local + 26) +
       buffer.readUInt16LE(local + 28);
     const raw = buffer.subarray(start, start + size);
-    files.set(name, method === 8 ? inflateRawSync(raw) : raw);
+    files.set(name, { method, raw });
     p += 46 + nameLength + extraLength + commentLength;
   }
-  return files;
+  let left = LIMIT;
+  return (name) => {
+    const entry = files.get(name);
+    if (!entry) return undefined;
+    if (entry.method !== 8) return entry.raw;
+    let data;
+    try {
+      data = inflateRawSync(entry.raw, { maxOutputLength: Math.max(left, 1) });
+    } catch (e) {
+      if (e.code === "ERR_BUFFER_TOO_LARGE") throw tooLarge();
+      throw e;
+    }
+    if (data.length > left) throw tooLarge();
+    left -= data.length;
+    return data;
+  };
 }
 
 const decode = (s) =>
@@ -50,8 +74,8 @@ const column = (ref) =>
 
 // Возвращает { [имя листа]: массив строк, каждая строка – массив значений по колонкам }.
 export function readWorkbook(buffer) {
-  const files = unzip(buffer);
-  const xml = (name) => files.get(name)?.toString("utf8") || "";
+  const entry = unzip(buffer);
+  const xml = (name) => entry(name)?.toString("utf8") || "";
   const shared = [
     ...xml("xl/sharedStrings.xml").matchAll(/<si>(.*?)<\/si>/gs),
   ].map((m) => text(m[1]));

@@ -2,13 +2,11 @@ import { csvCell } from "./csv.js";
 import { registerDaily, attendanceRecords } from "./daily.js";
 import { registerStudent } from "./student.js";
 import { attachmentPath, attachmentLabel } from "./attachments.js";
-import { verifyPassword } from "./management-auth.js";
-import { parseRoster, planImport, applyImport } from "./roster-import.js";
+import { loadAccounts, registerAuth } from "./auth.js";
+import { registerRegistry } from "./registry.js";
 import express from "express";
 import {
-  managers,
   programs,
-  directorySource,
   managerFor,
   canEditStudent,
   canSeeStudent,
@@ -16,23 +14,21 @@ import {
   procedureStates,
   procedureStatus,
   validDate,
+  enrollmentStatuses,
+  closedEnrollmentStatuses,
+  studentFieldsError,
+  studentFieldsValid,
+  foreignStatuses,
 } from "./office.js";
-import { DatabaseSync } from "node:sqlite";
-import {
-  readFileSync,
-  mkdirSync,
-  existsSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
-import { randomBytes, createHash } from "node:crypto";
-import * as oidc from "openid-client";
-import { backup } from "node:sqlite";
-import path from "node:path";
-import { moscowDate, studentMetrics } from "./domain.js";
+import { openDatabase } from "./db.js";
+import { rmSync } from "node:fs";
+import { startBackups } from "./backup.js";
+import { moscowDate, ruCompare, studentMetrics } from "./domain.js";
 const app = express(),
   port = Number(process.env.PORT || 3100),
   demo = process.env.DEMO_MODE === "true";
+// На живых данных демо-режим не раскрывает студентов: ни списка ФИО, ни входа в их кабинет.
+const demoStudentLogin = demo && process.env.DATA_MODE !== "live";
 const selection =
   (process.env.AUTH_MODE || (demo ? "selection" : "oidc")) === "selection";
 const origin = process.env.APP_ORIGIN || `http://127.0.0.1:${port}`;
@@ -40,88 +36,9 @@ if (!demo && !origin.startsWith("https://"))
   throw Error("В рабочем режиме нужен APP_ORIGIN с HTTPS");
 // Реестр хранится в базе; в памяти лежит его копия, все правки идут через базу.
 const roster = { students: [], teachers: [], enrollments: [], quality: {} };
-mkdirSync("data", { recursive: true });
-// Таблицы lessons и marks больше не пополняются: в них исторические отметки прежнего журнала по парам.
-const db = new DatabaseSync(
-  process.env.DB_PATH || `data/${demo ? "demo" : "attendance"}.sqlite`,
-);
-db.exec(
-  `PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS lessons(id TEXT PRIMARY KEY,teacherId TEXT,data TEXT);CREATE TABLE IF NOT EXISTS marks(lessonId TEXT,studentId TEXT,status TEXT,note TEXT,updatedAt TEXT, PRIMARY KEY(lessonId,studentId)); CREATE TABLE IF NOT EXISTS debts(id TEXT PRIMARY KEY,studentId TEXT,title TEXT,resolved INTEGER DEFAULT 0,createdAt TEXT);CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,actor TEXT,action TEXT,entity TEXT,at TEXT); CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY,data TEXT,expires INTEGER);`,
-);
-db.exec(
-  "PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS service_state(key TEXT PRIMARY KEY,value TEXT);",
-);
-db.exec(`CREATE TABLE IF NOT EXISTS student_profiles(studentId TEXT PRIMARY KEY, data TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS student_accounts(externalId TEXT PRIMARY KEY, studentId TEXT NOT NULL, linkedAt TEXT NOT NULL, linkedBy TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS procedures(studentId TEXT, kind TEXT, data TEXT NOT NULL, PRIMARY KEY(studentId,kind));
-CREATE TABLE IF NOT EXISTS roster_additions(id TEXT PRIMARY KEY, data TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS roster_students(id TEXT PRIMARY KEY, name TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS roster_teachers(id TEXT PRIMARY KEY, name TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS roster_enrollments(studentId TEXT NOT NULL, teacherId TEXT NOT NULL, grp TEXT NOT NULL, course TEXT NOT NULL, kind TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS attachments(id TEXT PRIMARY KEY, studentId TEXT NOT NULL, kind TEXT NOT NULL, fileName TEXT NOT NULL, storedName TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL, uploadedAt TEXT NOT NULL, uploadedBy TEXT NOT NULL);`);
+const { db, get, all, run, addEnrollment } = openDatabase({ demo, roster });
 // Куда складываются сканы студентов; читается один раз здесь, маршруты получают путь готовым.
 const uploadDir = process.env.UPLOAD_DIR || "data/uploads";
-const get = (sql, ...a) => db.prepare(sql).get(...a),
-  all = (sql, ...a) => db.prepare(sql).all(...a),
-  run = (sql, ...a) => db.prepare(sql).run(...a);
-const token = () => randomBytes(32).toString("base64url"),
-  hash = (s) => createHash("sha256").update(s).digest("hex");
-const addEnrollment = (e) =>
-  run(
-    "INSERT INTO roster_enrollments VALUES(?,?,?,?,?)",
-    e.studentId,
-    e.teacherId,
-    e.group,
-    e.course,
-    e.kind,
-  );
-// Первое наполнение пустой базы: файл импорта и прежние ручные добавления. Дальше файл не читается.
-if (
-  !get("SELECT 1 FROM roster_students") &&
-  !get("SELECT 1 FROM roster_teachers")
-) {
-  const rosterPath = process.env.ROSTER_PATH || "data/roster.json";
-  const file = existsSync(rosterPath)
-    ? JSON.parse(readFileSync(rosterPath, "utf8"))
-    : { students: [], teachers: [], enrollments: [], quality: {} };
-  db.exec("BEGIN IMMEDIATE");
-  for (const s of file.students)
-    run("INSERT INTO roster_students VALUES(?,?)", s.id, s.name);
-  for (const t of file.teachers)
-    run("INSERT INTO roster_teachers VALUES(?,?)", t.id, t.name);
-  file.enrollments.forEach(addEnrollment);
-  for (const row of all("SELECT data FROM roster_additions")) {
-    const a = JSON.parse(row.data);
-    run("INSERT OR IGNORE INTO roster_students VALUES(?,?)", a.id, a.name);
-    for (const l of a.links)
-      addEnrollment({
-        studentId: a.id,
-        teacherId: l.teacherId,
-        group: "",
-        course: l.course,
-        kind: "ручной ввод",
-      });
-  }
-  run(
-    "INSERT OR REPLACE INTO service_state VALUES('rosterQuality',?)",
-    JSON.stringify(file.quality || {}),
-  );
-  db.exec("COMMIT");
-}
-roster.students = all("SELECT id,name FROM roster_students ORDER BY rowid");
-roster.teachers = all("SELECT id,name FROM roster_teachers ORDER BY rowid");
-roster.enrollments = all(
-  "SELECT studentId,teacherId,grp AS 'group',course,kind FROM roster_enrollments ORDER BY rowid",
-);
-roster.quality = JSON.parse(
-  get("SELECT value FROM service_state WHERE key='rosterQuality'")?.value ||
-    "{}",
-);
-// Журнал изменений: кто, что и над чем; label – человекочитаемое описание для «Последних изменений».
-if (!all("PRAGMA table_info(audit)").some((c) => c.name === "label"))
-  db.exec(
-    "ALTER TABLE audit ADD COLUMN role TEXT; ALTER TABLE audit ADD COLUMN label TEXT;",
-  );
 const audit = (u, action, entity, label = "") =>
   run(
     "INSERT INTO audit(actor,role,action,entity,label,at) VALUES(?,?,?,?,?,?)",
@@ -151,29 +68,7 @@ const registryActions = [
   "attachment.view",
   "attachment.delete",
 ];
-let accounts = [];
-try {
-  accounts = JSON.parse(readFileSync("data/accounts.json", "utf8"));
-} catch {}
-if (!selection && (!demo || process.env.REQUIRE_AUTH_CONFIG === "true")) {
-  if (
-    !process.env.OIDC_ISSUER?.startsWith("https://") ||
-    !process.env.OIDC_CLIENT_ID ||
-    !process.env.OIDC_CLIENT_SECRET
-  )
-    throw Error(
-      "Заполните параметры университетской авторизации до запуска сервера",
-    );
-  if (
-    !accounts.some(
-      (a) =>
-        a.role === "admin" && a.subject && /^[^\s@]+@hse\.ru$/.test(a.email),
-    )
-  )
-    throw Error(
-      "Укажите подтверждённую административную учётку в data/accounts.json",
-    );
-}
+const accounts = loadAccounts({ demo, selection });
 const fail = (code, message) =>
   Object.assign(new Error(message), { status: code });
 app.disable("x-powered-by");
@@ -199,275 +94,22 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.json({ limit: "256kb" }));
-const managementHash = process.env.MANAGEMENT_PASSWORD_HASH || "";
-const managementVersion = hash(managementHash);
-const loginAttempts = new Map();
-function checkManagementPassword(req) {
-  if (!managementHash) throw fail(503, "Пароль ещё не настроен");
-  const now = Date.now();
-  for (const [key, value] of loginAttempts)
-    if (value.until <= now) loginAttempts.delete(key);
-  const key = req.ip;
-  const attempt = loginAttempts.get(key) || {
-    count: 0,
-    until: now + 15 * 60000,
-  };
-  if (attempt.count >= 5)
-    throw fail(429, "Слишком много попыток. Повторите через 15 минут.");
-  if (!verifyPassword(req.body.password, managementHash)) {
-    attempt.count++;
-    loginAttempts.set(key, attempt);
-    throw fail(403, "Неверный пароль");
-  }
-  loginAttempts.delete(key);
-}
-app.use((req, res, next) => {
-  const id = req.headers.cookie
-    ?.split("; ")
-    .find((x) => x.startsWith("journal="))
-    ?.slice(8);
-  const row =
-    id &&
-    get(
-      "SELECT * FROM sessions WHERE id=? AND expires>?",
-      hash(id),
-      Date.now(),
-    );
-  req.session = row ? JSON.parse(row.data) : null;
-  req.sessionKey = row?.id;
-  if (
-    ["admin", "office"].includes(req.session?.user?.role) &&
-    (selection || demo) &&
-    (!managementHash || req.session.managementVersion !== managementVersion)
-  ) {
-    run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-    req.session = null;
-  }
-
-  if (req.session?.user?.role === "student") {
-    const u = req.session.user;
-    const valid =
-      cabinetOpen(u.studentId) &&
-      (u.source === "demo"
-        ? demo
-        : studentByExternalId(u.subject) === u.studentId);
-    if (!valid) {
-      run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-      req.session = null;
-    }
-  } else if (selection && req.session?.user?.source === "selection") {
-    const u = req.session.user;
-    const valid =
-      u.role === "teacher"
-        ? roster.teachers.some((t) => t.id === u.id)
-        : managers.some((m) => m.id === u.id && m.role === u.role);
-    if (!valid) {
-      run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-      req.session = null;
-    }
-  } else if (!demo && req.session?.user) {
-    const u = req.session.user;
-    const valid = accounts.some(
-      (a) =>
-        a.subject === u.subject &&
-        a.email.toLowerCase() === u.email &&
-        a.role === u.role &&
-        (u.role === "admin" || a.teacherId === u.id),
-    );
-    if (!valid) {
-      run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-      req.session = null;
-    }
-  }
-  next();
+const { auth, admin } = registerAuth(app, {
+  get,
+  run,
+  roster,
+  demo,
+  demoStudentLogin,
+  selection,
+  origin,
+  accounts,
+  fail,
+  cabinetOpen,
+  studentByExternalId,
 });
-function session(res, data) {
-  const id = token();
-  run("DELETE FROM sessions WHERE expires<?", Date.now());
-  run(
-    "INSERT INTO sessions VALUES(?,?,?)",
-    hash(id),
-    JSON.stringify(data),
-    Date.now() + 8 * 3600000,
-  );
-  res.cookie("journal", id, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: !demo,
-    maxAge: 8 * 3600000,
-    path: "/",
-  });
-}
-const auth = (req, res, next) =>
-  req.session?.user
-    ? next()
-    : res.status(401).json({ error: "Войдите в свой кабинет" });
-const admin = (req, res, next) =>
-  ["admin", "office"].includes(req.session?.user?.role)
-    ? next()
-    : res.status(403).json({ error: "Доступ только для учебного офиса" });
 app.get("/healthz", (req, res) => {
   get("SELECT 1");
   res.json({ ok: true });
-});
-app.get("/api/session", (req, res) =>
-  res.json({
-    user: req.session?.user || null,
-    demo: demo && process.env.DATA_MODE !== "live",
-    oidcReady: !!(process.env.OIDC_ISSUER && process.env.OIDC_CLIENT_ID),
-    demoTeachers: demo ? roster.teachers : [],
-    demoStudents: demo ? roster.students : [],
-    selection,
-    teachers: selection ? roster.teachers : [],
-    managers: selection ? managers : [],
-  }),
-);
-app.post("/api/select-login", (req, res) => {
-  if (!selection) return res.sendStatus(404);
-  const { role, personId } = req.body;
-  const person =
-    role === "teacher"
-      ? roster.teachers.find((t) => t.id === personId)
-      : managers.find((m) => m.id === personId && m.role === role);
-  if (!person || !["teacher", "office", "admin"].includes(role))
-    throw fail(400, "Выберите роль и сотрудника из списка");
-  checkManagementPassword(req);
-  if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-  const user = { ...person, role, source: "selection" };
-  session(res, { user, managementVersion });
-  res.json({ user });
-});
-app.post("/api/demo-login", (req, res) => {
-  if (!demo) return res.sendStatus(404);
-  const role = req.body.role;
-  checkManagementPassword(req);
-  if (role === "student") {
-    const student = roster.students.find((s) => s.id === req.body.studentId);
-    if (!student) throw fail(400, "Выберите студента");
-    if (!cabinetOpen(student.id))
-      throw fail(403, "Личный кабинет закрыт: обучение завершено");
-    if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-    const user = {
-      id: student.id,
-      name: student.name,
-      role: "student",
-      studentId: student.id,
-      source: "demo",
-    };
-    session(res, { user, managementVersion });
-    return res.json({ user });
-  }
-  const teacher = roster.teachers.find((t) => t.id === req.body.teacherId);
-  if (role !== "admin" && !teacher) throw fail(400, "Выберите преподавателя");
-  if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-  const user =
-    role === "admin"
-      ? { id: "demo_admin", name: "Полный доступ", role: "admin" }
-      : { ...teacher, role: "teacher" };
-  session(res, { user, managementVersion });
-  res.json({ user });
-});
-app.post("/api/logout", (req, res) => {
-  if (req.sessionKey) run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-  res.clearCookie("journal", { path: "/" });
-  res.json({ ok: true });
-});
-let oidcConfig;
-async function config() {
-  if (!process.env.OIDC_ISSUER || !process.env.OIDC_CLIENT_ID)
-    throw fail(
-      503,
-      "Вход ВШЭ ещё не подключён. Учебному офису необходимо зарегистрировать приложение у провайдера авторизации.",
-    );
-  return (oidcConfig ??= await oidc.discovery(
-    new URL(process.env.OIDC_ISSUER),
-    process.env.OIDC_CLIENT_ID,
-    process.env.OIDC_CLIENT_SECRET,
-  ));
-}
-app.get("/auth/login", async (req, res) => {
-  if (selection) return res.redirect("/");
-  const c = await config(),
-    verifier = oidc.randomPKCECodeVerifier(),
-    state = oidc.randomState(),
-    nonce = oidc.randomNonce();
-  session(res, { verifier, state, nonce, created: Date.now() });
-  res.redirect(
-    oidc.buildAuthorizationUrl(c, {
-      redirect_uri: origin + "/auth/callback",
-      scope: "openid email profile",
-      code_challenge: await oidc.calculatePKCECodeChallenge(verifier),
-      code_challenge_method: "S256",
-      state,
-      nonce,
-    }).href,
-  );
-});
-app.get("/auth/callback", async (req, res) => {
-  const s = req.session;
-  if (!s?.verifier || Date.now() - s.created > 600000)
-    throw fail(401, "Время входа истекло. Повторите вход.");
-  run("DELETE FROM sessions WHERE id=?", req.sessionKey);
-  const t = await oidc.authorizationCodeGrant(
-    await config(),
-    new URL(req.originalUrl, origin),
-    {
-      pkceCodeVerifier: s.verifier,
-      expectedState: s.state,
-      expectedNonce: s.nonce,
-      idTokenExpected: true,
-    },
-  );
-  const claims = t.claims();
-  const email = String(claims.email || "").toLowerCase();
-  const account = accounts.find(
-    (a) => a.email.toLowerCase() === email && a.subject === claims.sub,
-  );
-  if (!account) {
-    // Студенты входят по @edu.hse.ru – проверка домена почты им не требуется.
-    const studentId = studentByExternalId(claims.sub);
-    const student =
-      studentId && roster.students.find((s) => s.id === studentId);
-    // Студент попадает на экран входа с объяснением, а не на голый JSON.
-    if (!student) return res.redirect("/?error=unlinked");
-    if (!cabinetOpen(studentId)) return res.redirect("/?error=closed");
-    session(res, {
-      user: {
-        id: studentId,
-        name: student.name,
-        role: "student",
-        studentId,
-        source: "oidc",
-        subject: claims.sub,
-      },
-    });
-    return res.redirect("/");
-  }
-  if (
-    claims.email_verified !== true ||
-    !email.endsWith("@hse.ru") ||
-    !["admin", "teacher"].includes(account.role)
-  )
-    throw fail(
-      403,
-      "Учётная запись не подключена к журналу. Обратитесь в учебный офис.",
-    );
-  if (
-    account.role === "teacher" &&
-    !roster.teachers.some((t) => t.id === account.teacherId)
-  )
-    throw fail(403, "Преподаватель не сопоставлен с базой");
-  session(res, {
-    user: {
-      id: account.teacherId || account.subject,
-      name: account.name,
-      email,
-      role: account.role,
-      source: "explicit",
-      subject: claims.sub,
-    },
-  });
-  res.redirect("/");
 });
 app.use("/api", auth);
 registerDaily(app, { db, roster, auth, admin, studentProfile, audit });
@@ -500,7 +142,7 @@ function cabinetOpen(studentId) {
     get("SELECT data FROM student_profiles WHERE studentId=?", studentId)
       ?.data || "{}",
   ).enrollmentStatus;
-  return !["graduated", "withdrawn"].includes(status);
+  return !closedEnrollmentStatuses.includes(status);
 }
 function proceduresFor(id) {
   const rows = all("SELECT kind,data FROM procedures WHERE studentId=?", id),
@@ -528,63 +170,17 @@ function editable(req, id) {
     );
   return student;
 }
-app.get("/api/admin/directory", (req, res) =>
-  res.json({ managers, programs, source: directorySource }),
-);
-// Обновление реестра из нового Excel: без ?apply=1 – только план, с ним – запись в одной транзакции.
-app.post(
-  "/api/admin/import",
-  express.raw({ type: () => true, limit: "25mb" }),
-  (req, res) => {
-    registryAdmin(req);
-    if (!Buffer.isBuffer(req.body) || !req.body.length)
-      throw fail(400, "Загрузите файл .xlsx");
-    const plan = planImport(roster, parseRoster(req.body));
-    const teacherName = (id) =>
-      (
-        roster.teachers.find((t) => t.id === id) ||
-        plan.teachers.add.find((t) => t.id === id)
-      )?.name;
-    const studentName = (id) =>
-      (
-        roster.students.find((x) => x.id === id) ||
-        plan.students.add.find((x) => x.id === id)
-      )?.name;
-    const describe = (e) =>
-      `${studentName(e.studentId)} – ${teacherName(e.teacherId)} – ${e.course}${e.group ? " (" + e.group + ")" : ""}`;
-    const summary = {
-      students: {
-        added: plan.students.add.map((x) => x.name),
-        missing: plan.students.missing,
-      },
-      teachers: { added: plan.teachers.add.map((t) => t.name) },
-      enrollments: {
-        added: plan.enrollments.add.length,
-        removed: plan.enrollments.remove.length,
-        addedList: plan.enrollments.add.map(describe),
-        removedList: plan.enrollments.remove.map(describe),
-      },
-      quality: plan.quality,
-      studentsInFile: plan.studentsInFile,
-    };
-    if (req.query.apply !== "1") return res.json({ preview: true, ...summary });
-    db.exec("BEGIN IMMEDIATE");
-    try {
-      applyImport({ run, roster, addEnrollment }, plan);
-      audit(
-        req.session.user,
-        "roster.import",
-        "roster",
-        `студентов +${summary.students.added.length}, преподавателей +${summary.teachers.added.length}, связей +${summary.enrollments.added} −${summary.enrollments.removed}`,
-      );
-      db.exec("COMMIT");
-    } catch (e) {
-      db.exec("ROLLBACK");
-      throw e;
-    }
-    res.json({ preview: false, ...summary });
-  },
-);
+registerRegistry(app, {
+  db,
+  get,
+  all,
+  run,
+  roster,
+  addEnrollment,
+  audit,
+  fail,
+  studentProfile,
+});
 app.get("/api/admin/teachers", (req, res) => {
   // Дата последней отметки у каждого преподавателя: по ней видно, кто не ведёт журнал.
   const lastMarks = new Map(
@@ -598,19 +194,13 @@ app.get("/api/admin/teachers", (req, res) => {
         ...t,
         lastMark: lastMarks.get(t.id) || null,
         courses: [
-          ...new Set(
-            roster.enrollments
-              .filter((e) => e.teacherId === t.id)
-              .map((e) => e.course),
-          ),
-        ].sort((a, b) => a.localeCompare(b, "ru")),
+          ...new Set(enrollmentsOf("teacherId", t.id).map((e) => e.course)),
+        ].sort(ruCompare),
         students: new Set(
-          roster.enrollments
-            .filter((e) => e.teacherId === t.id)
-            .map((e) => e.studentId),
+          enrollmentsOf("teacherId", t.id).map((e) => e.studentId),
         ).size,
       }))
-      .sort((a, b) => a.name.localeCompare(b.name, "ru")),
+      .sort((a, b) => ruCompare(a.name, b.name)),
   );
 });
 // Преподаватели со студентами, у которых нет ни одной отметки за последние 7 дней.
@@ -628,308 +218,6 @@ function silentTeachers() {
     (t) => withStudents.has(t.id) && !active.has(t.id),
   ).length;
 }
-// Новый учебный год: все обучающиеся студенты с курсом переходят на следующий; выпуск и отчисление – в карточке.
-app.post("/api/admin/year-rollover", (req, res) => {
-  registryAdmin(req);
-  let count = 0;
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    for (const row of all("SELECT studentId, data FROM student_profiles")) {
-      const p = JSON.parse(row.data);
-      if (
-        !(p.year >= 1 && p.year < 6) ||
-        (p.enrollmentStatus && p.enrollmentStatus !== "active")
-      )
-        continue;
-      p.year += 1;
-      p.version = (p.version || 0) + 1;
-      run(
-        "UPDATE student_profiles SET data=? WHERE studentId=?",
-        JSON.stringify(p),
-        row.studentId,
-      );
-      count++;
-    }
-    const state = {
-      at: new Date().toISOString(),
-      count,
-      actor: req.session.user.name,
-    };
-    run(
-      "INSERT OR REPLACE INTO service_state VALUES('yearRollover',?)",
-      JSON.stringify(state),
-    );
-    audit(
-      req.session.user,
-      "year.rollover",
-      "roster",
-      `${count} студентов переведены на следующий курс`,
-    );
-    db.exec("COMMIT");
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
-  res.json({ count });
-});
-app.post("/api/admin/students", (req, res) => {
-  registryStaff(req);
-  const {
-    name,
-    program = "",
-    year = 0,
-    foreignStatus = "confirmed",
-    citizenship = "",
-    links,
-  } = req.body;
-  const clean =
-    typeof name === "string" ? name.trim().replace(/\s+/g, " ") : "";
-  if (
-    clean.length < 3 ||
-    clean.length > 150 ||
-    (program !== "" && !programs.includes(program)) ||
-    !Number.isInteger(year) ||
-    year < 0 ||
-    year > 6 ||
-    !["unknown", "confirmed", "excluded"].includes(foreignStatus) ||
-    typeof citizenship !== "string" ||
-    citizenship.length > 100
-  )
-    throw fail(400, "Проверьте ФИО, программу, курс и гражданство");
-  if (
-    req.session.user.role === "office" &&
-    managerFor({ program, year })?.id !== req.session.user.id
-  )
-    throw fail(
-      403,
-      "Менеджер добавляет студентов только своих программ и курсов",
-    );
-  if (
-    !Array.isArray(links) ||
-    !links.length ||
-    links.length > 50 ||
-    links.some(
-      (l) =>
-        !l ||
-        !roster.teachers.some((t) => t.id === l.teacherId) ||
-        typeof l.course !== "string" ||
-        !l.course.trim() ||
-        l.course.length > 200 ||
-        (l.group != null &&
-          (typeof l.group !== "string" || l.group.length > 100)),
-    )
-  )
-    throw fail(400, "Укажите хотя бы одного преподавателя и дисциплину");
-  const id = "s_" + hash(clean).slice(0, 16);
-  const same = (a, b) =>
-    a.toLocaleLowerCase("ru") === b.toLocaleLowerCase("ru");
-  if (roster.students.some((s) => s.id === id || same(s.name, clean)))
-    throw fail(409, "Студент с таким ФИО уже есть в реестре");
-  const enrollments = links.map((l) => ({
-    studentId: id,
-    teacherId: l.teacherId,
-    group: (l.group || "").trim(),
-    course: l.course.trim(),
-    kind: "ручной ввод",
-  }));
-  const profile = {
-    version: 1,
-    program,
-    year,
-    foreignStatus,
-    citizenship: citizenship.trim(),
-    arrivalDate: "",
-    residence: "",
-    enrollmentStatus: "active",
-  };
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    run("INSERT INTO roster_students VALUES(?,?)", id, clean);
-    enrollments.forEach(addEnrollment);
-    run(
-      "INSERT OR REPLACE INTO student_profiles VALUES(?,?)",
-      id,
-      JSON.stringify(profile),
-    );
-    audit(req.session.user, "student.add", id, clean);
-    db.exec("COMMIT");
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
-  roster.students.push({ id, name: clean });
-  roster.enrollments.push(...enrollments);
-  res.json({ id, version: 1, manager: managerFor(profile) });
-});
-// Правка реестра через сайт: преподаватели, ФИО студентов, связи «студент – преподаватель – дисциплина».
-function registryAdmin(req) {
-  if (req.session.user.role !== "admin")
-    throw fail(403, "Это изменение доступно только полному доступу");
-}
-// Менеджер и полный доступ добавляют студентов и преподавателей.
-function registryStaff(req) {
-  if (!["admin", "office"].includes(req.session.user.role))
-    throw fail(403, "Реестр меняют менеджеры и полный доступ");
-}
-// Менеджер меняет ФИО, связи и удаляет только студентов своих программ и курсов.
-function registryStudent(req, id) {
-  const student = registryEntry(roster.students, id, "Студент не найден");
-  if (!canEditStudent(req.session.user, studentProfile(id)))
-    throw fail(403, "Менеджер меняет только студентов своих программ и курсов");
-  return student;
-}
-function registryName(name, list, exceptId) {
-  const clean =
-    typeof name === "string" ? name.trim().replace(/\s+/g, " ") : "";
-  if (clean.length < 3 || clean.length > 150)
-    throw fail(400, "Укажите ФИО от 3 до 150 символов");
-  const lower = clean.toLocaleLowerCase("ru");
-  if (
-    list.some(
-      (x) => x.id !== exceptId && x.name.toLocaleLowerCase("ru") === lower,
-    )
-  )
-    throw fail(409, "Такое ФИО уже есть в реестре");
-  return clean;
-}
-function registryEntry(list, id, message) {
-  const entry = list.find((x) => x.id === id);
-  if (!entry) throw fail(404, message);
-  return entry;
-}
-app.post("/api/admin/teachers", (req, res) => {
-  registryStaff(req);
-  const name = registryName(req.body.name, roster.teachers),
-    id = "t_" + randomBytes(8).toString("hex");
-  run("INSERT INTO roster_teachers VALUES(?,?)", id, name);
-  audit(req.session.user, "teacher.add", id, name);
-  roster.teachers.push({ id, name });
-  res.json({ id, name });
-});
-app.put("/api/admin/teachers/:id", (req, res) => {
-  registryAdmin(req);
-  const teacher = registryEntry(
-    roster.teachers,
-    req.params.id,
-    "Преподаватель не найден",
-  );
-  const name = registryName(req.body.name, roster.teachers, teacher.id);
-  run("UPDATE roster_teachers SET name=? WHERE id=?", name, teacher.id);
-  audit(
-    req.session.user,
-    "teacher.rename",
-    teacher.id,
-    teacher.name + " → " + name,
-  );
-  teacher.name = name;
-  res.json({ ok: true, name });
-});
-app.delete("/api/admin/teachers/:id", (req, res) => {
-  registryAdmin(req);
-  const { id, name } = registryEntry(
-    roster.teachers,
-    req.params.id,
-    "Преподаватель не найден",
-  );
-  if (
-    roster.enrollments.some((e) => e.teacherId === id) ||
-    get("SELECT 1 FROM daily_marks WHERE teacherId=?", id) ||
-    get(
-      "SELECT 1 FROM marks m JOIN lessons l ON l.id=m.lessonId WHERE l.teacherId=?",
-      id,
-    )
-  )
-    throw fail(
-      409,
-      "У преподавателя есть студенты или отметки. Удалить можно только запись без связей и истории",
-    );
-  run("DELETE FROM roster_teachers WHERE id=?", id);
-  audit(req.session.user, "teacher.delete", id, name);
-  roster.teachers = roster.teachers.filter((t) => t.id !== id);
-  res.json({ ok: true });
-});
-app.put("/api/admin/students/:id", (req, res) => {
-  const student = registryStudent(req, req.params.id);
-  const name = registryName(req.body.name, roster.students, student.id);
-  run("UPDATE roster_students SET name=? WHERE id=?", name, student.id);
-  audit(
-    req.session.user,
-    "student.rename",
-    student.id,
-    student.name + " → " + name,
-  );
-  student.name = name;
-  res.json({ ok: true, name });
-});
-app.delete("/api/admin/students/:id", (req, res) => {
-  const { id, name } = registryStudent(req, req.params.id);
-  if (
-    get("SELECT 1 FROM daily_marks WHERE studentId=?", id) ||
-    get("SELECT 1 FROM marks WHERE studentId=?", id)
-  )
-    throw fail(
-      409,
-      "У студента есть отметки. Вместо удаления смените статус обучения в карточке",
-    );
-  // ID производится от ФИО: удалённая вместе с записью привязка или сканы
-  // достались бы новому студенту с тем же ФИО. Сканы удаляются только вручную.
-  const linked = get("SELECT 1 FROM student_accounts WHERE studentId=?", id),
-    scans = get("SELECT 1 FROM attachments WHERE studentId=?", id);
-  if (linked || scans)
-    throw fail(
-      409,
-      "Сначала " +
-        [
-          linked && "отвяжите учётную запись ВШЭ",
-          scans && "удалите приложенные сканы",
-        ]
-          .filter(Boolean)
-          .join(" и "),
-    );
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    for (const table of [
-      "roster_enrollments",
-      "student_profiles",
-      "procedures",
-      "debts",
-    ])
-      run(`DELETE FROM ${table} WHERE studentId=?`, id);
-    run("DELETE FROM roster_students WHERE id=?", id);
-    audit(req.session.user, "student.delete", id, name);
-    db.exec("COMMIT");
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
-  roster.students = roster.students.filter((s) => s.id !== id);
-  roster.enrollments = roster.enrollments.filter((e) => e.studentId !== id);
-  res.json({ ok: true });
-});
-// Связь = студент + преподаватель + дисциплина + группа (группа необязательна).
-function enrollmentKey(body) {
-  const { studentId, teacherId, course, group = "" } = body;
-  if (
-    !roster.students.some((s) => s.id === studentId) ||
-    !roster.teachers.some((t) => t.id === teacherId) ||
-    typeof course !== "string" ||
-    !course.trim() ||
-    course.length > 200 ||
-    typeof group !== "string" ||
-    group.length > 100
-  )
-    throw fail(400, "Укажите студента, преподавателя, дисциплину и группу");
-  return { studentId, teacherId, course: course.trim(), group: group.trim() };
-}
-const enrollmentEntity = (key) =>
-  [key.studentId, key.teacherId, key.course, key.group]
-    .filter(Boolean)
-    .join(":");
-const sameEnrollment = (e, key) =>
-  e.studentId === key.studentId &&
-  e.teacherId === key.teacherId &&
-  e.course === key.course &&
-  e.group === key.group;
 // Записи до появления колонки label: имена подставляются по ID, если запись ещё в реестре.
 const auditLabel = (entity) =>
   String(entity)
@@ -941,51 +229,6 @@ const auditLabel = (entity) =>
         part,
     )
     .join(" – ");
-const enrollmentLabel = (key) =>
-  roster.students.find((s) => s.id === key.studentId)?.name +
-  " – " +
-  roster.teachers.find((t) => t.id === key.teacherId)?.name +
-  " – " +
-  key.course +
-  (key.group ? " (" + key.group + ")" : "");
-app.post("/api/admin/enrollments", (req, res) => {
-  const key = enrollmentKey(req.body);
-  registryStudent(req, key.studentId);
-  if (roster.enrollments.some((e) => sameEnrollment(e, key)))
-    throw fail(409, "Такая связь уже есть в реестре");
-  const enrollment = { ...key, kind: "ручной ввод" };
-  addEnrollment(enrollment);
-  audit(
-    req.session.user,
-    "enrollment.add",
-    enrollmentEntity(key),
-    enrollmentLabel(key),
-  );
-  roster.enrollments.push(enrollment);
-  res.json({ ok: true });
-});
-app.delete("/api/admin/enrollments", (req, res) => {
-  const key = enrollmentKey(req.body);
-  registryStudent(req, key.studentId);
-  const { changes } = run(
-    "DELETE FROM roster_enrollments WHERE studentId=? AND teacherId=? AND course=? AND grp=?",
-    key.studentId,
-    key.teacherId,
-    key.course,
-    key.group,
-  );
-  if (!changes) throw fail(404, "Связь не найдена");
-  audit(
-    req.session.user,
-    "enrollment.delete",
-    enrollmentEntity(key),
-    enrollmentLabel(key),
-  );
-  roster.enrollments = roster.enrollments.filter(
-    (e) => !sameEnrollment(e, key),
-  );
-  res.json({ ok: true });
-});
 app.put("/api/admin/students/:id/profile", (req, res) => {
   if (req.session.user.role !== "admin")
     throw fail(
@@ -1011,34 +254,28 @@ app.put("/api/admin/students/:id/profile", (req, res) => {
     migrationCardUntil = "",
   } = req.body;
   if (
-    [nameLatin, sendingCountry, programVersion, curator].some(
-      (v) => typeof v !== "string" || v.length > 200,
-    ) ||
-    !["", "dormitory", "private"].includes(housing) ||
-    !["", "yes", "no"].includes(inRussia) ||
-    !validDate(passportUntil) ||
-    !validDate(migrationCardUntil)
+    !studentFieldsValid({
+      citizenship,
+      arrivalDate,
+      residence,
+      nameLatin,
+      sendingCountry,
+      programVersion,
+      curator,
+      housing,
+      inRussia,
+      passportUntil,
+      migrationCardUntil,
+    })
   )
-    throw fail(400, "Проверьте сведения о проживании и сроки документов");
+    throw fail(400, studentFieldsError);
   if (
     (program !== "" && !programs.includes(program)) ||
     !Number.isInteger(year) ||
     year < 0 ||
     year > 6 ||
-    !["unknown", "confirmed", "excluded"].includes(foreignStatus) ||
-    typeof citizenship !== "string" ||
-    citizenship.length > 100 ||
-    !validDate(arrivalDate) ||
-    ![
-      "",
-      "visa",
-      "visa_free",
-      "rvp",
-      "rvpo",
-      "residence_permit",
-      "other",
-    ].includes(residence) ||
-    !["active", "leave", "graduated", "withdrawn"].includes(enrollmentStatus)
+    !foreignStatuses.includes(foreignStatus) ||
+    !enrollmentStatuses.includes(enrollmentStatus)
   )
     throw fail(400, "Проверьте программу, курс и данные студента");
   if (req.body.version !== (previous.version || 0))
@@ -1116,24 +353,6 @@ app.delete("/api/admin/attachments/:id", (req, res) => {
   );
   res.json({ ok: true });
 });
-app.get("/api/admin/students-without-account", (req, res) => {
-  registryStaff(req);
-  const linked = new Set(
-    all("SELECT studentId FROM student_accounts").map((r) => r.studentId),
-  );
-  const students = roster.students
-    .map((s) => studentProfile(s.id))
-    .filter((s) => !linked.has(s.id))
-    .filter((s) => canSeeStudent(req.session.user, s))
-    .map((s) => ({
-      id: s.id,
-      name: s.name,
-      program: s.program || "",
-      year: s.year || 0,
-      manager: managerFor(s),
-    }));
-  res.json({ students });
-});
 app.put("/api/admin/students/:id/procedures/:kind", (req, res) => {
   editable(req, req.params.id);
   if (!procedureCatalog.some((c) => c.id === req.params.kind))
@@ -1191,13 +410,44 @@ app.put("/api/admin/students/:id/procedures/:kind", (req, res) => {
   );
   res.json({ ok: true, version: data.version });
 });
-function studentRows() {
-  const records = attendanceRecords(db),
-    debts = all("SELECT * FROM debts"),
+// Отметки, задолженности и связи раскладываются по ключу за один проход; порядок внутри ключа прежний.
+const groupBy = (rows, field, only) => {
+  const map = new Map();
+  for (const r of rows)
+    if (only === undefined || r[field] === only)
+      (map.get(r[field]) || map.set(r[field], []).get(r[field])).push(r);
+  return map;
+};
+// Реестр меняет связи только заменой массива roster.enrollments или дописыванием
+// в его конец – по этим признакам словари связей пересобираются.
+let enrollmentIndex = null;
+function enrollmentsOf(field, id) {
+  const list = roster.enrollments;
+  if (enrollmentIndex?.list !== list || enrollmentIndex.length !== list.length)
+    enrollmentIndex = {
+      list,
+      length: list.length,
+      studentId: groupBy(list, "studentId"),
+      teacherId: groupBy(list, "teacherId"),
+    };
+  return enrollmentIndex[field].get(id) || [];
+}
+// Без аргумента – все студенты реестра, с id – только этот (для карточки).
+function studentRows(only) {
+  const records = groupBy(
+      attendanceRecords(db, { studentId: only, brief: only === undefined }),
+      "studentId",
+    ),
+    debts = groupBy(all("SELECT * FROM debts"), "studentId", only),
     teacherNames = new Map(roster.teachers.map((t) => [t.id, t.name]));
-  return roster.students.map((s) => {
+  const students =
+    only === undefined
+      ? roster.students
+      : roster.students.filter((s) => s.id === only);
+  return students.map((s) => {
     const profile = studentProfile(s.id),
-      procedures = proceduresFor(s.id);
+      procedures = proceduresFor(s.id),
+      own = records.get(s.id) || [];
     return {
       ...profile,
       manager: managerFor(profile),
@@ -1208,33 +458,27 @@ function studentRows() {
       procedureReview: procedures.filter((p) => p.status === "submitted")
         .length,
       groups: [
-        ...new Set(
-          roster.enrollments
-            .filter((e) => e.studentId === s.id)
-            .map((e) => e.group),
-        ),
+        ...new Set(enrollmentsOf("studentId", s.id).map((e) => e.group)),
       ],
       teacherIds: [
-        ...new Set(
-          roster.enrollments
-            .filter((e) => e.studentId === s.id)
-            .map((e) => e.teacherId),
-        ),
+        ...new Set(enrollmentsOf("studentId", s.id).map((e) => e.teacherId)),
       ],
-      ...studentMetrics(
-        records.filter((r) => r.studentId === s.id),
-        debts.filter((d) => d.studentId === s.id),
-      ),
-      // Где и на каких занятиях был студент: новые отметки сверху.
-      records: records
-        .filter((r) => r.studentId === s.id)
-        .sort((a, b) => b.date.localeCompare(a.date))
-        .map((r) => ({
-          date: r.date,
-          course: r.course,
-          teacher: teacherNames.get(r.teacherId),
-          status: r.status,
-        })),
+      ...studentMetrics(own, debts.get(s.id) || []),
+      // Где и на каких занятиях был студент: новые отметки сверху. Для всего реестра
+      // (обзор, CSV) – только число: список весит мегабайты, интерфейс берёт его из
+      // карточки при раскрытии строки.
+      ...(only === undefined
+        ? { recordCount: own.length }
+        : {
+            records: own
+              .sort((a, b) => b.date.localeCompare(a.date))
+              .map((r) => ({
+                date: r.date,
+                course: r.course,
+                teacher: teacherNames.get(r.teacherId),
+                status: r.status,
+              })),
+          }),
     };
   });
 }
@@ -1243,8 +487,10 @@ app.get("/api/admin/overview", (req, res) => {
     canSeeStudent(req.session.user, s),
   );
   res.json({
-    students: students.map((s) => ({
+    // Реестру из менеджера нужны id и имя, группы он не читает – без них ответ легче.
+    students: students.map(({ groups, ...s }) => ({
       ...s,
+      manager: s.manager && { id: s.manager.id, name: s.manager.name },
       canEdit: canEditStudent(req.session.user, s),
     })),
     faculty: {
@@ -1277,7 +523,7 @@ app.get("/api/admin/overview", (req, res) => {
   });
 });
 app.get("/api/admin/students/:id", (req, res) => {
-  const student = studentRows().find((s) => s.id === req.params.id);
+  const [student] = studentRows(req.params.id);
   if (!student) throw fail(404, "Студент не найден");
   if (!canSeeStudent(req.session.user, student))
     throw fail(403, "Студент не относится к вашим программам и курсам");
@@ -1301,66 +547,22 @@ app.get("/api/admin/students/:id", (req, res) => {
       student.id,
     ),
     courses: [
-      ...new Set(
-        roster.enrollments
-          .filter((e) => e.studentId === student.id)
-          .map((e) => e.course),
-      ),
+      ...new Set(enrollmentsOf("studentId", student.id).map((e) => e.course)),
     ],
     links: [
       ...new Map(
-        roster.enrollments
-          .filter((e) => e.studentId === student.id)
-          .map((e) => [
-            e.teacherId + "\n" + e.course + "\n" + e.group,
-            {
-              teacherId: e.teacherId,
-              teacher: roster.teachers.find((t) => t.id === e.teacherId)?.name,
-              course: e.course,
-              group: e.group,
-            },
-          ]),
+        enrollmentsOf("studentId", student.id).map((e) => [
+          e.teacherId + "\n" + e.course + "\n" + e.group,
+          {
+            teacherId: e.teacherId,
+            teacher: roster.teachers.find((t) => t.id === e.teacherId)?.name,
+            course: e.course,
+            group: e.group,
+          },
+        ]),
       ).values(),
     ],
   });
-});
-app.post("/api/admin/debts", (req, res) => {
-  const { studentId, title } = req.body;
-  if (
-    !roster.students.some((s) => s.id === studentId) ||
-    typeof title !== "string" ||
-    !title.trim() ||
-    title.length > 200
-  )
-    throw fail(400, "Укажите студента и задолженность до 200 символов");
-  editable(req, studentId);
-  const id = token();
-  run(
-    "INSERT INTO debts VALUES(?,?,?,0,?)",
-    id,
-    studentId,
-    title.trim(),
-    new Date().toISOString(),
-  );
-  audit(req.session.user, "debt.create", studentId);
-  res.json({ id });
-});
-app.patch("/api/admin/debts/:id", (req, res) => {
-  if (typeof req.body.resolved !== "boolean")
-    throw fail(400, "Некорректный статус");
-  if (!get("SELECT id FROM debts WHERE id=?", req.params.id))
-    throw fail(404, "Задолженность не найдена");
-  editable(
-    req,
-    get("SELECT studentId FROM debts WHERE id=?", req.params.id).studentId,
-  );
-  run(
-    "UPDATE debts SET resolved=? WHERE id=?",
-    Number(req.body.resolved),
-    req.params.id,
-  );
-  audit(req.session.user, "debt.update", req.params.id);
-  res.json({ ok: true });
 });
 app.get("/api/admin/export", (req, res) => {
   const esc = csvCell;
@@ -1415,7 +617,13 @@ app.get("/api/admin/export", (req, res) => {
         .join("\r\n"),
   );
 });
-app.use(express.static("public"));
+// Файлы интерфейса браузер переспрашивает по ETag (304 без тела);
+// всё остальное остаётся no-store из общей прослойки.
+app.use(
+  express.static("public", {
+    setHeaders: (res) => res.set("Cache-Control", "no-cache"),
+  }),
+);
 app.use((err, req, res, next) => {
   res.status(err.status || 500).json({
     error: err.status
@@ -1431,55 +639,4 @@ const server = app.listen(port, host, () =>
     `Журнал: ${origin} | ${demo ? "Локальный демонстрационный режим" : "Рабочий режим"}`,
   ),
 );
-let backupTimer,
-  backupRunning = false;
-async function createBackup() {
-  if (backupRunning) return;
-  backupRunning = true;
-  try {
-    const dir = process.env.BACKUP_DIR || "data/backups";
-    mkdirSync(dir, { recursive: true });
-    const target = path.join(
-      dir,
-      "attendance-" + new Date().toISOString().replaceAll(":", "-") + ".sqlite",
-    );
-    await backup(db, target);
-    // Имя копии начинается с даты по ISO, поэтому обычная сортировка идёт от старых к новым.
-    const kept = Number(process.env.BACKUP_KEEP || 14);
-    const copies = readdirSync(dir)
-      .filter((name) => /^attendance-.+\.sqlite$/.test(name))
-      .sort();
-    for (const name of copies.slice(0, -kept))
-      rmSync(path.join(dir, name), { force: true });
-    run(
-      "INSERT OR REPLACE INTO service_state VALUES('backup',?)",
-      JSON.stringify({ at: new Date().toISOString(), ok: true }),
-    );
-  } catch {
-    run(
-      "INSERT OR REPLACE INTO service_state VALUES('backup',?)",
-      JSON.stringify({ at: new Date().toISOString(), ok: false }),
-    );
-  } finally {
-    backupRunning = false;
-  }
-}
-if (process.env.AUTO_BACKUP === "true") {
-  backupTimer = setInterval(createBackup, 86400000);
-  backupTimer.unref();
-  createBackup();
-}
-let shuttingDown = false;
-function shutdown() {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  clearInterval(backupTimer);
-  server.close(async () => {
-    while (backupRunning) await new Promise((r) => setTimeout(r, 50));
-    db.close();
-    process.exit(0);
-  });
-  setTimeout(() => process.exit(1), 30000).unref();
-}
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
+startBackups(server, { db, run });

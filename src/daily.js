@@ -1,5 +1,5 @@
 import { csvCell } from "./csv.js";
-import { moscowDate, studentMetrics } from "./domain.js";
+import { moscowDate, ruCompare, studentMetrics } from "./domain.js";
 import { canSeeStudent, validDate } from "./office.js";
 
 export function summarizeAttendance(
@@ -9,22 +9,21 @@ export function summarizeAttendance(
   to,
   today = moscowDate(),
 ) {
+  // Отметки делятся по студентам один раз, а не фильтром всего массива на каждого.
+  const byStudent = Map.groupBy(records, (r) => r.studentId);
   return students.map((s) => {
-    const history = records
-      .filter((r) => r.studentId === s.id && r.date >= from && r.date <= to)
+    const own = byStudent.get(s.id) || [];
+    const history = own
+      .filter((r) => r.date >= from && r.date <= to)
       .sort((a, b) => b.date.localeCompare(a.date));
-    const current = studentMetrics(
-      records.filter((r) => r.studentId === s.id),
-      [],
-      today,
-    );
+    const current = studentMetrics(own, [], today);
     const visits = history.filter((r) => r.status === "present");
     return {
       ...s,
       status: visits.length ? "present" : history.length ? "absent" : "unknown",
       lastVisit:
-        records
-          .filter((r) => r.studentId === s.id && r.status === "present")
+        own
+          .filter((r) => r.status === "present")
           .map((r) => r.date)
           .sort()
           .at(-1) || null,
@@ -37,13 +36,24 @@ export function summarizeAttendance(
 }
 
 // Все ответы преподавателей: дневные отметки и исторические отметки по занятиям.
-export function attendanceRecords(db) {
-  const records = db.prepare("SELECT * FROM daily_marks").all();
+// С studentId – только этого студента: чтение всей таблицы отметок дорого.
+// brief – только студент, дата и статус: обзору реестра хватает их для метрик,
+// а чтение двух лишних строковых столбцов на всех отметках вдвое медленнее.
+export function attendanceRecords(db, { studentId, brief = false } = {}) {
+  const one = studentId !== undefined,
+    args = one ? [studentId] : [];
+  const records = db
+    .prepare(
+      `SELECT ${brief ? "studentId,date,status" : "*"} FROM daily_marks` +
+        (one ? " WHERE studentId=?" : ""),
+    )
+    .all(...args);
   for (const r of db
     .prepare(
-      "SELECT m.studentId,m.status,l.teacherId,json_extract(l.data,'$.date') date,json_extract(l.data,'$.course') course FROM marks m JOIN lessons l ON l.id=m.lessonId WHERE m.status IN ('present','absent')",
+      "SELECT m.studentId,m.status,l.teacherId,json_extract(l.data,'$.date') date,json_extract(l.data,'$.course') course FROM marks m JOIN lessons l ON l.id=m.lessonId WHERE m.status IN ('present','absent')" +
+        (one ? " AND m.studentId=?" : ""),
     )
-    .all())
+    .all(...args))
     records.push({ ...r, source: "lesson" });
   return records;
 }
@@ -64,6 +74,10 @@ export function registerDaily(
     db.exec(
       "INSERT OR IGNORE INTO daily_marks SELECT teacherId,date,'',studentId,status,updatedAt FROM daily_marks_v1; INSERT OR IGNORE INTO daily_revisions SELECT teacherId,date,'',version FROM daily_revisions_v1;",
     );
+  // Отметки одного студента («Моя посещаемость», карточка) – без чтения всей таблицы.
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS daily_marks_student ON daily_marks(studentId,date)",
+  );
   const fail = (status, message) =>
     Object.assign(new Error(message), { status });
   const active = (s) =>
@@ -76,7 +90,7 @@ export function registerDaily(
           .filter((e) => e.teacherId === id)
           .map((e) => e.course),
       ),
-    ].sort((a, b) => a.localeCompare(b, "ru"));
+    ].sort(ruCompare);
   const studentsFor = (id, course) => {
     const ids = new Set(
       roster.enrollments
@@ -87,7 +101,7 @@ export function registerDaily(
       .map((s) => studentProfile(s.id))
       .filter((s) => ids.has(s.id) && active(s))
       .map(({ id, name }) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+      .sort((a, b) => ruCompare(a.name, b.name));
   };
   const checkDate = (date) => {
     if (!date || !validDate(date) || date > moscowDate())
@@ -199,24 +213,27 @@ export function registerDaily(
     checkDate(to);
     if (from > to)
       throw fail(400, "Начало периода должно быть не позже окончания");
-    const records = attendanceRecords(db);
     const names = new Map(roster.teachers.map((t) => [t.id, t.name]));
     return {
       from,
       to,
       alertAsOf: moscowDate(),
+      // Имя преподавателя нужно только строкам истории за период.
       students: summarizeAttendance(
         roster.students
           .map((s) => studentProfile(s.id))
           .filter(active)
           .filter((s) => canSeeStudent(req.session.user, s)),
-        records.map((r) => ({
+        attendanceRecords(db),
+        from,
+        to,
+      ).map((s) => ({
+        ...s,
+        history: s.history.map((r) => ({
           ...r,
           teacher: names.get(r.teacherId) || "Преподаватель",
         })),
-        from,
-        to,
-      ),
+      })),
     };
   }
   app.get("/api/daily/overview", auth, admin, (req, res) =>

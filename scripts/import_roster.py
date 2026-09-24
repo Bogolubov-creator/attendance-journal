@@ -1,6 +1,7 @@
 import openpyxl,json,hashlib,pathlib,sys
 source=sys.argv[1]
 w=openpyxl.load_workbook(source,read_only=True,data_only=True)
+# Та же формула, что rosterId/studentId в src/domain.js – менять только вместе.
 def uid(prefix,value): return prefix+hashlib.sha256(value.encode()).hexdigest()[:16]
 students={}; teachers={}; enrollments=[]
 rows=[r for r in list(w['База'].values)[1:] if all(r[:4])]

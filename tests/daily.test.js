@@ -82,6 +82,15 @@ test("Дневной журнал: изоляция, конфликты, сох�
   app.use((e, req, res, next) =>
     res.status(e.status || 500).json({ error: e.message }),
   );
+  // Индекс по студенту появляется и на перенесённой базе; повторный запуск не падает.
+  registerDaily(express(), { db, roster, auth, admin });
+  assert.deepEqual(
+    db
+      .prepare("PRAGMA index_info(daily_marks_student)")
+      .all()
+      .map((c) => c.name),
+    ["studentId", "date"],
+  );
   const server = app.listen(0, "127.0.0.1");
   await new Promise((r) => server.once("listening", r));
   const url = "http://127.0.0.1:" + server.address().port;

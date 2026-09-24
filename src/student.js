@@ -3,6 +3,8 @@ import {
   pickStudentFields,
   procedureCatalog,
   studentEditableFields,
+  studentFieldsError,
+  studentFieldsValid,
   validDate,
 } from "./office.js";
 import { moscowDate } from "./domain.js";
@@ -17,42 +19,6 @@ import express from "express";
 import { randomBytes } from "node:crypto";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
-
-// Допустимые значения для полей, которые студент правит сам. Правила те же,
-// что использует сотруднический маршрут PUT /api/admin/students/:id/profile
-// (src/server.js) – дублировать его целиком незачем, но значения должны
-// совпадать.
-const validHousing = ["", "dormitory", "private"];
-const validInRussia = ["", "yes", "no"];
-const validResidence = [
-  "",
-  "visa",
-  "visa_free",
-  "rvp",
-  "rvpo",
-  "residence_permit",
-  "other",
-];
-// Проверяется только то, что студент прислал в теле запроса – отсутствующее
-// поле сохраняет прежнее значение (см. pickStudentFields).
-function validStudentEdit(body) {
-  return (
-    (!("citizenship" in body) ||
-      (typeof body.citizenship === "string" &&
-        body.citizenship.length <= 100)) &&
-    (!("nameLatin" in body) ||
-      (typeof body.nameLatin === "string" && body.nameLatin.length <= 200)) &&
-    (!("sendingCountry" in body) ||
-      (typeof body.sendingCountry === "string" &&
-        body.sendingCountry.length <= 200)) &&
-    (!("housing" in body) || validHousing.includes(body.housing)) &&
-    (!("inRussia" in body) || validInRussia.includes(body.inRussia)) &&
-    (!("residence" in body) || validResidence.includes(body.residence)) &&
-    (!("arrivalDate" in body) || validDate(body.arrivalDate)) &&
-    (!("passportUntil" in body) || validDate(body.passportUntil)) &&
-    (!("migrationCardUntil" in body) || validDate(body.migrationCardUntil))
-  );
-}
 
 export function registerStudent(
   app,
@@ -108,8 +74,10 @@ export function registerStudent(
       Array.isArray(req.body)
     )
       throw fail(400, "Некорректные данные");
-    if (!validStudentEdit(req.body))
-      throw fail(400, "Проверьте сведения о проживании и сроки документов");
+    // Проверяются только присланные поля из белого списка студента –
+    // отсутствующее поле сохраняет прежнее значение, чужое отбрасывается.
+    if (!studentFieldsValid(pickStudentFields(req.body, {})))
+      throw fail(400, studentFieldsError);
     const previous = cardFor(req.studentId);
     if (req.body.version !== (previous.version || 0))
       throw fail(409, "Данные изменены. Откройте страницу заново");
@@ -135,9 +103,7 @@ export function registerStudent(
       to = req.query.to || moscowDate();
     if (![from, to].every(validDate) || from > to)
       throw fail(400, "Проверьте период");
-    const own = attendanceRecords(db).filter(
-      (r) => r.studentId === req.studentId,
-    );
+    const own = attendanceRecords(db, { studentId: req.studentId });
     const [summary] = summarizeAttendance(
       [studentProfile(req.studentId)],
       own,

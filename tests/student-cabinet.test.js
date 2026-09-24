@@ -123,6 +123,43 @@ test("Кабинет студента", async (t) => {
       assert.equal(badDate.status, 400);
     });
 
+    await t.test(
+      "Одинаковый недопустимый ввод: сотрудник и студент получают одну ошибку",
+      async () => {
+        for (const bad of [
+          { housing: "Общежитие" },
+          { residence: "паспорт" },
+          { citizenship: "Я".repeat(101) },
+          { nameLatin: "L".repeat(201) },
+          { arrivalDate: "31.12.2026" },
+        ]) {
+          const staff = await call(
+            "/api/admin/students/" + studentId + "/profile",
+            {
+              method: "PUT",
+              cookie: admin,
+              body: {
+                program: "",
+                year: 0,
+                foreignStatus: "unknown",
+                ...bad,
+                version: 1,
+              },
+            },
+          );
+          const own = await call("/api/student/profile", {
+            method: "PUT",
+            cookie,
+            body: { ...bad, version: 1 },
+          });
+          const label = JSON.stringify(bad).slice(0, 40);
+          assert.equal(staff.status, 400, label);
+          assert.equal(own.status, 400, label);
+          assert.deepEqual(await staff.json(), await own.json(), label);
+        }
+      },
+    );
+
     await t.test("Учебные поля из запроса студента игнорируются", async () => {
       await call("/api/student/profile", {
         method: "PUT",
