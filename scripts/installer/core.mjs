@@ -7,6 +7,7 @@ import {
   writeFileSync,
   mkdirSync,
   chmodSync,
+  copyFileSync,
 } from "node:fs";
 import path from "node:path";
 import { passwordHash } from "../../src/management-auth.js";
@@ -653,6 +654,234 @@ function memo(ctx, a) {
   ctx.io.print(lines.join("\n"));
 }
 
+// ---------- прежняя установка ----------
+
+export function readEnvFile(file) {
+  const values = {};
+  for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
+    const m = /^([A-Z_][A-Z0-9_]*)=(.*)$/.exec(line);
+    if (m) values[m[1]] = m[2];
+  }
+  return values;
+}
+
+// Файл базы прежней установки по её .env (или по умолчанию).
+function existingDb(cwd, env, method) {
+  const rel =
+    method === "docker"
+      ? path.join(env.DATA_DIR || "data", "attendance.sqlite")
+      : env.DB_PATH || "data/attendance.sqlite";
+  return path.resolve(cwd, rel);
+}
+
+// Прежняя установка в этой папке: есть .env или база журнала.
+function findExisting(ctx) {
+  const envPath = path.join(ctx.cwd, ".env");
+  const env = existsSync(envPath) ? readEnvFile(envPath) : {};
+  const db = path.resolve(ctx.cwd, "data/attendance.sqlite");
+  if (!existsSync(envPath) && !existsSync(db)) return null;
+  return { envPath, env, hasEnv: existsSync(envPath) };
+}
+
+// Способ прежней установки: по .env, службе systemd или задаче планировщика.
+async function guessMethod(ctx, env) {
+  if (env.PROXY_SCALE !== undefined || env.DATA_DIR !== undefined)
+    return "docker";
+  if (
+    ctx.platform === "linux" &&
+    existsSync(`/etc/systemd/system/${SERVICE}.service`)
+  )
+    return "native";
+  if (
+    ctx.platform === "win32" &&
+    (
+      await run(ctx.exec, "powershell.exe", [
+        "-NoProfile",
+        "-Command",
+        `Get-ScheduledTask -TaskName '${TASK}'`,
+      ])
+    ).code === 0
+  )
+    return "native";
+  return "docker";
+}
+
+const stamp = () => new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
+
+// Копия базы (и её журнала WAL) рядом с базой – при остановленном журнале.
+function backupDb(ctx, db) {
+  if (!existsSync(db)) {
+    ctx.io.print("Базы ещё нет – копировать нечего.");
+    return;
+  }
+  const target = db.replace(/\.sqlite$/, `.before-update-${stamp()}.sqlite`);
+  copyFileSync(db, target);
+  if (existsSync(db + "-wal")) copyFileSync(db + "-wal", target + "-wal");
+  ctx.io.print("Копия базы: " + target);
+}
+
+async function stopJournal(ctx, a) {
+  const { exec, cwd } = ctx;
+  if (a.method === "docker")
+    return must(
+      exec,
+      "docker",
+      ["compose", "stop", "app"],
+      "Не удалось остановить журнал.",
+      { cwd },
+    );
+  if (ctx.platform === "win32")
+    return must(
+      exec,
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-Command",
+        `Stop-ScheduledTask -TaskName '${TASK}' -ErrorAction SilentlyContinue; Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*src\\server.js*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`,
+      ],
+      "Не удалось остановить журнал.",
+    );
+  return must(
+    exec,
+    "sudo",
+    ["systemctl", "stop", SERVICE],
+    "Не удалось остановить службу журнала.",
+  );
+}
+
+async function updateLocal(ctx, a, found) {
+  const { exec, cwd, io } = ctx;
+  const env = found.env;
+  a.domain = env.DOMAIN;
+  if (!a.domain)
+    stop(
+      "В прежнем .env нет DOMAIN – не по чему проверить журнал после обновления. Запустите установщик с ключом --reconfigure.",
+    );
+  if (existsSync(path.join(cwd, ".git"))) {
+    io.print("\n== Новый код");
+    await must(
+      exec,
+      "git",
+      ["pull", "--ff-only"],
+      "git pull не удался – обновите код вручную и повторите.",
+      { cwd, inherit: true },
+    );
+  } else
+    io.print(
+      "\nПапка не под git: обновляется код, который лежит в ней сейчас.",
+    );
+  io.print("\n== Остановка и копия базы");
+  await stopJournal(ctx, a);
+  backupDb(ctx, existingDb(cwd, env, a.method));
+  io.print("\n== Запуск новой версии");
+  if (a.method === "docker") {
+    await must(
+      exec,
+      "docker",
+      ["compose", "up", "-d", "--build"],
+      "Не удалось собрать или запустить контейнеры.",
+      { cwd, inherit: true },
+    );
+    await healthyOrLogs(ctx, a, () =>
+      run(exec, "docker", ["compose", "logs", "--tail=50", "app"], { cwd }),
+    );
+  } else {
+    await must(
+      exec,
+      npmCmd(ctx),
+      ["ci", "--omit=dev"],
+      "npm ci завершился с ошибкой.",
+      { cwd, inherit: true },
+    );
+    if (ctx.platform === "win32") {
+      await must(
+        exec,
+        "powershell.exe",
+        ["-NoProfile", "-Command", `Start-ScheduledTask -TaskName '${TASK}'`],
+        "Не удалось запустить задачу планировщика.",
+      );
+      await healthyOrLogs(ctx, a, async () => ({
+        stdout: "Смотрите server.log в папке базы.",
+      }));
+    } else {
+      await must(
+        exec,
+        "sudo",
+        ["systemctl", "start", SERVICE],
+        "Не удалось запустить службу журнала.",
+      );
+      await healthyOrLogs(ctx, a, () =>
+        run(exec, "sudo", [
+          "journalctl",
+          "-u",
+          SERVICE,
+          "-n",
+          "50",
+          "--no-pager",
+        ]),
+      );
+    }
+  }
+  io.print(
+    "\nОбновление готово: .env, база, сканы и резервные копии не менялись.",
+  );
+}
+
+// Найдена прежняя установка: только «Обновить» или «Выйти».
+async function existingFlow(ctx, a, found) {
+  const { io } = ctx;
+  io.print(
+    "\nВ этой папке уже установлен журнал (" +
+      (found.hasEnv ? "есть .env" : "есть база") +
+      ").",
+  );
+  const guessed = await guessMethod(ctx, found.env);
+  // Ключи --update и --docker/--native отвечают на вопросы заранее.
+  const fixed = {};
+  if (ctx.preset.update) fixed.action = "update";
+  if (ctx.preset.method) fixed.method = ctx.preset.method;
+  const pick = await askSteps(
+    io,
+    [
+      {
+        id: "action",
+        ask: () => ({
+          text: "Что сделать?",
+          help: "Обновить – копия базы, новый код и перезапуск; настройки, база, сканы и копии не меняются.",
+          choices: [
+            ["update", "Обновить"],
+            ["exit", "Выйти, ничего не меняя"],
+          ],
+          // Enter ничего не меняет: обновление выбирается явно.
+          default: "exit",
+        }),
+      },
+      {
+        id: "method",
+        when: (p) => p.action === "update",
+        ask: () => ({
+          text: "Как установлен журнал?",
+          choices: [
+            ["docker", "Через Docker"],
+            ["native", "Без Docker"],
+          ],
+          default: guessed,
+        }),
+      },
+    ],
+    fixed,
+  );
+  if (pick.action !== "update") {
+    io.print("Ничего не изменено.");
+    return 0;
+  }
+  a.method = pick.method;
+  if (a.method === "native") await checkNative(ctx);
+  else await checkDocker(ctx.exec);
+  await updateLocal(ctx, a, found);
+  return 0;
+}
+
 // Точка входа ядра. Возвращает код выхода.
 export async function runInstaller(ctx) {
   const { io } = ctx;
@@ -663,11 +892,27 @@ export async function runInstaller(ctx) {
     );
     // Сначала «куда и как» и проверки для этого способа – чтобы отказ
     // (macOS без Docker, нет Docker) пришёл до остальных вопросов.
-    const a = await askSteps(io, STEPS.slice(0, 2), { ...ctx.preset });
+    const { update, reconfigure, ...preset } = ctx.preset;
+    const a = await askSteps(io, STEPS.slice(0, 1), { ...preset });
     if (a.target === "remote")
       stop(
         "Установка на удалённый сервер появится в следующей версии установщика.",
       );
+    const found = findExisting(ctx);
+    if (found && !reconfigure) return await existingFlow(ctx, a, found);
+    if (found && found.hasEnv) {
+      const sure = (
+        await io.ask(
+          "Заполнить настройки заново? Прежний .env сохранится копией, база и сканы не меняются. [д/н]",
+        )
+      ).trim();
+      if (!/^[ДдYy]/.test(sure)) {
+        io.print("Ничего не изменено.");
+        return 0;
+      }
+      copyFileSync(found.envPath, `${found.envPath}.bak.${stamp()}`);
+    }
+    await askSteps(io, STEPS.slice(1, 2), a);
     if (a.method === "native") await checkNative(ctx);
     else await checkDocker(ctx.exec);
     await askSteps(io, STEPS.slice(2), a);

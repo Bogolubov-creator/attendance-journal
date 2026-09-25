@@ -9,6 +9,7 @@ import {
   existsSync,
   statSync,
   rmSync,
+  readdirSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -539,6 +540,168 @@ test("macOS без Docker – понятный отказ", async () => {
       /На macOS журнал ставится только через Docker/,
     );
     assert.ok(!existsSync(path.join(dir, ".env")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Прежняя установка через Docker: .env с настройками и база с отметками.
+function installedDocker() {
+  const dir = project();
+  writeFileSync(
+    path.join(dir, ".env"),
+    "DOMAIN=journal.example.edu\nAPP_ORIGIN=https://journal.example.edu\nDATA_DIR=data\nPROXY_SCALE=1\nSECRET_MARK=1\n",
+  );
+  mkdirSync(path.join(dir, "data"));
+  writeFileSync(path.join(dir, "data/attendance.sqlite"), "база");
+  mkdirSync(path.join(dir, "uploads"));
+  writeFileSync(path.join(dir, "uploads/scan.pdf"), "скан");
+  return dir;
+}
+
+test("Прежняя установка: «Выйти» ничего не меняет", async () => {
+  const dir = installedDocker();
+  try {
+    const before = readFileSync(path.join(dir, ".env"), "utf8");
+    const { io, out } = fakeIo(["", ""]);
+    const { exec, calls } = fakeExec();
+    assert.equal(await runInstaller(ctx(dir, io, exec)), 0);
+    assert.match(out.join("\n"), /уже установлен журнал/);
+    assert.ok(
+      !out.some((t) => /Адрес сайта/.test(t)),
+      "вопросов новой установки нет",
+    );
+    assert.equal(readFileSync(path.join(dir, ".env"), "utf8"), before);
+    assert.ok(!calls.some((c) => c.line.startsWith("docker compose")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Прежняя установка через Docker: «Обновить» – остановка, копия базы, пересборка; настройки и данные не тронуты", async () => {
+  const dir = installedDocker();
+  try {
+    const before = readFileSync(path.join(dir, ".env"), "utf8");
+    // куда – этот компьютер, «1» – обновить (Enter значит «Выйти»), как установлен – по умолчанию (Docker по .env)
+    const { io, out } = fakeIo(["", "1", ""]);
+    const { exec, calls } = fakeExec();
+    assert.equal(await runInstaller(ctx(dir, io, exec)), 0);
+    const lines = calls.map((c) => c.line);
+    const stop = lines.indexOf("docker compose stop app");
+    const up = lines.indexOf("docker compose up -d --build");
+    assert.ok(stop >= 0 && up > stop, lines.join(" | "));
+    const copies = readdirSync(path.join(dir, "data")).filter((f) =>
+      f.includes("before-update"),
+    );
+    assert.equal(copies.length, 1);
+    assert.equal(
+      readFileSync(path.join(dir, "data", copies[0]), "utf8"),
+      "база",
+    );
+    assert.equal(readFileSync(path.join(dir, ".env"), "utf8"), before);
+    assert.equal(
+      readFileSync(path.join(dir, "uploads/scan.pdf"), "utf8"),
+      "скан",
+    );
+    assert.ok(
+      !lines.some((l) => /enable-personal-only|invite-admin/.test(l)),
+      "режим входа не меняется",
+    );
+    assert.match(out.join("\n"), /Обновление готово/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Прежняя установка без Docker: Linux – systemctl stop/start и npm ci; Windows – задача планировщика", async () => {
+  for (const [platform, stopCmd, startCmd, npm] of [
+    [
+      "linux",
+      "sudo systemctl stop attendance-journal",
+      "sudo systemctl start attendance-journal",
+      "npm ci",
+    ],
+    [
+      "win32",
+      "powershell.exe -NoProfile -Command Stop-ScheduledTask",
+      "powershell.exe -NoProfile -Command Start-ScheduledTask",
+      "npm.cmd ci",
+    ],
+  ]) {
+    const dir = project();
+    try {
+      writeFileSync(
+        path.join(dir, ".env"),
+        "DOMAIN=journal.example.edu\nHOST=127.0.0.1\nDB_PATH=data/attendance.sqlite\n",
+      );
+      mkdirSync(path.join(dir, "data"));
+      writeFileSync(path.join(dir, "data/attendance.sqlite"), "база");
+      const { io } = fakeIo([]);
+      const { exec, calls } = fakeExec();
+      const c = ctx(dir, io, exec, {
+        platform,
+        preset: { update: true, target: "local", method: "native" },
+        nodePath: "node",
+        isRoot: false,
+      });
+      assert.equal(await runInstaller(c), 0, platform);
+      const lines = calls.map((x) => x.line);
+      const order = [stopCmd, npm, startCmd];
+      let at = -1;
+      for (const cmd of order) {
+        const i = lines.findIndex((l, n) => n > at && l.startsWith(cmd));
+        assert.ok(i > at, platform + ": " + cmd + " в " + lines.join(" | "));
+        at = i;
+      }
+      assert.ok(
+        readdirSync(path.join(dir, "data")).some((f) =>
+          f.includes("before-update"),
+        ),
+        platform,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("--reconfigure: только после подтверждения, прежний .env сохраняется копией", async () => {
+  const dir = installedDocker();
+  try {
+    const { io } = fakeIo(["н"]);
+    assert.equal(
+      await runInstaller(
+        ctx(dir, io, fakeExec().exec, {
+          preset: { reconfigure: true, target: "local" },
+        }),
+      ),
+      0,
+    );
+    assert.ok(
+      !readdirSync(dir).some((f) => f.startsWith(".env.bak")),
+      "без подтверждения ничего",
+    );
+
+    const answers = ["д", ...dockerCaddy.slice(1)];
+    const r = fakeIo(answers);
+    assert.equal(
+      await runInstaller(
+        ctx(dir, r.io, fakeExec().exec, {
+          preset: { reconfigure: true, target: "local" },
+        }),
+      ),
+      0,
+    );
+    const bak = readdirSync(dir).filter((f) => f.startsWith(".env.bak"));
+    assert.equal(bak.length, 1);
+    assert.match(readFileSync(path.join(dir, bak[0]), "utf8"), /SECRET_MARK=1/);
+    assert.ok(
+      !readFileSync(path.join(dir, ".env"), "utf8").includes("SECRET_MARK"),
+    );
+    assert.equal(
+      readFileSync(path.join(dir, "data/attendance.sqlite"), "utf8"),
+      "база",
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

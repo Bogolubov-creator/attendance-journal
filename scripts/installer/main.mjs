@@ -116,6 +116,8 @@ if (flags.has("--docker"))
   Object.assign(preset, { target: "local", method: "docker" });
 if (flags.has("--native"))
   Object.assign(preset, { target: "local", method: "native" });
+if (flags.has("--update")) preset.update = true;
+if (flags.has("--reconfigure")) preset.reconfigure = true;
 
 const code = await runInstaller({
   io,
