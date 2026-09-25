@@ -318,6 +318,8 @@ export async function updateRemote(ctx, a) {
   const dataDir = remotePath(a, env.DATA_DIR || "data");
   if (!DIR_RE.test(dataDir))
     stop("Путь к базе в .env сервера содержит недопустимые символы.");
+  // Код уезжает до остановки: сбой копирования оставляет журнал работающим.
+  await uploadCode(ctx, a);
   ctx.io.print("\n== Остановка и копия базы на сервере");
   await sshMust(
     ctx,
@@ -332,7 +334,6 @@ export async function updateRemote(ctx, a) {
     `if [ -f ${db} ]; then cp -p ${db} ${dataDir}/attendance.before-update-${stamp()}.sqlite && echo "Копия базы снята"; else echo "Базы ещё нет"; fi`,
     "Не удалось снять копию базы на сервере.",
   );
-  await uploadCode(ctx, a);
   await startRemote(ctx, a);
   ctx.io.print(
     "\nОбновление готово: .env, база, сканы и резервные копии на сервере не менялись.",
@@ -357,7 +358,24 @@ export async function remoteFlow(ctx, a, { finish }) {
   await askSteps(io, REMOTE_STEPS, a);
   a.method = "docker";
   await checkServer(ctx, a);
-  if (await remoteExisting(ctx, a)) {
+  const existing = await remoteExisting(ctx, a);
+  if (existing && ctx.preset.reconfigure) {
+    const sure = (
+      await io.ask(
+        "Заполнить настройки на сервере заново? Прежний .env сохранится копией, база и сканы не меняются. [д/н]",
+      )
+    ).trim();
+    if (!/^[ДдYy]/.test(sure)) {
+      io.print("Ничего не изменено.");
+      return 0;
+    }
+    await sshMust(
+      ctx,
+      a,
+      `if [ -f ${a.remoteDir}/.env ]; then cp -p ${a.remoteDir}/.env ${a.remoteDir}/.env.bak.${stamp()}; fi`,
+      "Не удалось сохранить копию .env на сервере.",
+    );
+  } else if (existing) {
     io.print(`\nНа сервере в ${a.remoteDir} уже установлен журнал.`);
     const pick = await askSteps(
       io,

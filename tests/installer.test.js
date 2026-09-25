@@ -989,3 +989,103 @@ test("compose.yaml: число копий и TRUST_PROXY берутся из .en
   assert.match(compose, /TRUST_PROXY: \$\{TRUST_PROXY:-1\}/);
   assert.doesNotMatch(compose, /BACKUP_KEEP: "14"|TRUST_PROXY: "1"/);
 });
+
+test("--remote: без вопроса «куда», сразу вопросы о сервере", async () => {
+  const dir = project();
+  try {
+    const { io, out } = fakeIo(remoteNew.slice(1));
+    const { exec } = fakeServer();
+    assert.equal(
+      await runInstaller(ctx(dir, io, exec, { preset: { target: "remote" } })),
+      0,
+    );
+    assert.ok(!out.includes("Куда ставить журнал?"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Удалённое обновление: код уезжает до остановки; сбой копирования оставляет журнал работающим", async () => {
+  const dir = project();
+  try {
+    const { io } = fakeIo([...remoteHead, "1"]);
+    const { exec, calls } = fakeServer({
+      existing: true,
+      env: "DOMAIN=journal.example.edu\n",
+    });
+    assert.equal(await runInstaller(ctx(dir, io, exec)), 0);
+    const scp = calls.findIndex((c) => c.cmd === "scp");
+    const stopIdx = calls.findIndex(
+      (c) =>
+        c.cmd === "ssh" && c.args.at(-1).endsWith("docker compose stop app"),
+    );
+    assert.ok(scp >= 0 && stopIdx > scp, "scp раньше остановки");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const dir2 = project();
+  try {
+    const { io, out } = fakeIo([...remoteHead, "1"]);
+    const { exec, calls } = fakeServer({
+      existing: true,
+      env: "DOMAIN=journal.example.edu\n",
+      fail: { "scp ": 1 },
+    });
+    assert.equal(await runInstaller(ctx(dir2, io, exec)), 1);
+    assert.ok(
+      !calls.some(
+        (c) =>
+          c.cmd === "ssh" && c.args.at(-1).endsWith("docker compose stop app"),
+      ),
+      "журнал не останавливался",
+    );
+    assert.match(out.join("\n"), /scp/);
+  } finally {
+    rmSync(dir2, { recursive: true, force: true });
+  }
+});
+
+test("--reconfigure на сервере: подтверждение, копия прежнего .env, новые настройки", async () => {
+  const dir = project();
+  try {
+    const { io } = fakeIo([...remoteHead.slice(1), "н"]);
+    const r1 = fakeServer({ existing: true });
+    assert.equal(
+      await runInstaller(
+        ctx(dir, io, r1.exec, {
+          preset: { target: "remote", reconfigure: true },
+        }),
+      ),
+      0,
+    );
+    assert.ok(
+      !sshCommands(r1.calls).some(
+        (l) => l.startsWith("umask 077") || l.includes(".env.bak"),
+      ),
+    );
+
+    const answers = [...remoteHead.slice(1), "д", ...remoteNew.slice(6)];
+    const f = fakeIo(answers);
+    const r2 = fakeServer({ existing: true });
+    assert.equal(
+      await runInstaller(
+        ctx(dir, f.io, r2.exec, {
+          preset: { target: "remote", reconfigure: true },
+        }),
+      ),
+      0,
+    );
+    const ssh = sshCommands(r2.calls);
+    const bak = ssh.findIndex((l) =>
+      l.includes(
+        "cp -p /opt/attendance-journal/.env /opt/attendance-journal/.env.bak.",
+      ),
+    );
+    const write = ssh.findIndex((l) =>
+      l.startsWith("umask 077 && cat > /opt/attendance-journal/.env"),
+    );
+    assert.ok(bak >= 0 && write > bak, ssh.join(" | "));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
