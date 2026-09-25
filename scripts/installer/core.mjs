@@ -146,8 +146,15 @@ function pathCheck(v) {
 
 // Спросить все шаги; «<» – назад к предыдущему показанному шагу.
 // Ответы, заданные ключами запуска (--docker, --native), не спрашиваются.
-export async function askSteps(io, steps, answers = {}) {
-  const fixed = new Set(Object.keys(answers));
+// back – «<» на первом вопросе возвращает null: вызывающий уходит на
+// предыдущий этап. Прежний ответ на шаг становится ответом по умолчанию.
+export const BACK = null;
+export async function askSteps(
+  io,
+  steps,
+  answers = {},
+  { fixed = new Set(Object.keys(answers)), back = false } = {},
+) {
   const shown = [];
   let i = 0;
   while (i < steps.length) {
@@ -157,16 +164,18 @@ export async function askSteps(io, steps, answers = {}) {
       continue;
     }
     const q = step.ask(answers);
+    const prior = answers[step.id] ?? q.default;
     io.print("");
     io.print(q.text + (q.help ? `\n  ${q.help}` : ""));
     if (q.choices)
       q.choices.forEach(([, label], n) => io.print(`  ${n + 1} – ${label}`));
     const def = q.choices
-      ? String(q.choices.findIndex(([v]) => v === q.default) + 1)
-      : q.default;
+      ? String(q.choices.findIndex(([v]) => v === prior) + 1 || "")
+      : prior;
     const raw = (await io.ask(def ? `[${def}]` : ">")).trim();
     if (raw === "<") {
       if (shown.length) i = shown.pop();
+      else if (back) return BACK;
       else io.print("Это первый вопрос.");
       continue;
     }
@@ -328,14 +337,19 @@ async function waitHealthy(net, domain, sleep, seconds = 60) {
 // Права на .env и папки: 600/700 на Linux и macOS, на Windows – администраторы и система.
 async function protect(ctx, target, isDir) {
   if (ctx.platform === "win32")
-    await run(ctx.exec, "icacls", [
-      target,
-      "/inheritance:r",
-      "/grant:r",
-      isDir ? "SYSTEM:(OI)(CI)F" : "SYSTEM:F",
-      isDir ? "Administrators:(OI)(CI)F" : "Administrators:F",
-      `${ctx.user}:${isDir ? "(OI)(CI)F" : "F"}`,
-    ]);
+    await must(
+      ctx.exec,
+      "icacls",
+      [
+        target,
+        "/inheritance:r",
+        "/grant:r",
+        isDir ? "SYSTEM:(OI)(CI)F" : "SYSTEM:F",
+        isDir ? "Administrators:(OI)(CI)F" : "Administrators:F",
+        `${ctx.user}:${isDir ? "(OI)(CI)F" : "F"}`,
+      ],
+      `Не удалось закрыть права на ${target} (icacls).`,
+    );
   else chmodSync(target, isDir ? 0o700 : 0o600);
 }
 
@@ -348,6 +362,13 @@ async function writeConfig(ctx, a) {
   );
   io.print("\n== Настройки и папки");
   const envPath = path.join(cwd, ".env");
+  // Перезаполнение: прежний .env – копией с теми же закрытыми правами.
+  if (existsSync(envPath)) {
+    const bak = `${envPath}.bak.${stamp()}`;
+    copyFileSync(envPath, bak);
+    await protect(ctx, bak, false);
+    io.print("Прежние настройки сохранены: " + bak);
+  }
   writeFileSync(envPath, env, { mode: 0o600 });
   await protect(ctx, envPath, false);
   for (const dir of dataDirs(ctx, a)) {
@@ -362,15 +383,27 @@ async function installLocalDocker(ctx, a) {
   const { cwd, exec, io, net } = ctx;
   if (a.proxy === "caddy") await checkPorts(net);
   await writeConfig(ctx, a);
-  // Пользователь контейнера – UID 1000: на Linux папки отдаются ему.
-  if (ctx.platform === "linux")
+  // Пользователь контейнера – UID 1000: на Linux папки отдаются ему через
+  // сам Docker, без sudo – достаточно прав на Docker.
+  if (ctx.platform === "linux") {
+    const dirs = dataDirs(ctx, a);
     await must(
       exec,
-      "sudo",
-      ["chown", "-R", "1000:1000", ...dataDirs(ctx, a)],
-      "Не удалось передать папки данных пользователю контейнера (sudo chown).",
+      "docker",
+      [
+        "run",
+        "--rm",
+        ...dirs.flatMap((d, i) => ["-v", `${d}:/d${i}`]),
+        "node:24-bookworm-slim",
+        "chown",
+        "-R",
+        "1000:1000",
+        ...dirs.map((d, i) => `/d${i}`),
+      ],
+      "Не удалось передать папки данных пользователю контейнера.",
       { inherit: true },
     );
+  }
 
   io.print("\n== Проверка и запуск");
   await must(
@@ -414,6 +447,13 @@ async function healthyOrLogs(ctx, a, readLogs) {
   );
 }
 
+// Последние 50 строк журнала сервера без Docker на Windows.
+const tailLog = (file) => ({
+  stdout: existsSync(file)
+    ? readFileSync(file, "utf8").split("\n").slice(-50).join("\n")
+    : `Нет файла ${file}`,
+});
+
 // ---------- без Docker ----------
 
 export const SERVICE = "attendance-journal";
@@ -437,6 +477,9 @@ async function checkNative(ctx) {
       stop(
         "Нет systemd: без Docker журнал ставится только как служба systemd. Выберите «Через Docker».",
       );
+    // Служба ставится через sudo: право проверяется заранее, пароль спросит sudo.
+    if ((await run(exec, "sudo", ["-v"], { inherit: true })).code !== 0)
+      stop("Нужно право sudo: без него службу systemd не поставить.");
   }
   if (platform === "win32" && (await run(exec, "net", ["session"])).code !== 0)
     stop(
@@ -523,11 +566,9 @@ async function installLocalNative(ctx, a) {
       ],
       "Не удалось зарегистрировать задачу планировщика.",
     );
-    await healthyOrLogs(ctx, a, async () => {
-      const log = path.resolve(cwd, a.dataDir, "server.log");
-      const text = existsSync(log) ? readFileSync(log, "utf8") : "";
-      return { stdout: text.split("\n").slice(-50).join("\n") };
-    });
+    await healthyOrLogs(ctx, a, async () =>
+      tailLog(path.resolve(cwd, a.dataDir, "server.log")),
+    );
   } else {
     io.print(`\n== Служба systemd ${SERVICE}`);
     await must(
@@ -616,7 +657,18 @@ const appScript = (ctx, a, script, args = []) =>
 // Режим входа и первый код администратору после успешного запуска.
 async function finishAccess(ctx, a) {
   const { io } = ctx;
-  if (a.auth === "personal") {
+  // На уже работавшей базе режим входа меняется только после вопроса.
+  const switchMode =
+    a.auth === "personal" &&
+    (!a.onExistingData ||
+      /^[ДдYy]/.test(
+        (
+          await io.ask(
+            "Включить вход только по личным паролям на существующей базе? Общий пароль и выбор себя из списка перестанут работать. [д/н]",
+          )
+        ).trim(),
+      ));
+  if (switchMode) {
     const r = await appScript(ctx, a, "enable-personal-only.mjs");
     if (r.code !== 0)
       stop("Не удалось включить вход только по личным паролям:\n" + r.stderr);
@@ -705,10 +757,15 @@ function existingDb(cwd, env, method) {
 // Прежняя установка в этой папке: есть .env или база журнала.
 function findExisting(ctx) {
   const envPath = path.join(ctx.cwd, ".env");
-  const env = existsSync(envPath) ? readEnvFile(envPath) : {};
-  const db = path.resolve(ctx.cwd, "data/attendance.sqlite");
-  if (!existsSync(envPath) && !existsSync(db)) return null;
-  return { envPath, env, hasEnv: existsSync(envPath) };
+  const hasEnv = existsSync(envPath);
+  const env = hasEnv ? readEnvFile(envPath) : {};
+  const dbs = [
+    existingDb(ctx.cwd, env, "docker"),
+    existingDb(ctx.cwd, env, "native"),
+  ];
+  const db = dbs.find((f) => existsSync(f));
+  if (!hasEnv && !db) return null;
+  return { envPath, env, hasEnv, hasDb: Boolean(db) };
 }
 
 // Способ прежней установки: по .env, службе systemd или задаче планировщика.
@@ -820,9 +877,11 @@ async function updateLocal(ctx, a, found) {
         ["-NoProfile", "-Command", `Start-ScheduledTask -TaskName '${TASK}'`],
         "Не удалось запустить задачу планировщика.",
       );
-      await healthyOrLogs(ctx, a, async () => ({
-        stdout: "Смотрите server.log в папке базы.",
-      }));
+      await healthyOrLogs(ctx, a, async () =>
+        tailLog(
+          path.join(path.dirname(existingDb(cwd, env, "native")), "server.log"),
+        ),
+      );
     } else {
       await must(
         exec,
@@ -910,36 +969,65 @@ export async function runInstaller(ctx) {
     io.print(
       "Установка журнала посещаемости. Enter – ответ по умолчанию в [скобках], «<» – назад.",
     );
-    // Сначала «куда и как» и проверки для этого способа – чтобы отказ
-    // (macOS без Docker, нет Docker) пришёл до остальных вопросов.
+    // Этапы вопросов: «куда», «как» с проверками способа, остальное. «<» на
+    // первом вопросе этапа возвращает на предыдущий с прежними ответами,
+    // проверки этапа повторяются. Ответы из ключей запуска не спрашиваются.
     const { update, reconfigure, ...preset } = ctx.preset;
-    const a = await askSteps(io, STEPS.slice(0, 1), { ...preset });
-    if (a.target === "remote")
-      return await remoteFlow(ctx, a, {
-        finish: async (b) => {
-          await finishAccess(ctx, b);
-          await checkHttps(ctx, b.domain);
-          memo(ctx, b);
-        },
-      });
-    const found = findExisting(ctx);
-    if (found && !reconfigure) return await existingFlow(ctx, a, found);
-    if (found && found.hasEnv) {
-      const sure = (
-        await io.ask(
-          "Заполнить настройки заново? Прежний .env сохранится копией, база и сканы не меняются. [д/н]",
-        )
-      ).trim();
-      if (!/^[ДдYy]/.test(sure)) {
-        io.print("Ничего не изменено.");
-        return 0;
+    const fixed = new Set(Object.keys(preset));
+    const a = { ...preset };
+    const finish = async (b) => {
+      await finishAccess(ctx, b);
+      await checkHttps(ctx, b.domain);
+      memo(ctx, b);
+    };
+    for (let phase = 0; phase < 3;) {
+      if (phase === 0) {
+        await askSteps(io, STEPS.slice(0, 1), a, { fixed });
+        if (a.target === "remote") {
+          const r = await remoteFlow(ctx, a, { finish, fixed });
+          if (r !== BACK) return r;
+          if (fixed.has("target")) io.print("Это первый вопрос.");
+          continue;
+        }
+        const found = findExisting(ctx);
+        if (found && !reconfigure) return await existingFlow(ctx, a, found);
+        if (found) {
+          const sure = (
+            await io.ask(
+              "Заполнить настройки заново? Прежний .env сохранится копией, база и сканы не меняются. [д/н]",
+            )
+          ).trim();
+          if (!/^[ДдYy]/.test(sure)) {
+            io.print("Ничего не изменено.");
+            return 0;
+          }
+          a.onExistingData = found.hasDb;
+        }
+        phase = 1;
+      } else if (phase === 1) {
+        if (
+          !(await askSteps(io, STEPS.slice(1, 2), a, {
+            fixed,
+            back: !fixed.has("target"),
+          }))
+        ) {
+          phase = 0;
+          continue;
+        }
+        if (a.method === "native") await checkNative(ctx);
+        else await checkDocker(ctx.exec);
+        phase = 2;
+      } else {
+        const backTo = fixed.has("method") ? (fixed.has("target") ? -1 : 0) : 1;
+        if (
+          !(await askSteps(io, STEPS.slice(2), a, { fixed, back: backTo >= 0 }))
+        ) {
+          phase = backTo;
+          continue;
+        }
+        phase = 3;
       }
-      copyFileSync(found.envPath, `${found.envPath}.bak.${stamp()}`);
     }
-    await askSteps(io, STEPS.slice(1, 2), a);
-    if (a.method === "native") await checkNative(ctx);
-    else await checkDocker(ctx.exec);
-    await askSteps(io, STEPS.slice(2), a);
     if (a.auth === "shared") a.passwordHash = await askSharedPassword(io);
     io.print("\n" + summary(a));
     const go = (await io.ask("Установить? [д/н]")).trim();
@@ -950,9 +1038,7 @@ export async function runInstaller(ctx) {
     if (a.method === "native") await installLocalNative(ctx, a);
     else await installLocalDocker(ctx, a);
     io.print("Журнал работает.");
-    await finishAccess(ctx, a);
-    await checkHttps(ctx, a.domain);
-    memo(ctx, a);
+    await finish(a);
     return 0;
   } catch (e) {
     if (e instanceof InstallError) {

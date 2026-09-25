@@ -14,6 +14,7 @@ import {
   summary,
   stamp,
   askSharedPassword,
+  BACK,
 } from "./core.mjs";
 
 const HOST_RE =
@@ -281,6 +282,12 @@ export async function installRemote(ctx, a) {
   await sshMust(
     ctx,
     a,
+    `if [ -f ${a.remoteDir}/.env ]; then cp -p ${a.remoteDir}/.env ${a.remoteDir}/.env.bak.${stamp()}; fi`,
+    "Не удалось сохранить копию .env на сервере.",
+  );
+  await sshMust(
+    ctx,
+    a,
     `umask 077 && cat > ${a.remoteDir}/.env`,
     "Не удалось записать .env на сервере.",
     { input: env },
@@ -340,6 +347,17 @@ export async function updateRemote(ctx, a) {
   );
 }
 
+async function confirmReconfigure(ctx, a) {
+  const sure = (
+    await ctx.io.ask(
+      "Заполнить настройки на сервере заново? Прежний .env сохранится копией, база и сканы не меняются. [д/н]",
+    )
+  ).trim();
+  if (/^[ДдYy]/.test(sure)) return true;
+  ctx.io.print("Ничего не изменено.");
+  return false;
+}
+
 // Серверный скрипт журнала внутри контейнера на сервере.
 export const remoteAppScript = (ctx, a, script, args = []) =>
   ssh(
@@ -353,29 +371,24 @@ export const remoteAppScript = (ctx, a, script, args = []) =>
 
 // Сценарий удалённой установки целиком: вопросы о сервере, проверки,
 // прежняя установка или новая, запуск.
-export async function remoteFlow(ctx, a, { finish }) {
+// Этапы: вопросы о сервере с проверками, затем остальное. «<» на первом
+// вопросе о сервере – назад к «куда ставить» (BACK), на первом вопросе
+// второго этапа – к вопросам о сервере с прежними ответами.
+export async function remoteFlow(ctx, a, { finish, fixed }) {
   const { io } = ctx;
-  await askSteps(io, REMOTE_STEPS, a);
-  a.method = "docker";
-  await checkServer(ctx, a);
-  const existing = await remoteExisting(ctx, a);
-  if (existing && ctx.preset.reconfigure) {
-    const sure = (
-      await io.ask(
-        "Заполнить настройки на сервере заново? Прежний .env сохранится копией, база и сканы не меняются. [д/н]",
-      )
-    ).trim();
-    if (!/^[ДдYy]/.test(sure)) {
-      io.print("Ничего не изменено.");
-      return 0;
-    }
-    await sshMust(
-      ctx,
-      a,
-      `if [ -f ${a.remoteDir}/.env ]; then cp -p ${a.remoteDir}/.env ${a.remoteDir}/.env.bak.${stamp()}; fi`,
-      "Не удалось сохранить копию .env на сервере.",
-    );
-  } else if (existing) {
+  let existing;
+  for (;;) {
+    if (!(await askSteps(io, REMOTE_STEPS, a, { fixed, back: true })))
+      return BACK;
+    a.method = "docker";
+    await checkServer(ctx, a);
+    existing = await remoteExisting(ctx, a);
+    if (existing && !ctx.preset.reconfigure) break;
+    if (existing && !(await confirmReconfigure(ctx, a))) return 0;
+    if (existing) a.onExistingData = true;
+    if (await askSteps(io, STEPS.slice(2), a, { fixed, back: true })) break;
+  }
+  if (existing && !ctx.preset.reconfigure) {
     io.print(`\nНа сервере в ${a.remoteDir} уже установлен журнал.`);
     const pick = await askSteps(
       io,
@@ -402,7 +415,6 @@ export async function remoteFlow(ctx, a, { finish }) {
     await updateRemote(ctx, a);
     return 0;
   }
-  await askSteps(io, STEPS.slice(2), a);
   if (a.auth === "shared") a.passwordHash = await askSharedPassword(io);
   io.print("\n" + summary(a));
   const go = (await io.ask("Установить? [д/н]")).trim();

@@ -134,7 +134,7 @@ test("Через Docker со встроенным Caddy: .env, права, па�
     const lines = calls.map((c) => c.line);
     const order = [
       "docker info",
-      "sudo chown",
+      "docker run --rm",
       "docker compose config",
       "docker compose up -d --build",
     ];
@@ -258,7 +258,7 @@ test("Журнал не ответил: последние строки журн
     assert.ok(out.includes("строка журнала сервера"));
     assert.ok(existsSync(path.join(dir, ".env")));
     assert.ok(
-      !calls.some((c) => /\b(down|rm)\b/.test(c.line)),
+      !calls.some((c) => /compose down|\brm -[rf]|rmdir/.test(c.line)),
       "ничего не удаляется",
     );
   } finally {
@@ -682,7 +682,8 @@ test("--reconfigure: только после подтверждения, пре�
       "без подтверждения ничего",
     );
 
-    const answers = ["д", ...dockerCaddy.slice(1)];
+    // …после «Установить?» – вопрос о режиме входа на существующей базе.
+    const answers = ["д", ...dockerCaddy.slice(1, -1), "д", ""];
     const r = fakeIo(answers);
     assert.equal(
       await runInstaller(
@@ -963,7 +964,7 @@ test("Сбой docker compose up: последние строки журнала
     assert.ok(out.includes("строка журнала сервера"));
     assert.match(out.join("\n"), /Не удалось собрать или запустить контейнеры/);
     assert.ok(existsSync(path.join(dir, ".env")));
-    assert.ok(!calls.some((c) => /\b(down|rm)\b/.test(c.line)));
+    assert.ok(!calls.some((c) => /compose down|\brm -[rf]|rmdir/.test(c.line)));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1064,7 +1065,13 @@ test("--reconfigure на сервере: подтверждение, копия 
       ),
     );
 
-    const answers = [...remoteHead.slice(1), "д", ...remoteNew.slice(6)];
+    const answers = [
+      ...remoteHead.slice(1),
+      "д",
+      ...remoteNew.slice(6, -1),
+      "н",
+      "",
+    ];
     const f = fakeIo(answers);
     const r2 = fakeServer({ existing: true });
     assert.equal(
@@ -1085,6 +1092,197 @@ test("--reconfigure на сервере: подтверждение, копия 
       l.startsWith("umask 077 && cat > /opt/attendance-journal/.env"),
     );
     assert.ok(bak >= 0 && write > bak, ssh.join(" | "));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("«<» через границу этапов: с адреса сайта назад к «Как ставить?», проверки способа повторяются", async () => {
+  const dir = project();
+  try {
+    // куда, как – Docker, «<» на адресе сайта, снова «как» – Docker, дальше по умолчанию.
+    const answers = [
+      "",
+      "",
+      "<",
+      "",
+      "journal.example.edu",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "д",
+      "",
+    ];
+    const { io, out } = fakeIo(answers);
+    const { exec, calls } = fakeExec();
+    assert.equal(await runInstaller(ctx(dir, io, exec)), 0);
+    assert.equal(
+      out.filter((t) => t.startsWith("Как ставить?")).length,
+      2,
+      "вопрос «как» задан повторно",
+    );
+    assert.equal(
+      calls.filter((c) => c.line === "docker info").length,
+      2,
+      "проверки Docker повторены",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Прежний ответ становится ответом по умолчанию после «<»", async () => {
+  const dir = project();
+  try {
+    const answers = [
+      "",
+      "",
+      "journal.example.edu",
+      "2",
+      "<",
+      "<",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "д",
+      "",
+    ];
+    const { io, out } = fakeIo(answers);
+    assert.equal(await runInstaller(ctx(dir, io, fakeExec().exec)), 0);
+    assert.ok(
+      out.includes("[journal.example.edu]"),
+      "домен предложен по умолчанию",
+    );
+    assert.match(
+      readFileSync(path.join(dir, ".env"), "utf8"),
+      /^DOMAIN=journal\.example\.edu$/m,
+    );
+    assert.match(
+      readFileSync(path.join(dir, ".env"), "utf8"),
+      /^PROXY_SCALE=0$/m,
+      "выбор «свой прокси» сохранён",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Linux без Docker: без права sudo – остановка до изменений", async () => {
+  const dir = project();
+  try {
+    const { io, out } = fakeIo(nativeAnswers);
+    assert.equal(
+      await runInstaller(nativeCtx(dir, io, fakeExec({ "sudo -v": 1 }).exec)),
+      1,
+    );
+    assert.match(out.join("\n"), /Нужно право sudo/);
+    assert.ok(!existsSync(path.join(dir, ".env")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("--reconfigure при базе без .env – подтверждение; режим входа на существующей базе только после вопроса", async () => {
+  const dir = project();
+  try {
+    mkdirSync(path.join(dir, "data"));
+    writeFileSync(path.join(dir, "data/attendance.sqlite"), "база");
+    const { io } = fakeIo(["н"]);
+    const { exec, calls } = fakeExec();
+    assert.equal(
+      await runInstaller(
+        ctx(dir, io, exec, { preset: { reconfigure: true, target: "local" } }),
+      ),
+      0,
+    );
+    assert.ok(!existsSync(path.join(dir, ".env")) && !calls.length);
+
+    const answers = ["д", ...dockerCaddy.slice(1, -1), "н", ""];
+    const r = fakeIo(answers);
+    const run = fakeExec();
+    assert.equal(
+      await runInstaller(
+        ctx(dir, r.io, run.exec, {
+          preset: { reconfigure: true, target: "local" },
+        }),
+      ),
+      0,
+    );
+    assert.ok(
+      !run.calls.some((c) => c.line.includes("enable-personal-only")),
+      "режим не включён без согласия",
+    );
+    assert.ok(run.calls.some((c) => c.line.includes("invite-admin")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Windows: неуспешный icacls – остановка; копия .env при --reconfigure закрыта так же", async () => {
+  const dir = project();
+  try {
+    const { io, out } = fakeIo(dockerCaddy);
+    assert.equal(
+      await runInstaller(
+        ctx(dir, io, fakeExec({ icacls: 5 }).exec, { platform: "win32" }),
+      ),
+      1,
+    );
+    assert.match(out.join("\n"), /Не удалось закрыть права/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const dir2 = installedDocker();
+  try {
+    const answers = ["д", ...dockerCaddy.slice(1, -1), "д", ""];
+    const { io } = fakeIo(answers);
+    const { exec, calls } = fakeExec();
+    assert.equal(
+      await runInstaller(
+        ctx(dir2, io, exec, {
+          platform: "win32",
+          preset: { reconfigure: true, target: "local" },
+        }),
+      ),
+      0,
+    );
+    assert.ok(
+      calls.some(
+        (c) => c.line.startsWith("icacls") && c.line.includes(".env.bak."),
+      ),
+      "копия .env закрыта",
+    );
+  } finally {
+    rmSync(dir2, { recursive: true, force: true });
+  }
+});
+
+test("Прежняя установка находится по базе в папке из DATA_DIR", async () => {
+  const dir = project();
+  try {
+    mkdirSync(path.join(dir, "disk/data"), { recursive: true });
+    writeFileSync(path.join(dir, "disk/data/attendance.sqlite"), "база");
+    writeFileSync(
+      path.join(dir, ".env"),
+      "DOMAIN=journal.example.edu\nDATA_DIR=disk/data\n",
+    );
+    const { io } = fakeIo(["", "1", ""]);
+    const { exec } = fakeExec();
+    assert.equal(await runInstaller(ctx(dir, io, exec)), 0);
+    assert.ok(
+      readdirSync(path.join(dir, "disk/data")).some((f) =>
+        f.includes("before-update"),
+      ),
+      "копия снята в папке из DATA_DIR",
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
