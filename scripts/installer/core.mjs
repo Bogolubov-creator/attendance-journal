@@ -9,6 +9,9 @@ import {
   chmodSync,
 } from "node:fs";
 import path from "node:path";
+import { passwordHash } from "../../src/management-auth.js";
+import { passwordProblem } from "../../src/staff-accounts.js";
+import { managers } from "../../src/office.js";
 
 export class InstallError extends Error {}
 const stop = (message) => {
@@ -118,6 +121,18 @@ export const STEPS = [
       default: "14",
       check: (v) =>
         /^\d{1,3}$/.test(v) && Number(v) > 0 ? null : "Нужно число от 1 до 999",
+    }),
+  },
+  {
+    id: "auth",
+    ask: () => ({
+      text: "Как сотрудники входят в журнал?",
+      help: "Личные пароли: у каждого свой, первый задаётся по коду приглашения. Общий пароль один на всех и не подтверждает, кто вошёл.",
+      choices: [
+        ["personal", "Личные пароли"],
+        ["shared", "Только общий пароль"],
+      ],
+      default: "personal",
     }),
   },
 ];
@@ -241,6 +256,7 @@ export function summary(a) {
     `HTTPS: ${a.proxy === "caddy" ? "встроенный Caddy" : `свой прокси (TRUST_PROXY=${a.trustProxy})`}`,
     `Папки: база – ${a.dataDir}, копии – ${a.backupsDir}, сканы – ${a.uploadsDir}`,
     `Копий хранить: ${a.backupKeep}`,
+    `Вход: ${a.auth === "shared" ? "только общий пароль" : "личные пароли"}`,
   ].join("\n");
 }
 
@@ -394,6 +410,84 @@ async function checkHttps(ctx, domain) {
     );
 }
 
+// Общий пароль: скрытый ввод дважды, в настройки – только хеш.
+async function askSharedPassword(io) {
+  io.print(
+    "\nВнимание: общий пароль не подтверждает, кто вошёл. Перед работой с реальными данными ограничьте доступ к сайту сетью университета или VPN.",
+  );
+  for (;;) {
+    const first = await io.askSecret("Общий пароль (не отображается):");
+    const problem = passwordProblem(first);
+    if (problem) {
+      io.print(problem);
+      continue;
+    }
+    if ((await io.askSecret("Повторите пароль:")) === first)
+      return passwordHash(first);
+    io.print("Пароли не совпадают, введите ещё раз.");
+  }
+}
+
+// Серверный скрипт журнала внутри установленного приложения.
+const appScript = (ctx, a, script, args = []) =>
+  ctx.exec(
+    "docker",
+    ["compose", "exec", "-T", "app", "node", `scripts/${script}`, ...args],
+    { cwd: ctx.cwd },
+  );
+
+// Режим входа и первый код администратору после успешного запуска.
+async function finishAccess(ctx, a) {
+  const { io } = ctx;
+  if (a.auth === "personal") {
+    const r = await appScript(ctx, a, "enable-personal-only.mjs");
+    if (r.code !== 0)
+      stop("Не удалось включить вход только по личным паролям:\n" + r.stderr);
+    io.print(r.stdout.trim());
+  }
+  const admins = managers.filter((m) => m.role === "admin");
+  const pick = await askSteps(io, [
+    {
+      id: "admin",
+      ask: () => ({
+        text: "Кому выдать первый код приглашения?",
+        help: "Этот сотрудник полного доступа первым войдёт в журнал и выдаст коды остальным.",
+        choices: admins.map((m) => [m.id, m.name]),
+        default: "gadzhieva",
+      }),
+    },
+  ]);
+  const r = await appScript(ctx, a, "invite-admin.mjs", [pick.admin]);
+  if (r.code !== 0) stop("Не удалось выдать код приглашения:\n" + r.stderr);
+  io.print("\n== Первый вход\n" + r.stdout.trim());
+}
+
+function memo(ctx, a) {
+  const docker = a.method !== "native";
+  const lines = [
+    "",
+    "== Что дальше",
+    `Сайт: https://${a.domain} – «Первый вход по коду приглашения», задать пароль.`,
+    "Реестр: «Студенты» → «Обновить реестр из Excel».",
+    "Доступ остальным: «Сотрудники» → «Выдать доступ» или «Выгрузить коды приглашения».",
+    `Где данные: база – ${a.dataDir}, копии – ${a.backupsDir}, сканы – ${a.uploadsDir}.`,
+    "Копии базы не включают сканы: выгружайте обе папки на внешнее хранилище вместе.",
+  ];
+  if (docker)
+    lines.push(
+      "Журнал сервера: docker compose logs --tail=100 app",
+      "Перезапуск: docker compose restart app",
+    );
+  lines.push(
+    "Обновление: снова запустите установщик – он предложит «Обновить».",
+  );
+  if (a.auth === "shared")
+    lines.push(
+      "Общий пароль не подтверждает личность: до работы с реальными данными ограничьте доступ к сайту.",
+    );
+  ctx.io.print(lines.join("\n"));
+}
+
 // Точка входа ядра. Возвращает код выхода.
 export async function runInstaller(ctx) {
   const { io } = ctx;
@@ -412,6 +506,7 @@ export async function runInstaller(ctx) {
         "Установка без Docker появится в следующей версии установщика; пока – scripts/install.sh --native или scripts/install.ps1 -Native.",
       );
     await checkDocker(ctx.exec);
+    if (a.auth === "shared") a.passwordHash = await askSharedPassword(io);
     io.print("\n" + summary(a));
     const go = (await io.ask("Установить? [д/н]")).trim();
     if (!/^[ДдYy]/.test(go)) {
@@ -420,7 +515,9 @@ export async function runInstaller(ctx) {
     }
     await installLocalDocker(ctx, a);
     io.print("Журнал работает.");
+    await finishAccess(ctx, a);
     await checkHttps(ctx, a.domain);
+    memo(ctx, a);
     return 0;
   } catch (e) {
     if (e instanceof InstallError) {

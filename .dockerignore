@@ -8,3 +8,4 @@
 !public/**
 !scripts/invite-admin.mjs
 !scripts/allow-shared-password.mjs
+!scripts/enable-personal-only.mjs

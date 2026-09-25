@@ -1,6 +1,7 @@
 // Запуск установщика: настоящий ввод, команды и сеть для ядра (core.mjs).
 // Вызывается обёртками install.sh / install.bat из корня журнала.
 import { createInterface } from "node:readline";
+import { Writable } from "node:stream";
 import { spawn } from "node:child_process";
 import { connect } from "node:net";
 import http from "node:http";
@@ -12,20 +13,40 @@ import { runInstaller } from "./core.mjs";
 
 // Ответы читаются по строкам по порядку: так не теряются строки, пришедшие
 // раньше вопроса (ввод из файла или конвейера). Конец ввода – отмена.
-const rl = createInterface({ input: process.stdin, terminal: false });
+// Эхо идёт через out: на время ввода пароля оно выключается.
+let muted = false;
+const out = new Writable({
+  write(chunk, encoding, done) {
+    if (!muted) process.stdout.write(chunk);
+    done();
+  },
+});
+const rl = createInterface({
+  input: process.stdin,
+  output: out,
+  terminal: Boolean(process.stdin.isTTY),
+});
 const lines = rl[Symbol.asyncIterator]();
+async function nextLine(prompt) {
+  process.stdout.write(prompt + " ");
+  const { value, done } = await lines.next();
+  if (done) {
+    console.log("\nВвод закончился – установка прервана.");
+    process.exit(1);
+  }
+  return value;
+}
 const io = {
   print: (text) => console.log(text),
-  ask: async (prompt) => {
-    process.stdout.write(prompt + " ");
-    const { value, done } = await lines.next();
-    if (done) {
-      console.log(
-        "\nВвод закончился – установка прервана, ничего не изменено.",
-      );
-      process.exit(1);
+  ask: (prompt) => nextLine(prompt),
+  askSecret: async (prompt) => {
+    muted = true;
+    try {
+      return await nextLine(prompt);
+    } finally {
+      muted = false;
+      process.stdout.write("\n");
     }
-    return value;
   },
 };
 

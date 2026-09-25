@@ -40,6 +40,11 @@ function fakeIo(answers) {
         if (!queue.length) throw Error("Кончились ответы на: " + p);
         return queue.shift();
       },
+      askSecret: async (p) => {
+        out.push(p);
+        if (!queue.length) throw Error("Кончились ответы на: " + p);
+        return queue.shift();
+      },
     },
   };
 }
@@ -53,7 +58,11 @@ function fakeExec(fail = {}) {
       Object.entries(fail).find(([k]) => line.startsWith(k))?.[1] ?? 0;
     return {
       code,
-      stdout: line.includes("logs") ? "строка журнала сервера" : "",
+      stdout: line.includes("logs")
+        ? "строка журнала сервера"
+        : line.includes("invite-admin")
+          ? "Логин: gadzhieva.ao\nКод приглашения: ABCD-EFGH-JKMN"
+          : "",
       stderr: code ? "сбой" : "",
     };
   };
@@ -72,7 +81,20 @@ const ctx = (dir, io, exec, extra = {}) => ({
   ...extra,
 });
 // Ответы новой установки через Docker со встроенным Caddy (всё по умолчанию, кроме домена).
-const dockerCaddy = ["", "", "journal.example.edu", "", "", "", "", "", "д"];
+// Порядок: куда, как, домен, HTTPS, три папки, копии, вход, «Установить?», кому код.
+const dockerCaddy = [
+  "",
+  "",
+  "journal.example.edu",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "д",
+  "",
+];
 
 test("Домен: формат проверяется", () => {
   assert.ok(validDomain("journal.pravo.hse.ru"));
@@ -143,7 +165,9 @@ test("Свой прокси: Caddy выключен, TRUST_PROXY спрошен,
       "",
       "",
       "30",
+      "",
       "д",
+      "",
     ]);
     const { exec } = fakeExec();
     let portChecks = 0;
@@ -178,7 +202,9 @@ test("«<» возвращает к предыдущему вопросу, не�
       "",
       "",
       "",
+      "",
       "д",
+      "",
     ];
     const { io, out } = fakeIo(answers);
     assert.equal(await runInstaller(ctx(dir, io, fakeExec().exec)), 0);
@@ -257,7 +283,7 @@ test("HTTPS не отвечает: предупреждение, установ�
 test("Отказ на «Установить?» ничего не меняет", async () => {
   const dir = project();
   try {
-    const answers = [...dockerCaddy.slice(0, -1), "н"];
+    const answers = [...dockerCaddy.slice(0, -2), "н"];
     const { io } = fakeIo(answers);
     const { exec, calls } = fakeExec();
     assert.equal(await runInstaller(ctx(dir, io, exec)), 0);
@@ -280,6 +306,80 @@ test("Windows: права на .env и папки через icacls", async () =
     const icacls = calls.filter((c) => c.line.startsWith("icacls"));
     assert.equal(icacls.length, 4, ".env и три папки");
     assert.ok(!calls.some((c) => c.line.startsWith("sudo")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Личные пароли по умолчанию: режим включается, общий пароль не спрашивается, первый код и памятка", async () => {
+  const dir = project();
+  try {
+    const { io, out } = fakeIo(dockerCaddy);
+    const { exec, calls } = fakeExec();
+    assert.equal(await runInstaller(ctx(dir, io, exec)), 0);
+    const lines = calls.map((c) => c.line);
+    const enable = lines.findIndex((l) =>
+      l.endsWith("scripts/enable-personal-only.mjs"),
+    );
+    const invite = lines.findIndex((l) =>
+      l.endsWith("scripts/invite-admin.mjs gadzhieva"),
+    );
+    assert.ok(enable > 0 && invite > enable, lines.join(" | "));
+    assert.ok(lines[enable].startsWith("docker compose exec -T app node"));
+    assert.ok(
+      !out.some((t) => /не отображается/.test(t)),
+      "пароль не спрашивался",
+    );
+    assert.match(
+      readFileSync(path.join(dir, ".env"), "utf8"),
+      /^MANAGEMENT_PASSWORD_HASH=$/m,
+    );
+    const text = out.join("\n");
+    assert.match(text, /Кому выдать первый код/);
+    assert.match(text, /Гаджиева Альбина Омаровна/);
+    assert.match(text, /Код приглашения: ABCD-EFGH-JKMN/);
+    for (const hint of [
+      "Обновить реестр из Excel",
+      "Выгрузить коды приглашения",
+      "выгружайте обе папки",
+      "docker compose logs",
+      "Обновление:",
+    ])
+      assert.ok(text.includes(hint), hint);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Только общий пароль: предупреждение, повтор при несовпадении, в .env только хеш, пароля нет ни в командах, ни на экране", async () => {
+  const dir = project();
+  try {
+    const secret = "общий пароль журнала";
+    // …копии, вход «2», пароль, неверный повтор, пароль, повтор, «Установить?», кому код – второй.
+    const answers = [
+      ...dockerCaddy.slice(0, 8),
+      "2",
+      secret,
+      "другой пароль",
+      secret,
+      secret,
+      "д",
+      "2",
+    ];
+    const { io, out } = fakeIo(answers);
+    const { exec, calls } = fakeExec();
+    assert.equal(await runInstaller(ctx(dir, io, exec)), 0);
+    const text = out.join("\n");
+    assert.match(text, /не подтверждает, кто вошёл/);
+    assert.match(text, /Пароли не совпадают/);
+    const env = readFileSync(path.join(dir, ".env"), "utf8");
+    assert.match(env, /^MANAGEMENT_PASSWORD_HASH=[a-f0-9]{32}:[a-f0-9]{128}$/m);
+    assert.ok(!env.includes(secret));
+    assert.ok(!calls.some((c) => c.line.includes(secret)));
+    assert.ok(!out.some((t) => t.includes(secret)));
+    assert.ok(!calls.some((c) => c.line.includes("enable-personal-only")));
+    assert.ok(calls.some((c) => c.line.endsWith("invite-admin.mjs chinkova")));
+    assert.match(text, /ограничьте доступ к сайту/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
