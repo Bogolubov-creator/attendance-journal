@@ -117,3 +117,32 @@ test("День X: общий пароль, выбор из списка и де�
     await s.close();
   }
 });
+
+test("Серверный скрипт включает режим «только личные пароли», повторный запуск ничего не меняет", async () => {
+  const s = await startServer(3128);
+  try {
+    const run = () =>
+      execFileSync(process.execPath, ["scripts/enable-personal-only.mjs"], {
+        env: { ...process.env, DB_PATH: s.dbPath },
+        encoding: "utf8",
+      });
+    assert.match(run(), /Включён вход только по личным паролям/);
+    const session = await (await s.call("/api/session")).json();
+    assert.equal(session.personalOnly, true);
+    assert.deepEqual(session.teachers, []);
+    const r = await s.call("/api/select-login", {
+      method: "POST",
+      body: { role: "admin", personId: "gadzhieva", password: SHARED_PASSWORD },
+    });
+    assert.equal(r.status, 403);
+    assert.match(run(), /уже включён/);
+    const db = s.db();
+    const n = db
+      .prepare("SELECT count(*) n FROM audit WHERE action='access.mode'")
+      .get().n;
+    db.close();
+    assert.equal(n, 1);
+  } finally {
+    await s.close();
+  }
+});

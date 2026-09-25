@@ -12,13 +12,19 @@ services:
       PORT: "3100"
       AUTO_BACKUP: "true"
       BACKUP_DIR: /app/backups
-      BACKUP_KEEP: "14"
-      TRUST_PROXY: "1"
+      # Число копий и прокси – из .env (ответы установщика), без них – прежние значения.
+      BACKUP_KEEP: ${BACKUP_KEEP:-14}
+      TRUST_PROXY: ${TRUST_PROXY:-1}
       UPLOAD_DIR: /app/uploads
+    # Журнал слушает только loopback хоста: свой HTTPS-прокси сервера
+    # обращается к 127.0.0.1:3100, встроенный Caddy – по внутренней сети.
+    ports:
+      - "127.0.0.1:${APP_HOST_PORT:-3100}:3100"
+    # Папки данных задаёт установщик (DATA_DIR, BACKUPS_DIR, UPLOADS_DIR в .env).
     volumes:
-      - ./data:/app/data
-      - ./backups:/app/backups
-      - ./uploads:/app/uploads
+      - ${DATA_DIR:-./data}:/app/data
+      - ${BACKUPS_DIR:-./backups}:/app/backups
+      - ${UPLOADS_DIR:-./uploads}:/app/uploads
     read_only: true
     tmpfs:
       - /tmp
@@ -35,7 +41,8 @@ services:
           "-e",
           "require('http').get('http://127.0.0.1:3100/healthz',{headers:{host:new URL(process.env.APP_ORIGIN).host}},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
         ]
-      interval: 30s
+      # Частая проверка: установщик ждёт «healthy» после запуска.
+      interval: 10s
       timeout: 5s
       retries: 3
       start_period: 20s
@@ -47,6 +54,8 @@ services:
   proxy:
     image: caddy:2-alpine
     restart: unless-stopped
+    # PROXY_SCALE=0 – у сервера свой HTTPS-прокси, встроенный Caddy не нужен.
+    scale: ${PROXY_SCALE:-1}
     environment:
       DOMAIN: ${DOMAIN:?Укажите DOMAIN в .env}
     ports:
