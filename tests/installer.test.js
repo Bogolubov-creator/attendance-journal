@@ -706,3 +706,250 @@ test("--reconfigure: только после подтверждения, пре�
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// Сервер по SSH: ответы по содержимому удалённой команды.
+function fakeServer({
+  existing = false,
+  os = "Linux",
+  fail = {},
+  env = "",
+} = {}) {
+  const calls = [];
+  const exec = async (cmd, args, opts = {}) => {
+    const line = [cmd, ...args].join(" ");
+    calls.push({ cmd, args, line, opts });
+    const remote = cmd === "ssh" ? args.at(-1) : "";
+    const failed = Object.entries(fail).find(([k]) => line.includes(k));
+    if (failed) return { code: failed[1], stdout: "", stderr: "сбой" };
+    if (remote === "uname -s")
+      return { code: 0, stdout: os + "\n", stderr: "" };
+    if (remote.startsWith("test -f"))
+      return { code: existing ? 0 : 1, stdout: "", stderr: "" };
+    if (remote.startsWith("(ss -ltn"))
+      return { code: 1, stdout: "", stderr: "" };
+    if (remote.startsWith("cat ")) return { code: 0, stdout: env, stderr: "" };
+    if (remote.includes("--format '{{.Health}}'"))
+      return { code: 0, stdout: "healthy\n", stderr: "" };
+    if (remote.includes("invite-admin"))
+      return {
+        code: 0,
+        stdout: "Логин: gadzhieva.ao\nКод приглашения: ABCD-EFGH-JKMN",
+        stderr: "",
+      };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  return { calls, exec };
+}
+// Куда – удалённый, адрес, пользователь, порт, ключ, папка.
+const remoteHead = ["2", "srv.example.edu", "deploy", "", "", ""];
+const remoteNew = [
+  ...remoteHead,
+  "journal.example.edu",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "д",
+  "",
+];
+const sshCommands = (calls) =>
+  calls.filter((c) => c.cmd === "ssh").map((c) => c.args.at(-1));
+
+test("Удалённо: проверки сервера, архив только из файлов приложения, .env через ввод SSH, запуск, код", async () => {
+  const dir = project();
+  try {
+    writeFileSync(path.join(dir, ".env.local-secret"), "не для сервера");
+    mkdirSync(path.join(dir, "backups"));
+    const { io, out } = fakeIo(remoteNew);
+    const { exec, calls } = fakeServer();
+    assert.equal(await runInstaller(ctx(dir, io, exec)), 0);
+    const ssh = sshCommands(calls);
+    const order = [
+      "uname -s",
+      "docker compose version",
+      "docker info",
+      "test -f /opt/attendance-journal/.env",
+      "(ss -ltn",
+      "mkdir -p /opt/attendance-journal && tar -xzf",
+      "umask 077 && cat > /opt/attendance-journal/.env",
+      "mkdir -p /opt/attendance-journal/data",
+      "cd /opt/attendance-journal && docker compose config --quiet",
+      "cd /opt/attendance-journal && docker compose up -d --build",
+      "cd /opt/attendance-journal && docker compose exec -T app node scripts/enable-personal-only.mjs",
+      "cd /opt/attendance-journal && docker compose exec -T app node scripts/invite-admin.mjs gadzhieva",
+    ];
+    let at = -1;
+    for (const cmd of order) {
+      const i = ssh.findIndex((l, n) => n > at && l.startsWith(cmd));
+      assert.ok(i > at, "порядок: " + cmd + " в " + ssh.join(" | "));
+      at = i;
+    }
+    const tar = calls.find((c) => c.cmd === "tar");
+    assert.ok(tar, "папка не под git – архив через tar");
+    const packed = tar.args.slice(tar.args.indexOf(dir) + 1);
+    assert.ok(packed.includes("src") && packed.includes("compose.yaml"));
+    for (const secret of [
+      ".env",
+      ".env.local-secret",
+      "data",
+      "backups",
+      "uploads",
+    ])
+      assert.ok(!packed.includes(secret), secret);
+    const scp = calls.find((c) => c.cmd === "scp");
+    assert.match(
+      scp.args.at(-1),
+      /^deploy@srv\.example\.edu:\/tmp\/journal-\d+\.tar\.gz$/,
+    );
+    const envCall = calls.find(
+      (c) => c.cmd === "ssh" && c.args.at(-1).startsWith("umask 077"),
+    );
+    assert.match(envCall.opts.input, /^DOMAIN=journal\.example\.edu$/m);
+    assert.match(envCall.opts.input, /^PROXY_SCALE=1$/m);
+    assert.ok(
+      calls.every((c) => !c.line.includes("MANAGEMENT_PASSWORD_HASH")),
+      "настройки не в аргументах",
+    );
+    assert.ok(
+      !existsSync(path.join(dir, ".env")),
+      "локально .env не создаётся",
+    );
+    assert.match(out.join("\n"), /ssh deploy@srv\.example\.edu/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Удалённо: нет SSH, не Linux, нет прав на Docker, занят порт, небезопасный путь – остановка до копирования кода", async () => {
+  for (const [name, server, answers, message] of [
+    [
+      "нет SSH",
+      { fail: { "uname -s": 255 } },
+      remoteNew,
+      /Нет доступа к deploy@srv\.example\.edu/,
+    ],
+    ["не Linux", { os: "Darwin" }, remoteNew, /не Linux/],
+    [
+      "нет прав на Docker",
+      { fail: { "docker info": 1 } },
+      remoteNew,
+      /группу docker/,
+    ],
+    ["порт занят", {}, remoteNew, /заняты порты 80 или 443/],
+    [
+      "путь с пробелом",
+      {},
+      [
+        ...remoteHead,
+        "journal.example.edu",
+        "",
+        "мои данные",
+        "",
+        "",
+        "",
+        "",
+        "д",
+        "",
+      ],
+      /допустимы только латиница/,
+    ],
+  ]) {
+    const dir = project();
+    try {
+      const { io, out } = fakeIo(answers);
+      const server2 = fakeServer(server);
+      let exec = server2.exec;
+      if (name === "порт занят")
+        exec = async (cmd, args, opts) =>
+          cmd === "ssh" && args.at(-1).startsWith("(ss -ltn")
+            ? { code: 0, stdout: "0.0.0.0:443", stderr: "" }
+            : server2.exec(cmd, args, opts);
+      assert.equal(await runInstaller(ctx(dir, io, exec)), 1, name);
+      assert.match(out.join("\n"), message, name);
+      assert.ok(
+        !server2.calls.some((c) => c.cmd === "scp"),
+        name + ": код не копировался",
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("Удалённо: прежняя установка – «Обновить» с копией базы на сервере, настройки не перезаписываются", async () => {
+  const dir = project();
+  try {
+    const { io, out } = fakeIo([...remoteHead, "1"]);
+    const { exec, calls } = fakeServer({
+      existing: true,
+      env: "DOMAIN=journal.example.edu\nDATA_DIR=data\n",
+    });
+    assert.equal(await runInstaller(ctx(dir, io, exec)), 0);
+    const ssh = sshCommands(calls);
+    const stop = ssh.findIndex((l) => l.endsWith("docker compose stop app"));
+    const copy = ssh.findIndex((l) =>
+      l.includes(
+        "cp -p /opt/attendance-journal/data/attendance.sqlite /opt/attendance-journal/data/attendance.before-update-",
+      ),
+    );
+    const up = ssh.findIndex((l) => l.endsWith("docker compose up -d --build"));
+    assert.ok(stop >= 0 && copy > stop && up > copy, ssh.join(" | "));
+    assert.ok(
+      calls.some((c) => c.cmd === "scp"),
+      "новый код уехал",
+    );
+    assert.ok(
+      !ssh.some((l) => l.startsWith("umask 077")),
+      ".env не перезаписан",
+    );
+    assert.ok(
+      !ssh.some(
+        (l) => l.includes("invite-admin") || l.includes("enable-personal-only"),
+      ),
+    );
+    assert.match(out.join("\n"), /Обновление готово/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Удалённо: общий пароль – хеш только внутри .env, переданного через ввод SSH", async () => {
+  const dir = project();
+  try {
+    const secret = "общий пароль журнала";
+    const answers = [
+      ...remoteHead,
+      "journal.example.edu",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "2",
+      secret,
+      secret,
+      "д",
+      "",
+    ];
+    const { io, out } = fakeIo(answers);
+    const { exec, calls } = fakeServer();
+    assert.equal(await runInstaller(ctx(dir, io, exec)), 0);
+    const envCall = calls.find(
+      (c) => c.cmd === "ssh" && c.args.at(-1).startsWith("umask 077"),
+    );
+    assert.match(
+      envCall.opts.input,
+      /^MANAGEMENT_PASSWORD_HASH=[a-f0-9]{32}:[a-f0-9]{128}$/m,
+    );
+    assert.ok(
+      !calls.some(
+        (c) => c.line.includes(secret) || (c.opts.input || "").includes(secret),
+      ),
+    );
+    assert.ok(!out.some((t) => t.includes(secret)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -13,9 +13,10 @@ import path from "node:path";
 import { passwordHash } from "../../src/management-auth.js";
 import { passwordProblem } from "../../src/staff-accounts.js";
 import { managers } from "../../src/office.js";
+import { remoteFlow, remoteAppScript } from "./remote.mjs";
 
 export class InstallError extends Error {}
-const stop = (message) => {
+export const stop = (message) => {
   throw new InstallError(message);
 };
 
@@ -265,11 +266,11 @@ export function summary(a) {
 
 // ---------- проверки и запуск ----------
 
-async function run(exec, cmd, args, opts = {}) {
+export async function run(exec, cmd, args, opts = {}) {
   const r = await exec(cmd, args, opts);
   return r;
 }
-async function must(exec, cmd, args, message, opts) {
+export async function must(exec, cmd, args, message, opts) {
   const r = await run(exec, cmd, args, opts);
   if (r.code !== 0)
     stop(
@@ -560,7 +561,7 @@ async function checkHttps(ctx, domain) {
 }
 
 // Общий пароль: скрытый ввод дважды, в настройки – только хеш.
-async function askSharedPassword(io) {
+export async function askSharedPassword(io) {
   io.print(
     "\nВнимание: общий пароль не подтверждает, кто вошёл. Перед работой с реальными данными ограничьте доступ к сайту сетью университета или VPN.",
   );
@@ -579,16 +580,26 @@ async function askSharedPassword(io) {
 
 // Серверный скрипт журнала рядом с установленным приложением.
 const appScript = (ctx, a, script, args = []) =>
-  a.method === "native"
-    ? ctx.exec(ctx.nodePath, [`scripts/${script}`, ...args], {
-        cwd: ctx.cwd,
-        env: { DB_PATH: envValues(a).DB_PATH },
-      })
-    : ctx.exec(
-        "docker",
-        ["compose", "exec", "-T", "app", "node", `scripts/${script}`, ...args],
-        { cwd: ctx.cwd },
-      );
+  a.target === "remote"
+    ? remoteAppScript(ctx, a, script, args)
+    : a.method === "native"
+      ? ctx.exec(ctx.nodePath, [`scripts/${script}`, ...args], {
+          cwd: ctx.cwd,
+          env: { DB_PATH: envValues(a).DB_PATH },
+        })
+      : ctx.exec(
+          "docker",
+          [
+            "compose",
+            "exec",
+            "-T",
+            "app",
+            "node",
+            `scripts/${script}`,
+            ...args,
+          ],
+          { cwd: ctx.cwd },
+        );
 
 // Режим входа и первый код администратору после успешного запуска.
 async function finishAccess(ctx, a) {
@@ -627,7 +638,12 @@ function memo(ctx, a) {
     `Где данные: база – ${a.dataDir}, копии – ${a.backupsDir}, сканы – ${a.uploadsDir}.`,
     "Копии базы не включают сканы: выгружайте обе папки на внешнее хранилище вместе.",
   ];
-  if (docker)
+  if (a.target === "remote")
+    lines.push(
+      `Журнал сервера: ssh ${a.sshUser}@${a.sshHost}, затем cd ${a.remoteDir} && docker compose logs --tail=100 app`,
+      `Перезапуск: cd ${a.remoteDir} && docker compose restart app (на сервере)`,
+    );
+  else if (docker)
     lines.push(
       "Журнал сервера: docker compose logs --tail=100 app",
       "Перезапуск: docker compose restart app",
@@ -706,7 +722,8 @@ async function guessMethod(ctx, env) {
   return "docker";
 }
 
-const stamp = () => new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
+export const stamp = () =>
+  new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
 
 // Копия базы (и её журнала WAL) рядом с базой – при остановленном журнале.
 function backupDb(ctx, db) {
@@ -895,9 +912,13 @@ export async function runInstaller(ctx) {
     const { update, reconfigure, ...preset } = ctx.preset;
     const a = await askSteps(io, STEPS.slice(0, 1), { ...preset });
     if (a.target === "remote")
-      stop(
-        "Установка на удалённый сервер появится в следующей версии установщика.",
-      );
+      return await remoteFlow(ctx, a, {
+        finish: async (b) => {
+          await finishAccess(ctx, b);
+          await checkHttps(ctx, b.domain);
+          memo(ctx, b);
+        },
+      });
     const found = findExisting(ctx);
     if (found && !reconfigure) return await existingFlow(ctx, a, found);
     if (found && found.hasEnv) {
