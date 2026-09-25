@@ -384,3 +384,162 @@ test("Только общий пароль: предупреждение, пов
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// Без Docker: домен, HTTPS (только свой прокси), TRUST_PROXY, три папки, копии, вход, «Установить?», кому код.
+const nativeAnswers = [
+  "journal.example.edu",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "д",
+  "",
+];
+const nativeCtx = (dir, io, exec, extra = {}) =>
+  ctx(dir, io, exec, {
+    preset: { target: "local", method: "native" },
+    nodePath: "/usr/bin/node",
+    isRoot: false,
+    ...extra,
+  });
+
+test("Linux без Docker: npm ci, служба systemd с папками данных, запуск, код через node с DB_PATH", async () => {
+  const dir = project();
+  try {
+    const { io, out } = fakeIo(nativeAnswers);
+    const { exec, calls } = fakeExec();
+    assert.equal(await runInstaller(nativeCtx(dir, io, exec)), 0);
+    const env = readFileSync(path.join(dir, ".env"), "utf8");
+    for (const line of [
+      "HOST=127.0.0.1",
+      "PORT=3100",
+      "DB_PATH=data/attendance.sqlite",
+      "BACKUP_DIR=data/backups",
+      "UPLOAD_DIR=data/uploads",
+    ])
+      assert.ok(env.split("\n").includes(line), line);
+    assert.ok(!env.includes("PROXY_SCALE"), "переменные Docker не нужны");
+    const lines = calls.map((c) => c.line);
+    const order = [
+      "systemctl --version",
+      "npm ci --omit=dev",
+      "sudo tee /etc/systemd/system/attendance-journal.service",
+      "sudo systemctl daemon-reload",
+      "sudo systemctl enable attendance-journal",
+      "sudo systemctl restart attendance-journal",
+      "/usr/bin/node scripts/enable-personal-only.mjs",
+      "/usr/bin/node scripts/invite-admin.mjs gadzhieva",
+    ];
+    let at = -1;
+    for (const cmd of order) {
+      const i = lines.findIndex((l, n) => n > at && l.startsWith(cmd));
+      assert.ok(i > at, "порядок: " + cmd + " в " + lines.join(" | "));
+      at = i;
+    }
+    const unit = calls.find((c) => c.line.startsWith("sudo tee")).opts.input;
+    assert.match(
+      unit,
+      /ExecStart="\/usr\/bin\/node" "--env-file=.+\/\.env" src\/server\.js/,
+    );
+    for (const d of ["data", "data/backups", "data/uploads"])
+      assert.ok(unit.includes(`ReadWritePaths="${path.join(dir, d)}"`), d);
+    const invite = calls.find((c) => c.line.includes("invite-admin"));
+    assert.deepEqual(invite.opts.env, { DB_PATH: "data/attendance.sqlite" });
+    assert.match(out.join("\n"), /journalctl -u attendance-journal/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Linux без Docker: от root и без systemd – отказ до изменений", async () => {
+  for (const [name, extra, fail] of [
+    ["root", { isRoot: true }, {}],
+    ["нет systemd", {}, { "systemctl --version": 127 }],
+  ]) {
+    const dir = project();
+    try {
+      const { io, out } = fakeIo(nativeAnswers);
+      assert.equal(
+        await runInstaller(nativeCtx(dir, io, fakeExec(fail).exec, extra)),
+        1,
+        name,
+      );
+      assert.ok(!existsSync(path.join(dir, ".env")), name);
+      assert.match(out.join("\n"), /Ошибка:/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("Windows без Docker: права администратора, npm.cmd, задача планировщика от SYSTEM, icacls", async () => {
+  const dir = project();
+  try {
+    const { io } = fakeIo(nativeAnswers);
+    const { exec, calls } = fakeExec();
+    assert.equal(
+      await runInstaller(
+        nativeCtx(dir, io, exec, {
+          platform: "win32",
+          nodePath: "C:\\node\\node.exe",
+        }),
+      ),
+      0,
+    );
+    const lines = calls.map((c) => c.line);
+    assert.ok(
+      lines[0].startsWith("net session"),
+      "сначала проверка прав администратора",
+    );
+    assert.ok(lines.some((l) => l.startsWith("npm.cmd ci --omit=dev")));
+    const ps = calls.find((c) => c.line.startsWith("powershell.exe"));
+    assert.ok(ps, "задача регистрируется через PowerShell");
+    assert.match(
+      ps.line,
+      /Register-ScheduledTask -TaskName 'AttendanceJournal'/,
+    );
+    assert.match(ps.line, /-UserId 'SYSTEM'/);
+    assert.ok(lines.filter((l) => l.startsWith("icacls")).length >= 4);
+    assert.ok(!lines.some((l) => l.startsWith("sudo")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const dir2 = project();
+  try {
+    const { io, out } = fakeIo(nativeAnswers);
+    assert.equal(
+      await runInstaller(
+        nativeCtx(dir2, io, fakeExec({ "net session": 2 }).exec, {
+          platform: "win32",
+        }),
+      ),
+      1,
+    );
+    assert.match(out.join("\n"), /от имени администратора/);
+  } finally {
+    rmSync(dir2, { recursive: true, force: true });
+  }
+});
+
+test("macOS без Docker – понятный отказ", async () => {
+  const dir = project();
+  try {
+    const { io, out } = fakeIo(nativeAnswers);
+    assert.equal(
+      await runInstaller(
+        nativeCtx(dir, io, fakeExec().exec, { platform: "darwin" }),
+      ),
+      1,
+    );
+    assert.match(
+      out.join("\n"),
+      /На macOS журнал ставится только через Docker/,
+    );
+    assert.ok(!existsSync(path.join(dir, ".env")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

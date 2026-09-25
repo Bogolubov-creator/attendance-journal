@@ -1,6 +1,6 @@
 # 03: Установка без Docker на этот компьютер
 
-**Статус:** todo
+**Статус:** done
 
 **Блокируется:** 01
 
@@ -14,8 +14,14 @@
 
 ## Критерии приёмки
 
-- [ ] Linux без Docker: план – `npm ci --omit=dev`, служба systemd с ограничениями и путями папок, запуск, `/healthz` (К2, К10).
-- [ ] Windows без Docker: план – `npm ci --omit=dev`, задача планировщика от имени SYSTEM, права на папки и `.env`, запуск, `/healthz` (К2, К10).
-- [ ] macOS без Docker – понятный отказ (К2).
-- [ ] Прежние команды `scripts/install.sh --docker|--native` и `scripts/install.ps1 -Docker|-Native` работают через ядро (К1).
-- [ ] `install.ps1` разбирается парсером PowerShell без ошибок; ветка Windows прогнана под PowerShell 7 с подменой команд.
+- [x] Linux без Docker: план – `npm ci --omit=dev`, служба systemd с ограничениями и путями папок, запуск, `/healthz` (К2, К10).
+- [x] Windows без Docker: план – `npm ci --omit=dev`, задача планировщика от имени SYSTEM, права на папки и `.env`, запуск, `/healthz` (К2, К10).
+- [x] macOS без Docker – понятный отказ (К2).
+- [x] Прежние команды `scripts/install.sh --docker|--native` и `scripts/install.ps1 -Docker|-Native` работают через ядро (К1).
+- [x] `install.ps1` разбирается парсером PowerShell без ошибок; ветка Windows прогнана под PowerShell 7 с подменой команд.
+
+## Заметка исполнителя
+
+- Вопросы идут в два этапа: сначала «куда и как» и проверки этого способа (отказ на macOS, нет Docker, root, нет systemd, нет прав администратора), затем остальное – отказ приходит сразу, а не после всех вопросов. Шаг «назад» не переходит между этапами.
+- Команда регистрации задачи Windows генерируется ядром и разобрана парсером PowerShell 7 без ошибок (путь с одинарной кавычкой экранируется). Живой запуск на Windows не выполнялся.
+- Прежние `scripts/install.sh --native` и `scripts/install.ps1 -Native/-Docker` проверены вживую на macOS под PowerShell 7: проходят через ядро.

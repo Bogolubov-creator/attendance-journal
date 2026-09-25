@@ -143,12 +143,14 @@ function pathCheck(v) {
 }
 
 // Спросить все шаги; «<» – назад к предыдущему показанному шагу.
+// Ответы, заданные ключами запуска (--docker, --native), не спрашиваются.
 export async function askSteps(io, steps, answers = {}) {
+  const fixed = new Set(Object.keys(answers));
   const shown = [];
   let i = 0;
   while (i < steps.length) {
     const step = steps[i];
-    if (step.when && !step.when(answers)) {
+    if (fixed.has(step.id) || (step.when && !step.when(answers))) {
       i++;
       continue;
     }
@@ -335,10 +337,9 @@ async function protect(ctx, target, isDir) {
   else chmodSync(target, isDir ? 0o700 : 0o600);
 }
 
-async function installLocalDocker(ctx, a) {
-  const { cwd, exec, io, net } = ctx;
-  if (a.proxy === "caddy") await checkPorts(net);
-
+// .env и папки данных – общее для всех способов установки на этот компьютер.
+async function writeConfig(ctx, a) {
+  const { cwd, io } = ctx;
   const env = buildEnv(
     readFileSync(path.join(cwd, ".env.example"), "utf8"),
     envValues(a),
@@ -347,24 +348,24 @@ async function installLocalDocker(ctx, a) {
   const envPath = path.join(cwd, ".env");
   writeFileSync(envPath, env, { mode: 0o600 });
   await protect(ctx, envPath, false);
-  for (const dir of [a.dataDir, a.backupsDir, a.uploadsDir]) {
-    const full = path.resolve(cwd, dir);
-    mkdirSync(full, { recursive: true });
-    await protect(ctx, full, true);
+  for (const dir of dataDirs(ctx, a)) {
+    mkdirSync(dir, { recursive: true });
+    await protect(ctx, dir, true);
   }
+}
+const dataDirs = (ctx, a) =>
+  [a.dataDir, a.backupsDir, a.uploadsDir].map((d) => path.resolve(ctx.cwd, d));
+
+async function installLocalDocker(ctx, a) {
+  const { cwd, exec, io, net } = ctx;
+  if (a.proxy === "caddy") await checkPorts(net);
+  await writeConfig(ctx, a);
   // Пользователь контейнера – UID 1000: на Linux папки отдаются ему.
   if (ctx.platform === "linux")
     await must(
       exec,
       "sudo",
-      [
-        "chown",
-        "-R",
-        "1000:1000",
-        ...[a.dataDir, a.backupsDir, a.uploadsDir].map((d) =>
-          path.resolve(cwd, d),
-        ),
-      ],
+      ["chown", "-R", "1000:1000", ...dataDirs(ctx, a)],
       "Не удалось передать папки данных пользователю контейнера (sudo chown).",
       { inherit: true },
     );
@@ -384,17 +385,164 @@ async function installLocalDocker(ctx, a) {
     "Не удалось собрать или запустить контейнеры.",
     { cwd, inherit: true },
   );
-  io.print("Жду ответа журнала…");
-  if (!(await waitHealthy(net, a.domain, ctx.sleep))) {
-    const logs = await run(
-      exec,
-      "docker",
-      ["compose", "logs", "--tail=50", "app"],
-      { cwd },
-    );
-    io.print(logs.stdout || logs.stderr || "");
+  await healthyOrLogs(ctx, a, () =>
+    run(exec, "docker", ["compose", "logs", "--tail=50", "app"], { cwd }),
+  );
+}
+
+async function healthyOrLogs(ctx, a, readLogs) {
+  ctx.io.print("Жду ответа журнала…");
+  if (await waitHealthy(ctx.net, a.domain, ctx.sleep)) return;
+  const logs = await readLogs();
+  ctx.io.print(logs.stdout || logs.stderr || "");
+  stop(
+    "Журнал не ответил за 60 секунд. Последние строки журнала – выше; .env и данные сохранены, ничего не удалено.",
+  );
+}
+
+// ---------- без Docker ----------
+
+export const SERVICE = "attendance-journal";
+export const TASK = "AttendanceJournal";
+// Строка в одинарных кавычках PowerShell: одинарная кавычка удваивается.
+const psq = (s) => "'" + String(s).replaceAll("'", "''") + "'";
+const npmCmd = (ctx) => (ctx.platform === "win32" ? "npm.cmd" : "npm");
+
+async function checkNative(ctx) {
+  const { exec, platform } = ctx;
+  if (platform === "darwin")
     stop(
-      "Журнал не ответил за 60 секунд. Последние строки журнала – выше; .env и данные сохранены, ничего не удалено.",
+      "На macOS журнал ставится только через Docker (Docker Desktop). Выберите «Через Docker».",
+    );
+  if (platform === "linux") {
+    if (ctx.isRoot)
+      stop(
+        "Запускайте установщик обычным пользователем с правом sudo, не от root.",
+      );
+    if ((await run(exec, "systemctl", ["--version"])).code !== 0)
+      stop(
+        "Нет systemd: без Docker журнал ставится только как служба systemd. Выберите «Через Docker».",
+      );
+  }
+  if (platform === "win32" && (await run(exec, "net", ["session"])).code !== 0)
+    stop(
+      "Для установки без Docker запустите установщик от имени администратора.",
+    );
+}
+
+export function systemdUnit(ctx, a) {
+  return `[Unit]
+Description=Журнал посещаемости иностранных студентов
+After=network.target
+
+[Service]
+User=${ctx.user}
+WorkingDirectory=${ctx.cwd}
+ExecStart="${ctx.nodePath}" "--env-file=${path.posix.join(ctx.cwd, ".env")}" src/server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=35
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+${dataDirs(ctx, a)
+  .map((d) => `ReadWritePaths="${d}"`)
+  .join("\n")}
+
+[Install]
+WantedBy=multi-user.target
+`;
+}
+
+// Задача планировщика: cmd-файл запуска в папке базы и регистрация от имени SYSTEM.
+export function windowsTaskScript(ctx, a) {
+  // Пути Windows строятся по правилам Windows, где бы ни шли тесты.
+  const dir = ctx.cwd;
+  const data = path.win32.resolve(dir, a.dataDir);
+  const start = path.win32.join(data, "start-journal.cmd");
+  const log = path.win32.join(data, "server.log");
+  const cmd = [
+    "@echo off",
+    `cd /d "${dir}"`,
+    `"${ctx.nodePath}" --env-file=.env src\\server.js >> "${log}" 2>&1`,
+  ].join("\r\n");
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    `[IO.File]::WriteAllText(${psq(start)}, ${psq(cmd)}, (New-Object System.Text.UTF8Encoding($false)))`,
+    `if (Get-ScheduledTask -TaskName '${TASK}' -ErrorAction SilentlyContinue) { Stop-ScheduledTask -TaskName '${TASK}' -ErrorAction SilentlyContinue }`,
+    "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -like '*src\\server.js*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }",
+    `$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument ('/c "' + ${psq(start)} + '"')`,
+    "$trigger = New-ScheduledTaskTrigger -AtStartup",
+    "$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest",
+    "$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable",
+    `Register-ScheduledTask -TaskName '${TASK}' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null`,
+    `Start-ScheduledTask -TaskName '${TASK}'`,
+  ].join("; ");
+}
+
+async function installLocalNative(ctx, a) {
+  const { cwd, exec, io } = ctx;
+  io.print("\n== Зависимости");
+  await must(
+    exec,
+    npmCmd(ctx),
+    ["ci", "--omit=dev"],
+    "npm ci завершился с ошибкой.",
+    {
+      cwd,
+      inherit: true,
+    },
+  );
+  await writeConfig(ctx, a);
+  if (ctx.platform === "win32") {
+    io.print(`\n== Задача планировщика ${TASK}`);
+    await must(
+      exec,
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        windowsTaskScript(ctx, a),
+      ],
+      "Не удалось зарегистрировать задачу планировщика.",
+    );
+    await healthyOrLogs(ctx, a, async () => {
+      const log = path.resolve(cwd, a.dataDir, "server.log");
+      const text = existsSync(log) ? readFileSync(log, "utf8") : "";
+      return { stdout: text.split("\n").slice(-50).join("\n") };
+    });
+  } else {
+    io.print(`\n== Служба systemd ${SERVICE}`);
+    await must(
+      exec,
+      "sudo",
+      ["tee", `/etc/systemd/system/${SERVICE}.service`],
+      "Не удалось записать службу systemd (sudo).",
+      { input: systemdUnit(ctx, a) },
+    );
+    for (const args of [
+      ["daemon-reload"],
+      ["enable", SERVICE],
+      ["restart", SERVICE],
+    ])
+      await must(
+        exec,
+        "sudo",
+        ["systemctl", ...args],
+        "Ошибка systemctl " + args.join(" "),
+      );
+    await healthyOrLogs(ctx, a, () =>
+      run(exec, "sudo", [
+        "journalctl",
+        "-u",
+        SERVICE,
+        "-n",
+        "50",
+        "--no-pager",
+      ]),
     );
   }
 }
@@ -428,13 +576,18 @@ async function askSharedPassword(io) {
   }
 }
 
-// Серверный скрипт журнала внутри установленного приложения.
+// Серверный скрипт журнала рядом с установленным приложением.
 const appScript = (ctx, a, script, args = []) =>
-  ctx.exec(
-    "docker",
-    ["compose", "exec", "-T", "app", "node", `scripts/${script}`, ...args],
-    { cwd: ctx.cwd },
-  );
+  a.method === "native"
+    ? ctx.exec(ctx.nodePath, [`scripts/${script}`, ...args], {
+        cwd: ctx.cwd,
+        env: { DB_PATH: envValues(a).DB_PATH },
+      })
+    : ctx.exec(
+        "docker",
+        ["compose", "exec", "-T", "app", "node", `scripts/${script}`, ...args],
+        { cwd: ctx.cwd },
+      );
 
 // Режим входа и первый код администратору после успешного запуска.
 async function finishAccess(ctx, a) {
@@ -478,6 +631,18 @@ function memo(ctx, a) {
       "Журнал сервера: docker compose logs --tail=100 app",
       "Перезапуск: docker compose restart app",
     );
+  else if (ctx.platform === "win32")
+    lines.push(
+      `Журнал сервера: ${path.join(a.dataDir, "server.log")}`,
+      `Перезапуск: снова установщик («Обновить») или Stop-ScheduledTask ${TASK}; Start-ScheduledTask ${TASK}`,
+      "HTTPS: настройте свой прокси (Caddy для Windows или IIS) на http://127.0.0.1:3100 с сохранением заголовка Host.",
+    );
+  else
+    lines.push(
+      `Журнал сервера: sudo journalctl -u ${SERVICE} -n 100`,
+      `Перезапуск: sudo systemctl restart ${SERVICE}`,
+      "HTTPS: настройте свой прокси (nginx, Caddy) на http://127.0.0.1:3100 с сохранением заголовка Host – пример в INSTALL.md.",
+    );
   lines.push(
     "Обновление: снова запустите установщик – он предложит «Обновить».",
   );
@@ -496,16 +661,16 @@ export async function runInstaller(ctx) {
     io.print(
       "Установка журнала посещаемости. Enter – ответ по умолчанию в [скобках], «<» – назад.",
     );
-    const a = await askSteps(io, STEPS, { ...ctx.preset });
+    // Сначала «куда и как» и проверки для этого способа – чтобы отказ
+    // (macOS без Docker, нет Docker) пришёл до остальных вопросов.
+    const a = await askSteps(io, STEPS.slice(0, 2), { ...ctx.preset });
     if (a.target === "remote")
       stop(
         "Установка на удалённый сервер появится в следующей версии установщика.",
       );
-    if (a.method === "native")
-      stop(
-        "Установка без Docker появится в следующей версии установщика; пока – scripts/install.sh --native или scripts/install.ps1 -Native.",
-      );
-    await checkDocker(ctx.exec);
+    if (a.method === "native") await checkNative(ctx);
+    else await checkDocker(ctx.exec);
+    await askSteps(io, STEPS.slice(2), a);
     if (a.auth === "shared") a.passwordHash = await askSharedPassword(io);
     io.print("\n" + summary(a));
     const go = (await io.ask("Установить? [д/н]")).trim();
@@ -513,7 +678,8 @@ export async function runInstaller(ctx) {
       io.print("Отменено, ничего не изменено.");
       return 0;
     }
-    await installLocalDocker(ctx, a);
+    if (a.method === "native") await installLocalNative(ctx, a);
+    else await installLocalDocker(ctx, a);
     io.print("Журнал работает.");
     await finishAccess(ctx, a);
     await checkHttps(ctx, a.domain);

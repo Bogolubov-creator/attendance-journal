@@ -52,12 +52,15 @@ const io = {
 
 // Команда без оболочки: аргументы передаются как есть, подстановок нет.
 // inherit – вывод сразу на экран (долгие команды вроде сборки образа).
-function exec(cmd, args, { cwd, input, inherit } = {}) {
+function exec(cmd, args, { cwd, input, inherit, env } = {}) {
   return new Promise((resolve) => {
     let child;
     try {
       child = spawn(cmd, args, {
         cwd,
+        env: env ? { ...process.env, ...env } : process.env,
+        // npm на Windows – npm.cmd: его запускает только cmd. Аргументы здесь постоянные.
+        shell: process.platform === "win32" && cmd.endsWith(".cmd"),
         stdio: [
           input === undefined ? "inherit" : "pipe",
           inherit ? "inherit" : "pipe",
@@ -121,6 +124,8 @@ const code = await runInstaller({
   preset,
   cwd: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."),
   platform: process.platform,
+  nodePath: process.execPath,
+  isRoot: process.getuid?.() === 0,
   user: userInfo().username,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
 });
