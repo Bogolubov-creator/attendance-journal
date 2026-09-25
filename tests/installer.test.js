@@ -1346,8 +1346,8 @@ test("SSH на Linux: одно соединение на всю установк
     const last = remote.at(-1);
     assert.match(
       last.line,
-      /-O exit deploy@srv\.example\.edu$/,
-      "соединение закрыто в конце",
+      /-p 22 .*-O exit deploy@srv\.example\.edu$/,
+      "закрыто в конце, с портом",
     );
     assert.ok(
       !existsSync(path.dirname([...paths][0])),
@@ -1368,5 +1368,34 @@ test("SSH на Linux: одно соединение на всю установк
     assert.ok(!calls.some((c) => c.line.includes("ControlMaster")));
   } finally {
     rmSync(dir2, { recursive: true, force: true });
+  }
+});
+
+test("--reconfigure: порты не проверяются, только если их держит Caddy этой же установки", async () => {
+  const dir = installedDocker();
+  try {
+    writeFileSync(
+      path.join(dir, ".env"),
+      "DOMAIN=journal.example.edu\nDATA_DIR=data\nPROXY_SCALE=0\n",
+    );
+    const answers = ["д", ...dockerCaddy.slice(1, -1), "д", ""];
+    const { io, out } = fakeIo(answers);
+    const net = { ...netOk, portFree: async () => false };
+    assert.equal(
+      await runInstaller(
+        ctx(dir, io, fakeExec().exec, {
+          net,
+          preset: { reconfigure: true, target: "local" },
+        }),
+      ),
+      1,
+    );
+    assert.match(
+      out.join("\n"),
+      /Порт 80 занят/,
+      "раньше был свой прокси – порты проверяются",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

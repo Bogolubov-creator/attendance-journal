@@ -90,7 +90,8 @@ const controlArgs = () =>
         "-o",
         `ControlPath=${control}/%C`,
         "-o",
-        "ControlPersist=120",
+        // С запасом на раздумья над вопросами: пароль не спросят повторно.
+        "ControlPersist=900",
       ]
     : [];
 function openControl(ctx) {
@@ -104,8 +105,8 @@ function openControl(ctx) {
 }
 async function closeControl(ctx, a) {
   if (!control) return;
-  if (a.sshHost)
-    await ctx.exec("ssh", [...controlArgs(), "-O", "exit", dest(a)]);
+  // Те же параметры, что у соединения: порт входит в имя сокета.
+  if (a.sshHost) await ctx.exec("ssh", [...sshArgs(a), "-O", "exit", dest(a)]);
   rmSync(control, { recursive: true, force: true });
   control = null;
 }
@@ -309,7 +310,7 @@ export async function installRemote(ctx, a) {
       stop(
         `Путь «${d}» на сервере: допустимы только латиница, цифры и . _ - /`,
       );
-  if (a.proxy === "caddy" && !a.reconfiguring) await checkRemotePorts(ctx, a);
+  if (a.proxy === "caddy" && !a.ownCaddyRunning) await checkRemotePorts(ctx, a);
   await uploadCode(ctx, a);
   ctx.io.print("\n== Настройки и папки на сервере");
   const env = buildEnv(
@@ -426,7 +427,13 @@ async function remoteSteps(ctx, a, { finish, fixed }) {
     existing = await remoteExisting(ctx, a);
     if (existing && !ctx.preset.reconfigure) break;
     if (existing && !(await confirmReconfigure(ctx, a))) return 0;
-    if (existing) a.onExistingData = a.reconfiguring = true;
+    if (existing) {
+      a.onExistingData = true;
+      const prev = parseEnv(
+        (await ssh(ctx, a, `cat ${a.remoteDir}/.env 2>/dev/null`)).stdout,
+      );
+      a.ownCaddyRunning = prev.DOMAIN !== undefined && prev.PROXY_SCALE !== "0";
+    }
     if (await askSteps(io, STEPS.slice(2), a, { fixed, back: true })) break;
   }
   if (existing && !ctx.preset.reconfigure) {

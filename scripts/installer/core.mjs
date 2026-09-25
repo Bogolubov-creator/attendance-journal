@@ -379,7 +379,7 @@ const dataDirs = (ctx, a) =>
 async function installLocalDocker(ctx, a) {
   const { cwd, exec, io, net } = ctx;
   // Перезаполнение существующей установки: 80 и 443 держит её же Caddy.
-  if (a.proxy === "caddy" && !a.reconfiguring) await checkPorts(net);
+  if (a.proxy === "caddy" && !a.ownCaddyRunning) await checkPorts(net);
   await writeConfig(ctx, a);
   // Пользователь контейнера – UID 1000: на Linux папки отдаются ему через
   // сам Docker, без sudo – достаточно прав на Docker.
@@ -907,7 +907,7 @@ export const UPDATE_STEP = {
 };
 // Вопрос «да/нет»; всё, кроме «д»/«y», – нет.
 export const confirm = async (io, text) =>
-  /^[ДдYy]/.test((await io.ask(text + " [д/н]")).trim());
+  /^[ДдYy]/.test((await io.ask(text + " [д/н, Enter – нет]")).trim());
 
 // Найдена прежняя установка: только «Обновить» или «Выйти».
 async function existingFlow(ctx, a, found) {
@@ -994,7 +994,9 @@ export async function runInstaller(ctx) {
             return 0;
           }
           a.onExistingData = found.hasDb;
-          a.reconfiguring = true;
+          // Порты 80 и 443 не проверяются, только если их держит Caddy этой же
+          // установки (в прежнем .env не было своего прокси).
+          a.ownCaddyRunning = found.hasEnv && found.env.PROXY_SCALE !== "0";
         }
         phase = 1;
       } else if (phase === 1) {
