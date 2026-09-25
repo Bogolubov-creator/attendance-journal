@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   stop,
-  run,
   must,
   askSteps,
   STEPS,
@@ -15,6 +14,9 @@ import {
   stamp,
   askSharedPassword,
   BACK,
+  parseEnv,
+  UPDATE_STEP,
+  confirm,
 } from "./core.mjs";
 
 const HOST_RE =
@@ -73,10 +75,11 @@ export const REMOTE_STEPS = [
   },
 ];
 
+const keyArgs = (a) => (a.sshKey && a.sshKey !== "-" ? ["-i", a.sshKey] : []);
 const sshArgs = (a) => [
   "-p",
   a.sshPort,
-  ...(a.sshKey && a.sshKey !== "-" ? ["-i", a.sshKey] : []),
+  ...keyArgs(a),
   "-o",
   "ConnectTimeout=15",
 ];
@@ -84,7 +87,7 @@ const dest = (a) => `${a.sshUser}@${a.sshHost}`;
 // Команда на сервере. Всё, что в неё подставляется, прошло проверки выше
 // (папка, домен, ID сотрудника) – кавычки оболочки сервера не нужны.
 export const ssh = (ctx, a, command, opts = {}) =>
-  run(ctx.exec, "ssh", [...sshArgs(a), dest(a), command], opts);
+  ctx.exec("ssh", [...sshArgs(a), dest(a), command], opts);
 const sshMust = async (ctx, a, command, message, opts) => {
   const r = await ssh(ctx, a, command, opts);
   if (r.code !== 0)
@@ -193,13 +196,7 @@ async function uploadCode(ctx, a) {
     await must(
       ctx.exec,
       "scp",
-      [
-        "-P",
-        a.sshPort,
-        ...(a.sshKey && a.sshKey !== "-" ? ["-i", a.sshKey] : []),
-        archive.file,
-        `${dest(a)}:${remoteTmp}`,
-      ],
+      ["-P", a.sshPort, ...keyArgs(a), archive.file, `${dest(a)}:${remoteTmp}`],
       "Не удалось скопировать архив на сервер (scp).",
     );
   } finally {
@@ -314,13 +311,7 @@ export async function updateRemote(ctx, a) {
       "Не удалось прочитать .env на сервере.",
     )
   ).stdout;
-  const env = Object.fromEntries(
-    envText
-      .split(/\r?\n/)
-      .map((l) => /^([A-Z_][A-Z0-9_]*)=(.*)$/.exec(l))
-      .filter(Boolean)
-      .map((m) => [m[1], m[2]]),
-  );
+  const env = parseEnv(envText);
   a.domain = env.DOMAIN;
   const dataDir = remotePath(a, env.DATA_DIR || "data");
   if (!DIR_RE.test(dataDir))
@@ -348,12 +339,13 @@ export async function updateRemote(ctx, a) {
 }
 
 async function confirmReconfigure(ctx, a) {
-  const sure = (
-    await ctx.io.ask(
-      "Заполнить настройки на сервере заново? Прежний .env сохранится копией, база и сканы не меняются. [д/н]",
+  if (
+    await confirm(
+      ctx.io,
+      "Заполнить настройки на сервере заново? Прежний .env сохранится копией, база и сканы не меняются.",
     )
-  ).trim();
-  if (/^[ДдYy]/.test(sure)) return true;
+  )
+    return true;
   ctx.io.print("Ничего не изменено.");
   return false;
 }
@@ -392,20 +384,7 @@ export async function remoteFlow(ctx, a, { finish, fixed }) {
     io.print(`\nНа сервере в ${a.remoteDir} уже установлен журнал.`);
     const pick = await askSteps(
       io,
-      [
-        {
-          id: "action",
-          ask: () => ({
-            text: "Что сделать?",
-            help: "Обновить – копия базы, новый код и перезапуск; настройки, база, сканы и копии не меняются.",
-            choices: [
-              ["update", "Обновить"],
-              ["exit", "Выйти, ничего не меняя"],
-            ],
-            default: "exit",
-          }),
-        },
-      ],
+      [UPDATE_STEP],
       ctx.preset.update ? { action: "update" } : {},
     );
     if (pick.action !== "update") {
@@ -417,8 +396,7 @@ export async function remoteFlow(ctx, a, { finish, fixed }) {
   }
   if (a.auth === "shared") a.passwordHash = await askSharedPassword(io);
   io.print("\n" + summary(a));
-  const go = (await io.ask("Установить? [д/н]")).trim();
-  if (!/^[ДдYy]/.test(go)) {
+  if (!(await confirm(io, "Установить?"))) {
     io.print("Отменено, ничего не изменено.");
     return 0;
   }

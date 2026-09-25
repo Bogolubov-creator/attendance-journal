@@ -1287,3 +1287,15 @@ test("Прежняя установка находится по базе в па
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("Windows: команда остановки находит процесс журнала по src\\server.js", async () => {
+  const { windowsTaskScript } = await import("../scripts/installer/core.mjs");
+  const script = windowsTaskScript(
+    { cwd: "C:\\Journal", nodePath: "C:\\node.exe" },
+    { dataDir: "data" },
+  );
+  assert.ok(
+    script.includes("-like '*src\\server.js*'"),
+    "одна обратная косая черта в шаблоне",
+  );
+});

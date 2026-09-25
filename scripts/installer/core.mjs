@@ -91,7 +91,7 @@ export const STEPS = [
   },
   {
     id: "dataDir",
-    ask: (a) => ({
+    ask: () => ({
       text: "Папка базы",
       help: "Можно вынести на отдельный диск.",
       default: "data",
@@ -275,12 +275,8 @@ export function summary(a) {
 
 // ---------- проверки и запуск ----------
 
-export async function run(exec, cmd, args, opts = {}) {
-  const r = await exec(cmd, args, opts);
-  return r;
-}
 export async function must(exec, cmd, args, message, opts) {
-  const r = await run(exec, cmd, args, opts);
+  const r = await exec(cmd, args, opts);
   if (r.code !== 0)
     stop(
       message +
@@ -303,13 +299,13 @@ export function checkProject(cwd) {
 }
 
 async function checkDocker(exec) {
-  if ((await run(exec, "docker", ["--version"])).code !== 0)
+  if ((await exec("docker", ["--version"])).code !== 0)
     stop(
       "Не найден Docker. Установите Docker Engine (Linux) или Docker Desktop (Windows, macOS): https://docs.docker.com/get-docker/",
     );
-  if ((await run(exec, "docker", ["compose", "version"])).code !== 0)
+  if ((await exec("docker", ["compose", "version"])).code !== 0)
     stop("Нет docker compose (Compose v2). Обновите Docker.");
-  if ((await run(exec, "docker", ["info"])).code !== 0)
+  if ((await exec("docker", ["info"])).code !== 0)
     stop(
       "Docker не запущен или у пользователя нет к нему доступа (группа docker).",
     );
@@ -422,8 +418,8 @@ async function installLocalDocker(ctx, a) {
 async function dockerUp(ctx, a) {
   const { exec, cwd } = ctx;
   const logs = () =>
-    run(exec, "docker", ["compose", "logs", "--tail=50", "app"], { cwd });
-  const up = await run(exec, "docker", ["compose", "up", "-d", "--build"], {
+    exec("docker", ["compose", "logs", "--tail=50", "app"], { cwd });
+  const up = await exec("docker", ["compose", "up", "-d", "--build"], {
     cwd,
     inherit: true,
   });
@@ -460,6 +456,9 @@ export const SERVICE = "attendance-journal";
 export const TASK = "AttendanceJournal";
 // Строка в одинарных кавычках PowerShell: одинарная кавычка удваивается.
 const psq = (s) => "'" + String(s).replaceAll("'", "''") + "'";
+// Остановить процесс журнала: задача запускает cmd, а он – node.
+const STOP_NODE =
+  "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -like '*src\\server.js*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }";
 const npmCmd = (ctx) => (ctx.platform === "win32" ? "npm.cmd" : "npm");
 
 async function checkNative(ctx) {
@@ -473,15 +472,15 @@ async function checkNative(ctx) {
       stop(
         "Запускайте установщик обычным пользователем с правом sudo, не от root.",
       );
-    if ((await run(exec, "systemctl", ["--version"])).code !== 0)
+    if ((await exec("systemctl", ["--version"])).code !== 0)
       stop(
         "Нет systemd: без Docker журнал ставится только как служба systemd. Выберите «Через Docker».",
       );
     // Служба ставится через sudo: право проверяется заранее, пароль спросит sudo.
-    if ((await run(exec, "sudo", ["-v"], { inherit: true })).code !== 0)
+    if ((await exec("sudo", ["-v"], { inherit: true })).code !== 0)
       stop("Нужно право sudo: без него службу systemd не поставить.");
   }
-  if (platform === "win32" && (await run(exec, "net", ["session"])).code !== 0)
+  if (platform === "win32" && (await exec("net", ["session"])).code !== 0)
     stop(
       "Для установки без Docker запустите установщик от имени администратора.",
     );
@@ -528,7 +527,7 @@ export function windowsTaskScript(ctx, a) {
     "$ErrorActionPreference = 'Stop'",
     `[IO.File]::WriteAllText(${psq(start)}, ${psq(cmd)}, (New-Object System.Text.UTF8Encoding($false)))`,
     `if (Get-ScheduledTask -TaskName '${TASK}' -ErrorAction SilentlyContinue) { Stop-ScheduledTask -TaskName '${TASK}' -ErrorAction SilentlyContinue }`,
-    "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -like '*src\\server.js*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }",
+    STOP_NODE,
     `$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument ('/c "' + ${psq(start)} + '"')`,
     "$trigger = New-ScheduledTaskTrigger -AtStartup",
     "$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest",
@@ -590,14 +589,7 @@ async function installLocalNative(ctx, a) {
         "Ошибка systemctl " + args.join(" "),
       );
     await healthyOrLogs(ctx, a, () =>
-      run(exec, "sudo", [
-        "journalctl",
-        "-u",
-        SERVICE,
-        "-n",
-        "50",
-        "--no-pager",
-      ]),
+      exec("sudo", ["journalctl", "-u", SERVICE, "-n", "50", "--no-pager"]),
     );
   }
 }
@@ -661,13 +653,10 @@ async function finishAccess(ctx, a) {
   const switchMode =
     a.auth === "personal" &&
     (!a.onExistingData ||
-      /^[ДдYy]/.test(
-        (
-          await io.ask(
-            "Включить вход только по личным паролям на существующей базе? Общий пароль и выбор себя из списка перестанут работать. [д/н]",
-          )
-        ).trim(),
-      ));
+      (await confirm(
+        io,
+        "Включить вход только по личным паролям на существующей базе? Общий пароль и выбор себя из списка перестанут работать.",
+      )));
   if (switchMode) {
     const r = await appScript(ctx, a, "enable-personal-only.mjs");
     if (r.code !== 0)
@@ -736,14 +725,15 @@ function memo(ctx, a) {
 
 // ---------- прежняя установка ----------
 
-export function readEnvFile(file) {
+export function parseEnv(text) {
   const values = {};
-  for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
+  for (const line of text.split(/\r?\n/)) {
     const m = /^([A-Z_][A-Z0-9_]*)=(.*)$/.exec(line);
     if (m) values[m[1]] = m[2];
   }
   return values;
 }
+export const readEnvFile = (file) => parseEnv(readFileSync(file, "utf8"));
 
 // Файл базы прежней установки по её .env (или по умолчанию).
 function existingDb(cwd, env, method) {
@@ -780,7 +770,7 @@ async function guessMethod(ctx, env) {
   if (
     ctx.platform === "win32" &&
     (
-      await run(ctx.exec, "powershell.exe", [
+      await ctx.exec("powershell.exe", [
         "-NoProfile",
         "-Command",
         `Get-ScheduledTask -TaskName '${TASK}'`,
@@ -823,7 +813,7 @@ async function stopJournal(ctx, a) {
       [
         "-NoProfile",
         "-Command",
-        `Stop-ScheduledTask -TaskName '${TASK}' -ErrorAction SilentlyContinue; Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*src\\server.js*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`,
+        `Stop-ScheduledTask -TaskName '${TASK}' -ErrorAction SilentlyContinue; ${STOP_NODE}`,
       ],
       "Не удалось остановить журнал.",
     );
@@ -890,14 +880,7 @@ async function updateLocal(ctx, a, found) {
         "Не удалось запустить службу журнала.",
       );
       await healthyOrLogs(ctx, a, () =>
-        run(exec, "sudo", [
-          "journalctl",
-          "-u",
-          SERVICE,
-          "-n",
-          "50",
-          "--no-pager",
-        ]),
+        exec("sudo", ["journalctl", "-u", SERVICE, "-n", "50", "--no-pager"]),
       );
     }
   }
@@ -905,6 +888,24 @@ async function updateLocal(ctx, a, found) {
     "\nОбновление готово: .env, база, сканы и резервные копии не менялись.",
   );
 }
+
+// Вопрос при найденной установке – один для этого компьютера и сервера.
+export const UPDATE_STEP = {
+  id: "action",
+  ask: () => ({
+    text: "Что сделать?",
+    help: "Обновить – копия базы, новый код и перезапуск; настройки, база, сканы и копии не меняются.",
+    choices: [
+      ["update", "Обновить"],
+      ["exit", "Выйти, ничего не меняя"],
+    ],
+    // Enter ничего не меняет: обновление выбирается явно.
+    default: "exit",
+  }),
+};
+// Вопрос «да/нет»; всё, кроме «д»/«y», – нет.
+export const confirm = async (io, text) =>
+  /^[ДдYy]/.test((await io.ask(text + " [д/н]")).trim());
 
 // Найдена прежняя установка: только «Обновить» или «Выйти».
 async function existingFlow(ctx, a, found) {
@@ -922,19 +923,7 @@ async function existingFlow(ctx, a, found) {
   const pick = await askSteps(
     io,
     [
-      {
-        id: "action",
-        ask: () => ({
-          text: "Что сделать?",
-          help: "Обновить – копия базы, новый код и перезапуск; настройки, база, сканы и копии не меняются.",
-          choices: [
-            ["update", "Обновить"],
-            ["exit", "Выйти, ничего не меняя"],
-          ],
-          // Enter ничего не меняет: обновление выбирается явно.
-          default: "exit",
-        }),
-      },
+      UPDATE_STEP,
       {
         id: "method",
         when: (p) => p.action === "update",
@@ -992,12 +981,12 @@ export async function runInstaller(ctx) {
         const found = findExisting(ctx);
         if (found && !reconfigure) return await existingFlow(ctx, a, found);
         if (found) {
-          const sure = (
-            await io.ask(
-              "Заполнить настройки заново? Прежний .env сохранится копией, база и сканы не меняются. [д/н]",
-            )
-          ).trim();
-          if (!/^[ДдYy]/.test(sure)) {
+          if (
+            !(await confirm(
+              io,
+              "Заполнить настройки заново? Прежний .env сохранится копией, база и сканы не меняются.",
+            ))
+          ) {
             io.print("Ничего не изменено.");
             return 0;
           }
@@ -1030,8 +1019,7 @@ export async function runInstaller(ctx) {
     }
     if (a.auth === "shared") a.passwordHash = await askSharedPassword(io);
     io.print("\n" + summary(a));
-    const go = (await io.ask("Установить? [д/н]")).trim();
-    if (!/^[ДдYy]/.test(go)) {
+    if (!(await confirm(io, "Установить?"))) {
       io.print("Отменено, ничего не изменено.");
       return 0;
     }
