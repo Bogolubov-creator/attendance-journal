@@ -120,6 +120,7 @@ export const STEPS = [
     id: "backupKeep",
     ask: () => ({
       text: "Сколько резервных копий хранить",
+      help: "Журнал копирует базу раз в сутки; старше этого числа копии удаляются.",
       default: "14",
       check: (v) =>
         /^\d{1,3}$/.test(v) && Number(v) > 0 ? null : "Нужно число от 1 до 999",
@@ -377,7 +378,8 @@ const dataDirs = (ctx, a) =>
 
 async function installLocalDocker(ctx, a) {
   const { cwd, exec, io, net } = ctx;
-  if (a.proxy === "caddy") await checkPorts(net);
+  // Перезаполнение существующей установки: 80 и 443 держит её же Caddy.
+  if (a.proxy === "caddy" && !a.reconfiguring) await checkPorts(net);
   await writeConfig(ctx, a);
   // Пользователь контейнера – UID 1000: на Linux папки отдаются ему через
   // сам Docker, без sudo – достаточно прав на Docker.
@@ -929,6 +931,7 @@ async function existingFlow(ctx, a, found) {
         when: (p) => p.action === "update",
         ask: () => ({
           text: "Как установлен журнал?",
+          help: "Ответ по умолчанию угадан по настройкам и службам этого компьютера.",
           choices: [
             ["docker", "Через Docker"],
             ["native", "Без Docker"],
@@ -991,6 +994,7 @@ export async function runInstaller(ctx) {
             return 0;
           }
           a.onExistingData = found.hasDb;
+          a.reconfiguring = true;
         }
         phase = 1;
       } else if (phase === 1) {

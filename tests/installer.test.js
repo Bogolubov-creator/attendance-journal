@@ -1299,3 +1299,74 @@ test("Windows: команда остановки находит процесс �
     "одна обратная косая черта в шаблоне",
   );
 });
+
+test("У каждого вопроса установщика есть пояснение", async () => {
+  const { STEPS, UPDATE_STEP } = await import("../scripts/installer/core.mjs");
+  const { REMOTE_STEPS } = await import("../scripts/installer/remote.mjs");
+  for (const step of [...STEPS, ...REMOTE_STEPS, UPDATE_STEP])
+    for (const method of ["docker", "native"]) {
+      const q = step.ask({ method, proxy: "own" });
+      assert.ok(q.help && q.help.length > 10, `нет пояснения у «${q.text}»`);
+    }
+});
+
+test("--reconfigure со встроенным Caddy: порты своей же установки не мешают", async () => {
+  const dir = installedDocker();
+  try {
+    const answers = ["д", ...dockerCaddy.slice(1, -1), "д", ""];
+    const { io } = fakeIo(answers);
+    const net = { ...netOk, portFree: async () => false };
+    assert.equal(
+      await runInstaller(
+        ctx(dir, io, fakeExec().exec, {
+          net,
+          preset: { reconfigure: true, target: "local" },
+        }),
+      ),
+      0,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("SSH на Linux: одно соединение на всю установку, в конце закрывается; на Windows – предупреждение про ключ", async () => {
+  const dir = project();
+  try {
+    const { io } = fakeIo(remoteNew);
+    const { exec, calls } = fakeServer();
+    assert.equal(await runInstaller(ctx(dir, io, exec)), 0);
+    const remote = calls.filter((c) => c.cmd === "ssh" || c.cmd === "scp");
+    const paths = new Set(
+      remote.map((c) => c.line.match(/ControlPath=(\S+)/)?.[1]),
+    );
+    assert.equal(paths.size, 1, "у всех ssh и scp один ControlPath");
+    assert.ok([...paths][0]?.startsWith("/tmp/jssh-"));
+    assert.ok(remote.every((c) => c.line.includes("ControlMaster=auto")));
+    const last = remote.at(-1);
+    assert.match(
+      last.line,
+      /-O exit deploy@srv\.example\.edu$/,
+      "соединение закрыто в конце",
+    );
+    assert.ok(
+      !existsSync(path.dirname([...paths][0])),
+      "каталог сокета удалён",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const dir2 = project();
+  try {
+    const { io, out } = fakeIo(remoteNew);
+    const { exec, calls } = fakeServer();
+    assert.equal(
+      await runInstaller(ctx(dir2, io, exec, { platform: "win32" })),
+      0,
+    );
+    assert.match(out.join("\n"), /удобнее вход по ключу/);
+    assert.ok(!calls.some((c) => c.line.includes("ControlMaster")));
+  } finally {
+    rmSync(dir2, { recursive: true, force: true });
+  }
+});

@@ -46,6 +46,7 @@ export const REMOTE_STEPS = [
     id: "sshPort",
     ask: () => ({
       text: "Порт SSH",
+      help: "Обычно 22, если ИТ-служба не называла другой.",
       default: "22",
       check: (v) =>
         /^\d{1,5}$/.test(v) && Number(v) > 0 && Number(v) < 65536
@@ -57,6 +58,7 @@ export const REMOTE_STEPS = [
     id: "sshKey",
     ask: () => ({
       text: "Путь к ключу SSH (Enter – ключ по умолчанию)",
+      help: "Файл закрытого ключа, например ~/.ssh/id_ed25519. Без ключа SSH спросит пароль.",
       default: "-",
       check: (v) =>
         v === "-" || existsSync(v) ? null : "Файл ключа не найден",
@@ -66,6 +68,7 @@ export const REMOTE_STEPS = [
     id: "remoteDir",
     ask: () => ({
       text: "Папка журнала на сервере",
+      help: "Сюда ляжет код, .env и по умолчанию папки данных.",
       default: "/opt/attendance-journal",
       check: (v) =>
         DIR_RE.test(v)
@@ -76,7 +79,38 @@ export const REMOTE_STEPS = [
 ];
 
 const keyArgs = (a) => (a.sshKey && a.sshKey !== "-" ? ["-i", a.sshKey] : []);
+// Одно соединение на всю установку (Linux, macOS): пароль SSH спрашивается
+// один раз. Каталог сокета – короткий путь в /tmp с правами 700.
+let control = null;
+const controlArgs = () =>
+  control
+    ? [
+        "-o",
+        "ControlMaster=auto",
+        "-o",
+        `ControlPath=${control}/%C`,
+        "-o",
+        "ControlPersist=120",
+      ]
+    : [];
+function openControl(ctx) {
+  if (ctx.platform === "win32") {
+    ctx.io.print(
+      "\nВстроенный SSH Windows спросит пароль на каждом шаге установки – удобнее вход по ключу (ssh-keygen, затем ключ на сервер).",
+    );
+    return;
+  }
+  control = mkdtempSync("/tmp/jssh-");
+}
+async function closeControl(ctx, a) {
+  if (!control) return;
+  if (a.sshHost)
+    await ctx.exec("ssh", [...controlArgs(), "-O", "exit", dest(a)]);
+  rmSync(control, { recursive: true, force: true });
+  control = null;
+}
 const sshArgs = (a) => [
+  ...controlArgs(),
   "-p",
   a.sshPort,
   ...keyArgs(a),
@@ -196,7 +230,14 @@ async function uploadCode(ctx, a) {
     await must(
       ctx.exec,
       "scp",
-      ["-P", a.sshPort, ...keyArgs(a), archive.file, `${dest(a)}:${remoteTmp}`],
+      [
+        ...controlArgs(),
+        "-P",
+        a.sshPort,
+        ...keyArgs(a),
+        archive.file,
+        `${dest(a)}:${remoteTmp}`,
+      ],
       "Не удалось скопировать архив на сервер (scp).",
     );
   } finally {
@@ -268,7 +309,7 @@ export async function installRemote(ctx, a) {
       stop(
         `Путь «${d}» на сервере: допустимы только латиница, цифры и . _ - /`,
       );
-  if (a.proxy === "caddy") await checkRemotePorts(ctx, a);
+  if (a.proxy === "caddy" && !a.reconfiguring) await checkRemotePorts(ctx, a);
   await uploadCode(ctx, a);
   ctx.io.print("\n== Настройки и папки на сервере");
   const env = buildEnv(
@@ -366,7 +407,15 @@ export const remoteAppScript = (ctx, a, script, args = []) =>
 // Этапы: вопросы о сервере с проверками, затем остальное. «<» на первом
 // вопросе о сервере – назад к «куда ставить» (BACK), на первом вопросе
 // второго этапа – к вопросам о сервере с прежними ответами.
-export async function remoteFlow(ctx, a, { finish, fixed }) {
+export async function remoteFlow(ctx, a, options) {
+  openControl(ctx);
+  try {
+    return await remoteSteps(ctx, a, options);
+  } finally {
+    await closeControl(ctx, a);
+  }
+}
+async function remoteSteps(ctx, a, { finish, fixed }) {
   const { io } = ctx;
   let existing;
   for (;;) {
@@ -377,7 +426,7 @@ export async function remoteFlow(ctx, a, { finish, fixed }) {
     existing = await remoteExisting(ctx, a);
     if (existing && !ctx.preset.reconfigure) break;
     if (existing && !(await confirmReconfigure(ctx, a))) return 0;
-    if (existing) a.onExistingData = true;
+    if (existing) a.onExistingData = a.reconfiguring = true;
     if (await askSteps(io, STEPS.slice(2), a, { fixed, back: true })) break;
   }
   if (existing && !ctx.preset.reconfigure) {
