@@ -953,3 +953,39 @@ test("Удалённо: общий пароль – хеш только внут
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("Сбой docker compose up: последние строки журнала на экране, ничего не удалено", async () => {
+  const dir = project();
+  try {
+    const { io, out } = fakeIo(dockerCaddy);
+    const { exec, calls } = fakeExec({ "docker compose up": 1 });
+    assert.equal(await runInstaller(ctx(dir, io, exec)), 1);
+    assert.ok(out.includes("строка журнала сервера"));
+    assert.match(out.join("\n"), /Не удалось собрать или запустить контейнеры/);
+    assert.ok(existsSync(path.join(dir, ".env")));
+    assert.ok(!calls.some((c) => /\b(down|rm)\b/.test(c.line)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const dir2 = project();
+  try {
+    const { io, out } = fakeIo(remoteNew);
+    const { exec } = fakeServer({ fail: { "docker compose up": 1 } });
+    // Сбой запуска на сервере – тоже строки журнала.
+    const logs = async (cmd, args, opts) =>
+      cmd === "ssh" && args.at(-1).endsWith("docker compose logs --tail=50 app")
+        ? { code: 0, stdout: "строка журнала на сервере", stderr: "" }
+        : exec(cmd, args, opts);
+    assert.equal(await runInstaller(ctx(dir2, io, logs)), 1);
+    assert.ok(out.includes("строка журнала на сервере"));
+  } finally {
+    rmSync(dir2, { recursive: true, force: true });
+  }
+});
+
+test("compose.yaml: число копий и TRUST_PROXY берутся из .env, без них – 14 и 1", () => {
+  const compose = readFileSync("compose.yaml", "utf8");
+  assert.match(compose, /BACKUP_KEEP: \$\{BACKUP_KEEP:-14\}/);
+  assert.match(compose, /TRUST_PROXY: \$\{TRUST_PROXY:-1\}/);
+  assert.doesNotMatch(compose, /BACKUP_KEEP: "14"|TRUST_PROXY: "1"/);
+});

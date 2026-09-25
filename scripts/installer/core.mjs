@@ -380,16 +380,28 @@ async function installLocalDocker(ctx, a) {
     "Ошибка в compose.yaml или .env.",
     { cwd },
   );
-  await must(
-    exec,
-    "docker",
-    ["compose", "up", "-d", "--build"],
-    "Не удалось собрать или запустить контейнеры.",
-    { cwd, inherit: true },
-  );
-  await healthyOrLogs(ctx, a, () =>
-    run(exec, "docker", ["compose", "logs", "--tail=50", "app"], { cwd }),
-  );
+  await dockerUp(ctx, a);
+}
+
+// Сборка и запуск контейнеров, затем ожидание ответа. Неуспех любого шага –
+// последние строки журнала на экран (при встроенном Caddy сам `up` падает,
+// если журнал не стал здоровым).
+async function dockerUp(ctx, a) {
+  const { exec, cwd } = ctx;
+  const logs = () =>
+    run(exec, "docker", ["compose", "logs", "--tail=50", "app"], { cwd });
+  const up = await run(exec, "docker", ["compose", "up", "-d", "--build"], {
+    cwd,
+    inherit: true,
+  });
+  if (up.code !== 0) {
+    const r = await logs();
+    ctx.io.print(r.stdout || r.stderr || "");
+    stop(
+      "Не удалось собрать или запустить контейнеры. Последние строки журнала – выше; .env и данные сохранены, ничего не удалено.",
+    );
+  }
+  await healthyOrLogs(ctx, a, logs);
 }
 
 async function healthyOrLogs(ctx, a, readLogs) {
@@ -792,16 +804,7 @@ async function updateLocal(ctx, a, found) {
   backupDb(ctx, existingDb(cwd, env, a.method));
   io.print("\n== Запуск новой версии");
   if (a.method === "docker") {
-    await must(
-      exec,
-      "docker",
-      ["compose", "up", "-d", "--build"],
-      "Не удалось собрать или запустить контейнеры.",
-      { cwd, inherit: true },
-    );
-    await healthyOrLogs(ctx, a, () =>
-      run(exec, "docker", ["compose", "logs", "--tail=50", "app"], { cwd }),
-    );
+    await dockerUp(ctx, a);
   } else {
     await must(
       exec,

@@ -212,9 +212,21 @@ async function uploadCode(ctx, a) {
   );
 }
 
+const remoteLogs = (ctx, a) =>
+  ssh(ctx, a, inDir(a, "docker compose logs --tail=50 app"));
+function failWithLogs(ctx, logs, message) {
+  ctx.io.print(logs.stdout || logs.stderr || "");
+  stop(
+    message +
+      " Последние строки журнала – выше; .env и данные на сервере сохранены, ничего не удалено.",
+  );
+}
+
+// Статус проверки Compose (каждые 10 секунд после 20 секунд запуска);
+// 120 секунд ожидания – несколько проверок даже при медленном старте.
 async function waitRemoteHealthy(ctx, a) {
   ctx.io.print("Жду ответа журнала…");
-  for (let t = 0; t < 60; t += 2) {
+  for (let t = 0; t < 120; t += 2) {
     const r = await ssh(
       ctx,
       a,
@@ -223,10 +235,10 @@ async function waitRemoteHealthy(ctx, a) {
     if (r.stdout.trim() === "healthy") return;
     await ctx.sleep(2000);
   }
-  const logs = await ssh(ctx, a, inDir(a, "docker compose logs --tail=50 app"));
-  ctx.io.print(logs.stdout || logs.stderr || "");
-  stop(
-    "Журнал на сервере не стал здоровым за 60 секунд. Последние строки журнала – выше; .env и данные на сервере сохранены, ничего не удалено.",
+  failWithLogs(
+    ctx,
+    await remoteLogs(ctx, a),
+    "Журнал на сервере не стал здоровым за 2 минуты.",
   );
 }
 
@@ -238,13 +250,15 @@ async function startRemote(ctx, a) {
     inDir(a, "docker compose config --quiet"),
     "Ошибка в compose.yaml или .env на сервере.",
   );
-  await sshMust(
-    ctx,
-    a,
-    inDir(a, "docker compose up -d --build"),
-    "Не удалось собрать или запустить контейнеры на сервере.",
-    { inherit: true },
-  );
+  const up = await ssh(ctx, a, inDir(a, "docker compose up -d --build"), {
+    inherit: true,
+  });
+  if (up.code !== 0)
+    failWithLogs(
+      ctx,
+      await remoteLogs(ctx, a),
+      "Не удалось собрать или запустить контейнеры на сервере.",
+    );
   await waitRemoteHealthy(ctx, a);
 }
 
